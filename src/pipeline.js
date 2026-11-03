@@ -874,21 +874,7 @@ onmessage = (e) => {
       }
       return { key, label, type, point, h: extra?.h, a: extra?.a, risky: !!extra?.risky, p: r.pWin, pPush: r.pPush, fair, minSafe: Math.ceil(fair * (1 + C.safeTolEV) * 100) / 100, minValue: Math.ceil(fair * (1 + C.minEV) * 100) / 100, real, ev: real ? r.pWin * real.odds + r.pPush - 1 : null };
     });
-    // corners et cartons jaunes (modèle de comptage football-data) : non validés contre des cotes réelles
-    const rows = localFootball?.leagues?.[E.sportKey];
-    if (rows) {
-      const ms = rows.map(SP.fdRow);
-      for (const [kind, lines, lab] of [['corners', [7.5, 8.5, 9.5, 10.5, 11.5], 'corners'], ['cards', [2.5, 3.5, 4.5, 5.5], 'cartons jaunes']]) {
-        countFits[E.sportKey + kind] = countFits[E.sportKey + kind] || SP.fitCounts(ms, kind);
-        const fit = countFits[E.sportKey + kind]; if (!fit) continue;
-        const mh = D.bestMatch(E.home, fit.teams), ma = D.bestMatch(E.away, fit.teams); if (!mh.name || !ma.name) continue;
-        const l = SP.dcLambdas(fit, mh.name, ma.name), mu = l.lh + l.la;
-        for (const line of lines) for (const over of [true, false]) {
-          const po = SP.nbOver(mu, fit.phi, line), pw = over ? po : 1 - po, fair = 1 / Math.max(1e-6, pw);
-          out.push({ key: `${kind}${over ? 'O' : 'U'}${line}`, label: `${over ? 'Plus' : 'Moins'} de ${String(line).replace('.', ',')} ${lab} (attendu ${mu.toFixed(1)})`, type: kind, point: line, risky: true, counts: true, p: pw, pPush: 0, fair, minSafe: Math.ceil(fair * (1 + C.safeTolEV) * 100) / 100, minValue: Math.ceil(fair * Math.max(1.05, 1 + 2 * C.minEV) * 100) / 100, real: null, ev: null });
-        }
-      }
-    }
+    // corners et cartons : non proposés par Winamax, volontairement absents.
     return out;
   }
   const countFits = {};

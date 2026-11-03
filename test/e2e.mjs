@@ -122,12 +122,15 @@ for (const h of ['#bets', '#pronos', '#best', '#values', '#watch', '#calendar', 
 }
 // « J'ai parié » depuis la carte du jour, puis suivi
 await page.evaluate(() => { location.hash = '#bets'; }); await page.waitForTimeout(100);
-await page.fill('#bk-start', '200'); await page.click('#bankf button');
+await page.fill('#bk-start', '25'); await page.click('#bankf button');
 await page.evaluate(() => { location.hash = '#dashboard'; }); await page.waitForTimeout(100);
 if (await page.$('[data-bet]')) {
-  await page.click('[data-bet]'); await page.fill('#b-stake', '4'); await page.click('#addbet button[type=submit]');
+  await page.click('[data-bet]'); await page.fill('#b-odds', '1.22'); await page.fill('#b-stake', '5'); await page.click('#addbet button[type=submit]');
   await page.evaluate(() => { location.hash = '#bets'; }); await page.waitForTimeout(150);
   await page.click('.manual[data-bid] button[data-r="gagné"]'); await page.waitForTimeout(100);
+  await page.evaluate(() => { location.hash = '#dashboard'; }); await page.waitForTimeout(150);
+  console.log('mise conseillée après gain :', (await page.textContent('.daily .kpis')).replace(/\s+/g, ' '));
+  await page.evaluate(() => { location.hash = '#bets'; }); await page.waitForTimeout(150);
   console.log('mes paris :', (await page.textContent('.kpirow')).replace(/\s+/g, ' ').slice(0, 200));
   await page.screenshot({ path: process.argv[2] + '/bets.png', fullPage: true });
 }
@@ -135,7 +138,7 @@ if (await page.$('[data-bet]')) {
 await page.evaluate(() => { location.hash = '#check'; });
 await page.waitForTimeout(150);
 const checks = [];
-for (const [mk, line, odds] of [['1N', '', '1.45'], ['bttsY', '', '1.80'], ['cornersO', '9.5', '1.85'], ['over', '2.5', '1.95']]) {
+for (const [mk, line, odds] of [['1N', '', '1.45'], ['bttsY', '', '1.80'], ['HS', '', '1.25'], ['over', '2.5', '1.95']]) {
   await page.selectOption('#k-mk', mk); await page.fill('#k-line', line); await page.fill('#k-odds', odds);
   const before = await page.textContent('#k-out');
   await page.click('#chk button[type=submit]');

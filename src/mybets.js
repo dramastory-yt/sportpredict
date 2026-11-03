@@ -188,7 +188,7 @@ const SPMyBets = (() => {
       <div class="row"><div class="seg">${[['jour', 'Aujourd’hui'], ['semaine', 'Cette semaine'], ['mois', 'Ce mois'], ['tout', 'Depuis le début']].map(([v, l]) => `<button data-per="${v}" class="${period === v ? 'on' : ''}">${l}</button>`).join('')}</div>
         <button id="addmanual" class="btn-sec">+ Ajouter un pari</button><button id="settlemine" class="btn-sec">Mettre à jour les résultats</button></div>
       <div class="kpirow">
-        ${k('Bankroll actuelle', eur(all.bankroll), `départ ${eur(start)}${b?.since ? ' le ' + new Date(b.since).toLocaleDateString('fr-FR') : ''}`, all.bankroll >= start ? 'pos' : 'neg')}
+        ${k('Bankroll actuelle', eur(all.bankroll), `mise à jour à chaque pari réglé · départ ${eur(start)}${b?.since ? ' le ' + new Date(b.since).toLocaleDateString('fr-FR') : ''}`, all.bankroll >= start ? 'pos' : 'neg')}
         ${k('Profit', eurS(st.profit), `${st.done.length} pari(s) réglé(s)`, st.profit >= 0 ? 'pos' : 'neg')}
         ${k('ROI', sgn(st.roi), 'profit / mises')}
         ${k('Réussite', pct(st.hit, 0), `${st.wins} gagnés · ${st.losses} perdus`)}

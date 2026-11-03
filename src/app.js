@@ -137,7 +137,7 @@
     return `<div class="advice"><b>En clair :</b> sur ${esc(p.book)}, pariez « ${esc(p.label)} » pour ${esc(p.match)} seulement si la cote affichée est <b>au moins ${num(a.minOdds)}</b> (relevée : ${num(p.odds)}).
       Mise indicative : <b>${num(a.stake)} €</b> (${(a.frac * 100).toFixed(1)} % d’une bankroll de ${int(a.bank)} €, quart de Kelly plafonné). Si la cote a baissé ou si le match a commencé, ne pariez pas.</div>`;
   }
-  const eur0 = (x) => Math.round(x).toLocaleString('fr-FR') + ' €';
+  const eur0 = (x) => x.toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' €';
   function safeList(A) {
     const L = (A.safe || []).filter((s) => !A.daily || s.eventId !== A.daily.eventId);
     if (!L.length) return '';
@@ -170,7 +170,8 @@
       <p class="muted"><small>Vérifiez la cote sur Winamax avant de parier ; si le match a commencé ou si la cote a beaucoup baissé, abstenez-vous. ${esc(d.dataNote || '')}</small></p>
     </section>`;
   }
-  const curBank = () => { try { return SPData.LS.get('sp:bank', null) ? SPMyBets.stats().bankroll : P.cfg().bankroll; } catch { return P.cfg().bankroll; } };
+  // bankroll actuelle = départ + dépôts/retraits + gains et pertes des paris réglés (mise à jour automatique)
+  const curBank = () => { try { return SPMyBets.stats().bankroll; } catch { return P.cfg().bankroll; } };
   function safeStake(kind, p, odds, pPush) {
     const C = P.cfg(), B = curBank();
     if (kind === 'sûr' || kind === 'sûr-verif') return Math.round(B * C.safeStakePct * 100) / 100;
@@ -364,7 +365,7 @@
     config() {
       const C = P.cfg();
       const chk = (id, v, l) => `<label class="chk"><input type="checkbox" id="${id}" ${v ? 'checked' : ''}> ${l}</label>`;
-      const n = (id, v, l, step = 0.01) => `<label>${l}<input id="${id}" type="number" step="${step}" value="${v}"></label>`;
+      const n = (id, v, l) => `<label>${l}<input id="${id}" type="number" step="any" value="${v}"></label>`;
       return `<h2>Réglages</h2>
       <form id="cfgf" class="cfg">
         <section class="card"><h3>Clés API (stockées uniquement dans ce navigateur)</h3>
@@ -385,7 +386,7 @@
           ${n('c-sminp', C.safeMinP, 'Probabilité minimale d’un pari sûr', 0.01)}${n('c-smaxo', C.safeMaxOdds, 'Cote maximale d’un pari sûr', 0.05)}${n('c-stol', C.safeTolEV, 'Tolérance de cote (−0.03 = 3 % sous la vraie valeur)', 0.005)}${n('c-sst', C.safeStakePct, 'Mise par pari sûr (0.02 = 2 % de la bankroll)', 0.005)}</div>
           <p class="muted">Un pari sûr perd quand même parfois : à 75 %, une fois sur quatre. La bankroll ne grossit que si les cotes jouées ne sont pas en dessous de leur vraie valeur, c’est pourquoi la tolérance est limitée.</p></section>
         <section class="card"><h3>Mise indicative</h3><div class="g3">
-          ${n('c-bank', C.bankroll, 'Bankroll (€)', 1)}${n('c-kf', C.kellyFrac, 'Fraction de Kelly (0.25 = quart)', 0.05)}${n('c-maxst', C.maxStakePct, 'Mise max (0.02 = 2 % de la bankroll)', 0.005)}</div>
+          ${n('c-bank', SPData.LS.get('sp:bank', null)?.start ?? C.bankroll, 'Bankroll de départ (€)', 'any')}<label>Bankroll actuelle<input disabled value="${num(curBank())} € (départ + gains − pertes)"></label>${n('c-kf', C.kellyFrac, 'Fraction de Kelly (0.25 = quart)', 0.05)}${n('c-maxst', C.maxStakePct, 'Mise max (0.02 = 2 % de la bankroll)', 0.005)}</div>
           <p class="muted">Ne misez que de l’argent que vous pouvez perdre. La mise indicative ne garantit rien.</p></section>
         <section class="card"><h3>Critères de sélection</h3><div class="g3">
           ${n('c-minodds', C.minOdds, 'Cote minimale (≥ 1.20)')}${n('c-maxodds', C.maxOdds, 'Cote maximale')}${n('c-minev', C.minEV, 'EV minimale (0.02 = 2 %)', 0.005)}
@@ -525,7 +526,8 @@
         C.maxOddsAgeMin = +v('c-age'); C.maxGap = +v('c-gap'); C.wMarket = Math.min(1, Math.max(0, +v('c-wm'))); C.hours = +v('c-hours'); C.extendTo48 = c('c-48');
         C.minSims = Math.max(10000, +v('c-mins')); C.maxSims = Math.max(C.minSims, +v('c-maxs')); C.tol = Math.max(0.0005, +v('c-tol')); C.phase2Events = Math.max(1, +v('c-p2'));
         C.mode = v('c-mode'); C.safeMinP = Math.min(0.95, Math.max(0.55, +v('c-sminp'))); C.safeMaxOdds = Math.max(1.2, +v('c-smaxo')); C.safeTolEV = Math.min(0, Math.max(-0.08, +v('c-stol'))); C.safeStakePct = Math.min(0.05, Math.max(0, +v('c-sst')));
-        C.bankroll = Math.max(0, +v('c-bank')); C.kellyFrac = Math.min(1, Math.max(0, +v('c-kf'))); C.maxStakePct = Math.min(0.1, Math.max(0, +v('c-maxst')));
+        C.bankroll = Math.max(0, parseFloat(String(v('c-bank')).replace(',', '.')) || 0);
+        { const bk = SPData.LS.get('sp:bank', null); SPData.LS.set('sp:bank', bk ? { ...bk, start: C.bankroll } : { start: C.bankroll, since: Date.now(), moves: [] }); } C.kellyFrac = Math.min(1, Math.max(0, +v('c-kf'))); C.maxStakePct = Math.min(0.1, Math.max(0, +v('c-maxst')));
         C.autoOn = c('c-auto'); C.autoTime = v('c-time'); C.preMatchRecheck = c('c-pre'); C.notif = c('c-notif');
         if (C.notif && 'Notification' in window && Notification.permission === 'default') Notification.requestPermission();
         P.saveCfg(C); toast('Réglages enregistrés');

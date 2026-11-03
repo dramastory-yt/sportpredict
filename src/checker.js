@@ -18,8 +18,9 @@ const SPChecker = (() => {
       ['over', 'Plus de X buts', 'over', true, 'modèle'], ['under', 'Moins de X buts', 'under', true, 'modèle'],
       ['bttsY', 'Les deux équipes marquent : oui', 'bttsYes', false, 'modèle'], ['bttsN', 'Les deux équipes marquent : non', 'bttsNo', false, 'modèle'],
       ['ah1', 'Handicap domicile (ex. -1.5)', 'ahHome', true, 'modèle'], ['ah2', 'Handicap extérieur (ex. +1.5)', 'ahAway', true, 'modèle'],
-      ['cornersO', 'Plus de X corners (total)', 'corners', true, 'modèle', null, 'over'], ['cornersU', 'Moins de X corners (total)', 'corners', true, 'modèle', null, 'under'],
-      ['cardsO', 'Plus de X cartons jaunes (total)', 'cards', true, 'modèle', null, 'over'], ['cardsU', 'Moins de X cartons jaunes (total)', 'cards', true, 'modèle', null, 'under'],
+      ['HS', 'Équipe domicile marque', 'homeTotalOver', false, 'modèle'], ['AS', 'Équipe extérieur marque', 'awayTotalOver', false, 'modèle'],
+      ['HCS', 'Domicile ne prend pas de but', 'homeCS', false, 'modèle'], ['ACS', 'Extérieur ne prend pas de but', 'awayCS', false, 'modèle'],
+      ['HO15', 'Domicile gagne et +1,5 buts', 'homeAndOver15', false, 'modèle'], ['AO15', 'Extérieur gagne et +1,5 buts', 'awayAndOver15', false, 'modèle'],
     ],
     nba: [
       ['home', 'Victoire domicile', 'home', false, 'backtest'], ['away', 'Victoire extérieur', 'away', false, 'backtest'],
@@ -90,7 +91,8 @@ const SPChecker = (() => {
     const minOdds = Math.ceil(((1 + need - pPush) / Math.max(1e-6, pWin)) * 100) / 100;
     const k = Math.max(0, ev_ / (odds - 1));
     const frac = Math.min(C.maxStakePct, C.kellyFrac * k);
-    const stake = Math.round(C.bankroll * frac * 100) / 100;
+    const B = (() => { try { return SPMyBets.stats().bankroll; } catch { return C.bankroll; } })();
+    const stake = Math.round(B * frac * 100) / 100;
     const age = (Date.now() - (S.lastAnalysis()?.finishedAt || 0)) / 3600e3;
     const ok = ev_ >= need && odds >= C.minOdds;
     const warn = [];
@@ -106,7 +108,7 @@ const SPChecker = (() => {
         <div><small>Cote juste</small><b>${((1 - pPush) / Math.max(1e-6, pWin)).toFixed(2)}</b><span>sans marge</span></div>
         <div><small>EV</small><b class="${ev_ > 0 ? 'pos' : 'neg'}">${sgn(ev_)}</b><span>seuil ${(need * 100).toFixed(0)} %</span></div>
         <div><small>Cote minimale</small><b>${minOdds.toFixed(2)}</b><span>pour valider</span></div>
-        <div><small>Mise indicative</small><b>${ok ? stake.toFixed(2) + ' €' : '0 €'}</b><span>${ok ? (frac * 100).toFixed(1) + ' % de ' + C.bankroll + ' €' : 'aucune'}</span></div>
+        <div><small>Mise indicative</small><b>${ok ? stake.toFixed(2) + ' €' : '0 €'}</b><span>${ok ? (frac * 100).toFixed(1) + ' % de ' + B.toFixed(2) + ' €' : 'aucune'}</span></div>
       </div>
       ${warn.length ? `<ul class="muted">${warn.map((w) => `<li>${esc(w)}</li>`).join('')}</ul>` : ''}
       <p class="muted">Source : ${esc(source)}.</p></section>`;
