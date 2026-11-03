@@ -6,7 +6,7 @@ const SPPipeline = (() => {
 
   // ------------------------------------------------------------ configuration
   const DEFAULT_CFG = {
-    oddsKey: '', claudeKey: '', regions: 'eu', markets: 'h2h,totals,spreads',
+    oddsKey: '', claudeKey: '', regions: 'eu', markets: 'h2h,totals,spreads', targetBook: 'winamax_fr',
     leagues: Object.fromEntries(Object.entries(D.FOOTBALL).map(([k, v]) => [k, v.on])),
     tennis: true, nba: true, maxTennisTournaments: 4,
     wMarket: 0.65, minEV: 0.02, minOdds: 1.20, maxOdds: 3.5, prefLo: 1.40, prefHi: 2.20,
@@ -138,6 +138,21 @@ onmessage = (e) => {
       }
     }
     return { sels, sharp, nBooks: (ev.bookmakers || []).length };
+  }
+
+  // Bookmaker cible (Winamax par défaut) : la value est calculée à SA cote. Le prix juste reste
+  // estimé sur tout le marché (Pinnacle en priorité) ; la meilleure cote ailleurs est conservée pour information.
+  function applyTarget(mk, target) {
+    if (!target) return mk;
+    for (const s of mk.sels) {
+      const t = s.offers.find((o) => o.book === target);
+      if (!t) { s.noTarget = true; continue; }
+      s.bestAny = s.best;
+      s.best = t;
+      s.second = s.offers.find((o) => o.book !== target) || null;
+      mk.hasTarget = true;
+    }
+    return mk;
   }
 
   // ------------------------------------------------------------ données statistiques
@@ -329,7 +344,8 @@ onmessage = (e) => {
     if (c.ev <= 0) reasons.push('espérance négative');
     else if (c.ev < C.minEV) reasons.push(`EV ${(c.ev * 100).toFixed(1)}% < seuil ${(C.minEV * 100).toFixed(1)}%`);
     if (c.edge < c.uncert) reasons.push(`value (${(c.edge * 100).toFixed(1)} pts) inférieure à l’incertitude (${(c.uncert * 100).toFixed(1)} pts)`);
-    if (c.second && c.best.book !== 'pinnacle' && c.best.price / c.second.price > 1.07) reasons.push(`cote isolée (${c.best.title} ${c.best.price} vs ${c.second.price} ailleurs) : possible erreur ou cote obsolète`);
+    if (C.targetBook && c.second && c.best.price / c.second.price > 1.07) warn.push(`${c.best.title} est ${((c.best.price / c.second.price - 1) * 100).toFixed(0)} % au-dessus du bookmaker suivant : vérifiez la cote sur le site avant de parier`);
+    else if (c.second && c.best.book !== 'pinnacle' && c.best.price / c.second.price > 1.07) reasons.push(`cote isolée (${c.best.title} ${c.best.price} vs ${c.second.price} ailleurs) : possible erreur ou cote obsolète`);
     if (c.modelGap != null && c.modelGap > C.maxGap) reasons.push(`divergence modèles/marché de ${(c.modelGap * 100).toFixed(1)} pts non expliquée`);
     if (c.fairMkt == null && c.sport !== 'nba') reasons.push('probabilité de marché indisponible');
     if (c.simN && c.simCI > 0.01) reasons.push('simulations insuffisamment stables');
@@ -414,7 +430,7 @@ onmessage = (e) => {
       const E = {
         id: e.id, sport, sportKey: e.sport_key, comp: D.FOOTBALL[e.sport_key]?.name || titles[e.sport_key] || e.sport_title,
         home: e.home_team, away: e.away_team, t: Date.parse(e.commence_time), fetched: e._fetched, staleOdds: e._stale,
-        mk: buildMarkets(e), info: [], warnings: [], risk: 0,
+        mk: applyTarget(buildMarkets(e), C.targetBook), info: [], warnings: [], risk: 0,
       };
       E.day = new Date(E.t).toLocaleDateString('fr-FR', { timeZone: 'Europe/Paris' }) === new Date().toLocaleDateString('fr-FR', { timeZone: 'Europe/Paris' }) ? 'aujourd’hui' : 'demain';
       if (E.t - Date.now() > 24 * 3600e3) E.day = 'J+2';
@@ -481,7 +497,9 @@ onmessage = (e) => {
     for (const E of events) nMarkets += E.mk.sels.length;
     A.counts.markets = nMarkets;
     const withSharp = events.filter((E) => E.mk.sharp).length;
-    S.done(5, `${nMarkets} sélections comparées sur ${events.reduce((s, E) => s + E.mk.nBooks, 0)} offres bookmakers ; Pinnacle présent sur ${withSharp}/${events.length} événements`);
+    const tgt = C.targetBook ? events.filter((E) => E.mk.hasTarget).length : null;
+    if (C.targetBook && events.length && !tgt) A.errors.push(`Aucune cote ${C.targetBook} reçue : vérifiez la région (« eu » ou « fr ») dans Réglages`);
+    S.done(5, `${tgt != null ? `${C.targetBook === 'winamax_fr' ? 'Winamax' : C.targetBook} présent sur ${tgt}/${events.length} événements · ` : ''}${nMarkets} sélections comparées sur ${events.reduce((s, E) => s + E.mk.nBooks, 0)} offres bookmakers ; Pinnacle présent sur ${withSharp}/${events.length} événements`);
 
     // ---------------- 7. modèles (phase 1 : présélection)
     S.start(6);
@@ -499,6 +517,7 @@ onmessage = (e) => {
       if (E.sport === 'tennis') quickTennis.push(E);
       else {
         for (const s of E.mk.sels) {
+          if (s.noTarget) continue;
           const r = M.phase1(s);
           if (r.pWin == null) continue;
           Object.assign(s, { p1: r });
@@ -511,7 +530,7 @@ onmessage = (e) => {
       quickTennis.forEach((E, i) => {
         const simr = res[i]; if (!simr || simr.error) { E.skip = 'simulation échouée'; return; }
         for (const s of E.mk.sels) {
-          const sel = tennisSel(E, s); if (!sel) continue;
+          const sel = tennisSel(E, s); if (!sel || s.noTarget) continue;
           const r = SP.evalFromSim(simr, SP.normalizeSel(sel), s.best.price);
           s.p1 = tennisBlend(s, r, C);
         }
@@ -677,7 +696,7 @@ onmessage = (e) => {
       score: c.q.total, scoreParts: c.q.parts, reasons: c.check.reasons, warnings: c.check.warn,
       scenarios: E.sim?.scenarios || null, models: E.model.models, statsNote: E.model.statsNote, ctx: E.model.ctx || null,
       info: E.info, news: E.news || [], llm: c.llm || null, llmError: c.llmError || null,
-      offers: c.s.offers.slice(0, 8).map((o) => ({ title: o.title, price: o.price, last: o.last })),
+      offers: c.s.offers.slice(0, 8).map((o) => ({ title: o.title, price: o.price, last: o.last })), bestAny: c.s.bestAny ? { title: c.s.bestAny.title, price: c.s.bestAny.price } : null,
       seed: E.sim?.seed ?? null, engine: SP.version, wMarket: cfg().wMarket,
     };
   }
@@ -687,7 +706,7 @@ onmessage = (e) => {
       statsNote: E.model?.statsNote || null, models: E.model?.models || null, ctx: E.model?.ctx || null, warnings: E.warnings, info: E.info, news: E.news || [],
       sims: E.sim ? { n: E.sim.n, ms: E.sim.ms, scenarios: E.sim.scenarios, key: E.sim.key } : null,
       sels: E.mk.sels.map((s) => ({
-        id: s.id, mkey: s.mkey, label: s.label, best: s.best.price, book: s.best.title, last: s.best.last, nBooks: s.nBooks, mean: s.mean, pin: s.pinnacle,
+        id: s.id, mkey: s.mkey, label: s.label, best: s.noTarget ? null : s.best.price, book: s.noTarget ? 'non proposé par le bookmaker cible' : s.best.title, anyBest: s.bestAny?.price ?? s.best.price, last: s.best.last, nBooks: s.nBooks, mean: s.mean, pin: s.pinnacle,
         fair: s.fairMkt, p: (s.p2 || s.p1)?.pWin ?? null, ev: (s.p2 || s.p1)?.ev ?? null, deep: !!s.p2,
       })),
     };

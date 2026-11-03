@@ -43,7 +43,7 @@ function oddsEvents(sport) {
         { key: 'totals', last_update: iso(now - 3 * 60e3), outcomes: [{ name: 'Over', price: +(1.95 * f[0]).toFixed(2), point: 2.5 }, { name: 'Under', price: +(1.87 * f[2]).toFixed(2), point: 2.5 }] },
         { key: 'spreads', last_update: iso(now - 3 * 60e3), outcomes: [{ name: h, price: 1.93, point: -0.25 }, { name: a, price: 1.89, point: 0.25 }] }] });
       return { id: 'epl' + k, sport_key: 'soccer_epl', sport_title: 'EPL', commence_time: iso(now + (3 + k * 4) * 3600e3), home_team: h, away_team: a,
-        bookmakers: [bk('pinnacle', 'Pinnacle', [1, 1, 1]), bk('unibet_eu', 'Unibet', [1.03, 0.97, 0.98]), bk('betclic', 'Betclic', [0.98, 1.0, 1.04]), bk('williamhill', 'William Hill', [0.99, 0.98, 1.0])] };
+        bookmakers: [bk('pinnacle', 'Pinnacle', [1, 1, 1]), bk('unibet_eu', 'Unibet', [1.03, 0.97, 0.98]), bk('betclic', 'Betclic', [0.98, 1.0, 1.04]), bk('williamhill', 'William Hill', [0.99, 0.98, 1.0]), bk('winamax_fr', 'Winamax (FR)', [1.05, 0.95, 0.96])] };
     });
   }
   if (sport === 'basketball_nba') {
@@ -54,7 +54,7 @@ function oddsEvents(sport) {
         { key: 'spreads', last_update: iso(now - 2 * 60e3), outcomes: [{ name: h, price: 1.91, point: -3.5 }, { name: a, price: 1.91, point: 3.5 }] },
         { key: 'totals', last_update: iso(now - 2 * 60e3), outcomes: [{ name: 'Over', price: 1.90, point: 226.5 }, { name: 'Under', price: 1.92, point: 226.5 }] }] });
       return { id: 'nba' + k, sport_key: 'basketball_nba', sport_title: 'NBA', commence_time: iso(now + (5 + k) * 3600e3), home_team: h, away_team: a,
-        bookmakers: [bk('pinnacle', 'Pinnacle', 1), bk('unibet_eu', 'Unibet', 1.04), bk('betsson', 'Betsson', 0.99)] };
+        bookmakers: [bk('pinnacle', 'Pinnacle', 1), bk('unibet_eu', 'Unibet', 1.04), bk('betsson', 'Betsson', 0.99), bk('winamax_fr', 'Winamax (FR)', 1.05)] };
     });
   }
   if (sport === 'tennis_atp_paris_masters') {
@@ -62,7 +62,7 @@ function oddsEvents(sport) {
     const bk = (key, title, f) => ({ key, title, last_update: iso(now - 2 * 60e3), markets: [
       { key: 'h2h', last_update: iso(now - 2 * 60e3), outcomes: [{ name: h, price: +(1.55 * f).toFixed(2) }, { name: a, price: +(2.55 / f).toFixed(2) }] },
       { key: 'totals', last_update: iso(now - 2 * 60e3), outcomes: [{ name: 'Over', price: 1.88, point: 22.5 }, { name: 'Under', price: 1.92, point: 22.5 }] }] });
-    return [{ id: 'ten0', sport_key: sport, sport_title: 'ATP Paris Masters', commence_time: iso(now + 4 * 3600e3), home_team: h, away_team: a, bookmakers: [bk('pinnacle', 'Pinnacle', 1), bk('unibet_eu', 'Unibet', 1.05)] }];
+    return [{ id: 'ten0', sport_key: sport, sport_title: 'ATP Paris Masters', commence_time: iso(now + 4 * 3600e3), home_team: h, away_team: a, bookmakers: [bk('pinnacle', 'Pinnacle', 1), bk('unibet_eu', 'Unibet', 1.05), bk('winamax_fr', 'Winamax (FR)', 1.02)] }];
   }
   return [];
 }
@@ -98,7 +98,7 @@ const t0 = Date.now();
 await page.click('#go');
 await page.waitForFunction(() => !document.body.classList.contains('busy'), null, { timeout: 180000 });
 console.log('analyse terminée en', ((Date.now() - t0) / 1000).toFixed(1), 's ; appels odds :', oddsCalls);
-const A = await page.evaluate(() => { const a = JSON.parse(localStorage.getItem('sp:analyses')).pop(); return { counts: a.counts, errors: a.errors, best: a.best && { m: a.best.match, l: a.best.label, o: a.best.odds, ev: a.best.ev, s: a.best.score, sims: a.best.sims }, values: a.values.length, watch: a.watch.map((w) => w.match + ' ' + w.label + ' | ' + w.need.join('; ')), backtests: Object.keys(a.backtests || {}), skips: a.events.filter((e) => e.skip).map((e) => e.skip) }; });
+const A = await page.evaluate(() => { const a = JSON.parse(localStorage.getItem('sp:analyses')).pop(); return { counts: a.counts, errors: a.errors, best: a.best && { book: a.best.book, any: a.best.bestAny, m: a.best.match, l: a.best.label, o: a.best.odds, ev: a.best.ev, s: a.best.score, sims: a.best.sims }, values: a.values.length, watch: a.watch.map((w) => w.match + ' ' + w.label + ' | ' + w.need.join('; ')), backtests: Object.keys(a.backtests || {}), skips: a.events.filter((e) => e.skip).map((e) => e.skip) }; });
 console.log(JSON.stringify(A, null, 1));
 for (const h of ['#best', '#values', '#watch', '#calendar', '#history', '#perf', '#config', '#dashboard']) {
   await page.evaluate((x) => { location.hash = x; }, h);

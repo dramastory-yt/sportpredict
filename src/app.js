@@ -103,7 +103,7 @@
       <h3>${esc(p.match)}</h3>
       <div class="sel"><span class="mk">${MKT[p.market] || p.market}</span><b>${esc(p.label)}</b></div>
       <div class="kpis">
-        <div><small>Cote</small><b class="odds">${num(p.odds)}</b><span>${esc(p.book)} · ${ago(p.oddsAt)}</span></div>
+        <div><small>Cote</small><b class="odds">${num(p.odds)}</b><span>${esc(p.book)} · ${ago(p.oddsAt)}${p.bestAny && p.bestAny.price > p.odds ? ` · meilleure ailleurs ${num(p.bestAny.price)} (${esc(p.bestAny.title)})` : ''}</span></div>
         <div><small>Probabilité estimée</small><b>${pct(p.p)}</b><span>${p.ci != null ? `IC95 MC ±${pct(p.ci, 2)}` : ''}${p.pPush ? ` · remb. ${pct(p.pPush)}` : ''}</span></div>
         <div><small>Prob. implicite</small><b>${pct(p.pImplied)}</b><span>marché juste ${pct(p.pMkt)}</span></div>
         <div><small>Edge</small><b class="${p.edge > 0 ? 'pos' : 'neg'}">${sgn(p.edge)}</b><span>incertitude ±${pct(p.uncert)}</span></div>
@@ -254,7 +254,10 @@
           <p class="muted">Inscription sur the-odds-api.com : 500 crédits/mois gratuits. Une analyse coûte ≈ (nombre de compétitions) × (marchés : 3) × (régions : 1) crédits.</p>
           <label>Clé API Anthropic (facultative) <input id="c-claude" type="password" autocomplete="off" value="${esc(C.claudeKey)}" placeholder="pour l’analyse des actualités"></label>
           <p class="muted">console.anthropic.com. Utilisée seulement pour les 6 meilleures sélections. Elle ne crée jamais de probabilité.</p>
-          <label>Régions bookmakers <select id="c-reg">${['eu', 'uk', 'eu,uk', 'eu,us'].map((r) => `<option ${C.regions === r ? 'selected' : ''}>${r}</option>`).join('')}</select></label>
+          <label>Régions bookmakers <select id="c-reg">${['eu', 'fr', 'eu,fr', 'eu,uk'].map((r) => `<option ${C.regions === r ? 'selected' : ''}>${r}</option>`).join('')}</select></label>
+          <p class="muted">« eu » contient Winamax (FR) et Pinnacle, la référence pour le prix juste. Chaque région ajoutée multiplie le coût en crédits.</p>
+          <label>Bookmaker où vous pariez <select id="c-target">${[['winamax_fr', 'Winamax'], ['', 'Aucun : meilleure cote disponible']].map(([v, l]) => `<option value="${v}" ${C.targetBook === v ? 'selected' : ''}>${l}</option>`).join('')}</select></label>
+          <p class="muted">La value et l’EV sont calculées à la cote de ce bookmaker uniquement.</p>
         </section>
         <section class="card"><h3>Compétitions</h3><div class="chks">${Object.entries(D.FOOTBALL).map(([k2, v]) => chk('L-' + k2, C.leagues[k2], v.name + (v.stats ? '' : ' <small>(marché seul)</small>'))).join('')}
           ${chk('c-nba', C.nba, 'NBA')}${chk('c-tennis', C.tennis, 'Tennis ATP/WTA (tournois actifs)')}</div>
@@ -299,8 +302,8 @@
       ${e.skip ? `<p class="notice">Écarté : ${esc(e.skip)}</p>` : ''}
       <table class="t">${(e.models || []).map((m) => `<tr><td>${esc(m.name)}</td><td class="n">${m.p1x2 ? m.p1x2.map((x) => pct(x)).join(' · ') : m.pHome != null ? pct(m.pHome) : m.pA != null ? pct(m.pA) : m.serveA ? `service ${pct(m.serveA)} / ${pct(m.serveB)}` : ''}${m.lh ? ` · λ ${num(m.lh)}/${num(m.la)}` : ''}${m.margin != null ? ` · marge ${num(m.margin, 1)}` : ''}${m.total != null ? ` · total ${num(m.total, 1)}` : ''}</td></tr>`).join('')}</table>
       ${e.sims ? `<p>${int(e.sims.n)} simulations en ${e.sims.ms} ms · scénarios : ${e.sims.scenarios.map((s) => `${s.name} ${pct(s.p)}`).join(' · ')}</p>` : '<p class="muted">Phase 1 seulement (pas de simulation approfondie : potentiel insuffisant).</p>'}
-      <div class="tw"><table class="t"><thead><tr><th>Sélection</th><th>Meilleure cote</th><th>Moyenne</th><th>Pinnacle</th><th>Prob. marché</th><th>Prob. modèle</th><th>EV</th></tr></thead><tbody>
-      ${e.sels.map((s) => `<tr><td>${MKT[s.mkey]} · ${esc(s.label)}</td><td class="n">${num(s.best)} <small class="muted">${esc(s.book)}</small></td><td class="n">${num(s.mean)}</td><td class="n">${num(s.pin)}</td><td class="n">${pct(s.fair)}</td><td class="n">${pct(s.p)}${s.deep ? '' : ' <small class="muted">p1</small>'}</td><td class="n ${s.ev > 0 ? 'pos' : 'neg'}">${sgn(s.ev)}</td></tr>`).join('')}</tbody></table></div>
+      <div class="tw"><table class="t"><thead><tr><th>Sélection</th><th>Cote cible</th><th>Moyenne</th><th>Pinnacle</th><th>Prob. marché</th><th>Prob. modèle</th><th>EV</th></tr></thead><tbody>
+      ${e.sels.map((s) => `<tr><td>${MKT[s.mkey]} · ${esc(s.label)}</td><td class="n">${s.best != null ? num(s.best) : '—'} <small class="muted">${esc(s.book)}</small></td><td class="n">${num(s.mean)}</td><td class="n">${num(s.pin)}</td><td class="n">${pct(s.fair)}</td><td class="n">${pct(s.p)}${s.deep ? '' : ' <small class="muted">p1</small>'}</td><td class="n ${s.ev > 0 ? 'pos' : 'neg'}">${sgn(s.ev)}</td></tr>`).join('')}</tbody></table></div>
       ${e.warnings?.length ? `<h4>Avertissements</h4><ul>${e.warnings.map((w) => `<li>${esc(w)}</li>`).join('')}</ul>` : ''}
       ${e.news?.length ? `<h4>Actualités reliées</h4><ul class="news">${e.news.map((n) => `<li>${n.url ? `<a href="${esc(n.url)}" target="_blank" rel="noopener">${esc(n.title)}</a>` : esc(n.title)} <small>${n.published ? dt(Date.parse(n.published)) : ''}</small></li>`).join('')}</ul>` : ''}`;
     dlg.hidden = false;
@@ -381,7 +384,7 @@
       $('#cfgf').addEventListener('submit', (e) => {
         e.preventDefault();
         const C = P.cfg(), v = (id) => $('#' + id).value, c = (id) => $('#' + id).checked;
-        C.oddsKey = v('c-odds').trim(); C.claudeKey = v('c-claude').trim(); C.regions = v('c-reg');
+        C.oddsKey = v('c-odds').trim(); C.claudeKey = v('c-claude').trim(); C.regions = v('c-reg'); C.targetBook = v('c-target');
         for (const k of Object.keys(D.FOOTBALL)) C.leagues[k] = c('L-' + k);
         C.nba = c('c-nba'); C.tennis = c('c-tennis'); C.maxTennisTournaments = Math.max(0, +v('c-tt'));
         C.minOdds = Math.max(1.2, +v('c-minodds')); C.maxOdds = +v('c-maxodds'); C.minEV = Math.max(0, +v('c-minev'));

@@ -29,6 +29,12 @@ Les clés restent dans le `localStorage` du navigateur. Elles ne sont envoyées 
 | `src/app.js` | Interface (8 pages) |
 | `build.mjs` | Assemble tout dans `dist/index.html` |
 
+## Bookmaker cible : Winamax
+
+Par défaut, la value et l'EV sont calculées **à la cote Winamax** (`winamax_fr`, région `eu` de The Odds API), car c'est là que vous pariez.
+Le prix juste vient de tout le marché, Pinnacle en priorité, et la meilleure cote ailleurs est affichée pour information.
+Une sélection absente chez Winamax n'est jamais proposée. Si Winamax est plus de 7 % au-dessus du bookmaker suivant, un avertissement demande de vérifier la cote sur le site.
+
 ## Modèles
 
 **Football**
