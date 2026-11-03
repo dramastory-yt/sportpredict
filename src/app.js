@@ -75,7 +75,7 @@
     if (P.cfg().notif && A.best && 'Notification' in window && Notification.permission === 'granted') {
       try { new Notification('SportPredict AI — pari validé', { body: `${A.best.match} · ${A.best.label} @ ${A.best.odds}` }); } catch { /* ignore */ }
     }
-    location.hash = A.best || A.values.length ? '#best' : '#dashboard';
+    location.hash = '#dashboard';
   }
 
   // ------------------------------------------------------------ composants
@@ -135,6 +135,29 @@
     const a = advice(p);
     return `<div class="advice"><b>En clair :</b> sur ${esc(p.book)}, pariez « ${esc(p.label)} » pour ${esc(p.match)} seulement si la cote affichée est <b>au moins ${num(a.minOdds)}</b> (relevée : ${num(p.odds)}).
       Mise indicative : <b>${num(a.stake)} €</b> (${(a.frac * 100).toFixed(1)} % d’une bankroll de ${int(a.bank)} €, quart de Kelly plafonné). Si la cote a baissé ou si le match a commencé, ne pariez pas.</div>`;
+  }
+  function dailyCard(A) {
+    const d = A.daily;
+    if (!d) return `<section class="card nobet"><h3>Pas de pronostic du jour</h3><p>Aucun match des prochaines 24 h n’a assez de données ou une cote Winamax acceptable.</p></section>`;
+    const C = P.cfg(), pk = d.pick;
+    const minOdds = Math.ceil(((1 + C.minEV - (pk.pPush || 0)) / pk.p) * 100) / 100;
+    const k = Math.max(0, (pk.p * pk.odds + (pk.pPush || 0) - 1) / (pk.odds - 1));
+    const stake = Math.round(C.bankroll * Math.min(C.maxStakePct, C.kellyFrac * k) * 100) / 100;
+    return `<section class="card pick big daily">
+      <div class="eyebrow">PRONOSTIC DU JOUR</div>
+      <header><div><span class="sport s-${d.sport}">${SPORT[d.sport]}</span> <span class="muted">${esc(d.comp)}</span></div><div class="when">${dt(d.t)}</div></header>
+      <h3>${esc(d.match)}</h3>
+      <div class="sel"><span class="mk">${MKT[pk.market] || ''}</span><b>${esc(pk.label)}</b> ${pk.value ? '<span class="tag t-ok">VALUE</span>' : '<span class="tag t-na">sans value</span>'} <span class="tag t-${d.confidence === 'forte' ? 'ok' : d.confidence === 'moyenne' ? 'warn' : 'na'}">confiance ${esc(d.confidence)}</span></div>
+      <div class="kpis">
+        <div><small>Cote ${esc(pk.book)}</small><b class="odds">${num(pk.odds)}</b><span>minimum pour une value : ${num(minOdds)}</span></div>
+        <div><small>Probabilité</small><b>${pct(pk.p)}</b><span>cote juste ${num(1 / pk.p)}</span></div>
+        <div><small>EV</small><b class="${pk.ev > 0 ? 'pos' : 'neg'}">${sgn(pk.ev)}</b><span>par unité misée</span></div>
+        <div><small>Mise indicative</small><b>${pk.value ? num(stake) + ' €' : 'petite'}</b><span>${pk.value ? 'quart de Kelly plafonné' : '≤ 1 % de la bankroll : pas de value'}</span></div>
+      </div>
+      <h4>L’analyse</h4><ul>${d.why.map((w) => `<li>${esc(w)}</li>`).join('')}</ul>
+      ${d.warnings?.length ? `<h4>Points de vigilance</h4><ul>${d.warnings.map((w) => `<li>${esc(w)}</li>`).join('')}</ul>` : ''}
+      <p class="muted"><small>Vérifiez la cote sur Winamax avant de parier ; si le match a commencé ou si la cote a beaucoup baissé, abstenez-vous. ${esc(d.dataNote || '')}</small></p>
+    </section>`;
   }
   function formChips(fm) {
     if (!fm) return '<span class="muted">forme indisponible</span>';
@@ -204,6 +227,7 @@
         </div>
         <div id="progress" class="progress" ${running ? '' : 'hidden'}><div class="pb"><i id="pbar"></i></div><div id="ptext" class="muted"></div><ol id="steps" class="steps"></ol></div>
       </section>
+      ${A ? dailyCard(A) : ''}
       ${A ? summaryBlock(A) : `<section class="card empty"><h3>Aucune analyse pour l’instant</h3><p>Le premier lancement télécharge environ deux saisons de résultats ESPN (mis en cache ensuite) puis consomme des crédits The Odds API : environ 3 par compétition scannée.</p></section>`}`;
     },
     best() {

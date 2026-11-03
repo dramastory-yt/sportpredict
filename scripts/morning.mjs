@@ -47,8 +47,12 @@ try {
   };
   const parts = [`<b>SportPredict AI</b> — analyse du ${new Date().toLocaleDateString('fr-FR', { timeZone: 'Europe/Paris', weekday: 'long', day: 'numeric', month: 'long' })}`];
   parts.push(`${A.counts?.available ?? 0} matchs, ${(A.counts?.sims ?? 0).toLocaleString('fr-FR')} simulations`);
-  if (A.best) parts.push('🎯 <b>Meilleur pari</b>\n' + line(A.best));
-  else parts.push('<b>AUCUN PARI VALIDÉ</b> : les opportunités disponibles ne répondent pas aux critères statistiques.');
+  if (A.daily) {
+    const d = A.daily, pk = d.pick;
+    parts.push(`🎯 <b>PRONOSTIC DU JOUR</b>${pk.value ? ' (VALUE)' : ' (sans value)'} · confiance ${esc(d.confidence)}\n<b>${esc(d.match)}</b>\n${esc(pk.label)} @ <b>${pk.odds.toFixed(2)}</b> ${esc(pk.book)} · ${(pk.p * 100).toFixed(0)} %\n${d.why.map((w) => '• ' + esc(w)).join('\n')}`);
+  }
+  if (A.best && (!A.daily || A.daily.eventId !== A.best.eventId)) parts.push('<b>Meilleur pari value</b>\n' + line(A.best));
+  if (!A.best) parts.push('Aucune value validée aujourd’hui.');
   if (A.values?.length) parts.push('<b>Autres values</b>\n' + A.values.map(line).join('\n\n'));
   if (A.forecasts?.length) parts.push('<b>Pronostics les plus solides</b>\n' + A.forecasts.slice(0, 5).map((f) => `${esc(f.match)} : ${esc(f.headline)} (confiance ${esc(f.confidence)})${f.pick ? `\n  ${esc(f.pick.label)} @ ${f.pick.odds.toFixed(2)} · ${(f.pick.p * 100).toFixed(0)} %${f.pick.value ? ' · VALUE' : ''}` : ''}`).join('\n'));
   if (A.watch?.length) parts.push('<b>À surveiller</b>\n' + A.watch.slice(0, 3).map((w) => `${esc(w.match)} — ${esc(w.label)} : ${esc(w.need[0] || '')}`).join('\n'));

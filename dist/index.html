@@ -131,6 +131,8 @@ summary:hover { color: var(--fg); }
 .formrow { display: grid; gap: .3rem; margin: .4rem 0; } .formrow > div { display: flex; flex-wrap: wrap; gap: .4rem; align-items: center; } .formrow small:first-child { min-width: 9ch; }
 .form { display: inline-flex; gap: 2px; } .form i { font: 600 .7rem var(--f-mono); width: 1.3em; text-align: center; border-radius: 3px; padding: .05rem 0; font-style: normal; }
 .r-V { background: color-mix(in srgb, var(--pos) 25%, transparent); color: var(--pos); } .r-N { background: var(--surface2); color: var(--muted); } .r-D { background: color-mix(in srgb, var(--neg) 22%, transparent); color: var(--neg); }
+.eyebrow { font: 800 .78rem var(--f-display); letter-spacing: .14em; color: var(--accent); margin-bottom: .4rem; }
+.daily h3 { font-size: clamp(1.5rem, 4vw, 2.2rem); }
 .nobet { border-color: color-mix(in srgb, var(--muted) 40%, var(--line)); text-align: center; padding: 2.2rem 1rem; }
 .nobet h3 { font-size: 1.5rem; letter-spacing: .02em; }
 
@@ -2232,6 +2234,29 @@ onmessage = (e) => {
       if (rj > rs && pj >= 0.3 && a.E.id !== b.E.id) A.combo = { legs: [pack(a), pack(b)], p: pj, odds: oj, ev: evj, ratio: rj, ratioSingles: rs, note: 'Événements distincts supposés indépendants (matchs différents). Retenu car son EV rapportée au risque dépasse celle des paris simples.' };
       else A.comboRejected = `combiné étudié (${a.E.home}/${b.E.home}) : EV ${(evj * 100).toFixed(1)} % mais rapport EV/risque ${rj.toFixed(3)} ≤ ${rs.toFixed(3)} pour le meilleur simple — non retenu`;
     }
+    // PRONOSTIC DU JOUR : toujours un seul choix. Le meilleur pari « value » s'il existe, sinon le pari
+    // le plus sûr des prochaines 24 h (confiance puis probabilité), en écartant les cotes trop défavorables.
+    {
+      const rank = { forte: 3, moyenne: 2, faible: 1 };
+      const pool = events.filter((E) => E.forecast?.pick && E.t - Date.now() <= Math.max(C.hours, 24) * 3600e3 && E.t > Date.now() + 15 * 60e3 && E.forecast.pick.ev >= -0.06);
+      let E = A.best ? events.find((x) => x.id === A.best.eventId) : null;
+      if (!E) E = pool.sort((a, b) => rank[b.forecast.confidence] - rank[a.forecast.confidence] || b.forecast.pick.p - a.forecast.pick.p)[0] || null;
+      if (E) {
+        const f = E.forecast;
+        const pick = A.best && A.best.eventId === E.id
+          ? { label: A.best.label, market: A.best.market, odds: A.best.odds, book: A.best.book, p: A.best.p, pPush: A.best.pPush, ev: A.best.ev, value: true, fair: A.best.pMkt }
+          : f.pick;
+        const why = [];
+        why.push(`${f.headline} : ${E.sport === 'football' ? `1 ${(f.probs.home * 100).toFixed(0)} % · N ${(f.probs.draw * 100).toFixed(0)} % · 2 ${(f.probs.away * 100).toFixed(0)} %` : `${E.home} ${(f.probs.home * 100).toFixed(0)} % · ${E.away} ${(f.probs.away * 100).toFixed(0)} %`}.`);
+        if (E.sport === 'football') why.push(`Buts attendus ${f.expected.home.toFixed(2)} – ${f.expected.away.toFixed(2)}, score le plus probable ${f.score.h}-${f.score.a}.`);
+        if (E.sport === 'nba') why.push(`Score projeté ${Math.round(f.expected.home)}-${Math.round(f.expected.away)} (total ${f.expected.total.toFixed(1)}).`);
+        if (f.form?.home && f.form?.away) why.push(`Forme récente : ${E.home} ${f.form.home.seq}, ${E.away} ${f.form.away.seq} (du plus ancien au plus récent).`);
+        const sc = scored.find((c) => c.E === E && c.s.label === pick.label);
+        if (sc?.pStats != null && sc?.pMkt != null) why.push(`Modèles statistiques ${(sc.pStats * 100).toFixed(0)} % contre ${(sc.pMkt * 100).toFixed(0)} % pour le marché sans marge : ${Math.abs(sc.pStats - sc.pMkt) < 0.05 ? 'ils sont d’accord' : 'léger désaccord, prudence'}.`);
+        why.push(pick.value ? `La cote ${pick.odds.toFixed(2)} est supérieure à la cote juste (${(1 / pick.p).toFixed(2)}) : pari rentable sur la durée selon le modèle.` : `La cote ${pick.odds.toFixed(2)} est un peu sous la cote juste (${(1 / pick.p).toFixed(2)}) : pronostic probable mais sans value, mise réduite conseillée.`);
+        A.daily = { eventId: E.id, sport: E.sport, comp: E.comp, match: `${E.home} – ${E.away}`, home: E.home, away: E.away, t: E.t, day: E.day, confidence: f.confidence, headline: f.headline, pick, why, warnings: E.warnings, dataNote: f.dataNote };
+      } else A.daily = null;
+    }
     A.events = events.map(slimEvent);
     A.finishedAt = Date.now();
     S.done(9, A.best ? `meilleur pari : ${A.best.match} — ${A.best.label}` : 'aucun pari validé', false);
@@ -2585,7 +2610,7 @@ const SPChecker = (() => {
     if (P.cfg().notif && A.best && 'Notification' in window && Notification.permission === 'granted') {
       try { new Notification('SportPredict AI — pari validé', { body: `${A.best.match} · ${A.best.label} @ ${A.best.odds}` }); } catch { /* ignore */ }
     }
-    location.hash = A.best || A.values.length ? '#best' : '#dashboard';
+    location.hash = '#dashboard';
   }
 
   // ------------------------------------------------------------ composants
@@ -2645,6 +2670,29 @@ const SPChecker = (() => {
     const a = advice(p);
     return `<div class="advice"><b>En clair :</b> sur ${esc(p.book)}, pariez « ${esc(p.label)} » pour ${esc(p.match)} seulement si la cote affichée est <b>au moins ${num(a.minOdds)}</b> (relevée : ${num(p.odds)}).
       Mise indicative : <b>${num(a.stake)} €</b> (${(a.frac * 100).toFixed(1)} % d’une bankroll de ${int(a.bank)} €, quart de Kelly plafonné). Si la cote a baissé ou si le match a commencé, ne pariez pas.</div>`;
+  }
+  function dailyCard(A) {
+    const d = A.daily;
+    if (!d) return `<section class="card nobet"><h3>Pas de pronostic du jour</h3><p>Aucun match des prochaines 24 h n’a assez de données ou une cote Winamax acceptable.</p></section>`;
+    const C = P.cfg(), pk = d.pick;
+    const minOdds = Math.ceil(((1 + C.minEV - (pk.pPush || 0)) / pk.p) * 100) / 100;
+    const k = Math.max(0, (pk.p * pk.odds + (pk.pPush || 0) - 1) / (pk.odds - 1));
+    const stake = Math.round(C.bankroll * Math.min(C.maxStakePct, C.kellyFrac * k) * 100) / 100;
+    return `<section class="card pick big daily">
+      <div class="eyebrow">PRONOSTIC DU JOUR</div>
+      <header><div><span class="sport s-${d.sport}">${SPORT[d.sport]}</span> <span class="muted">${esc(d.comp)}</span></div><div class="when">${dt(d.t)}</div></header>
+      <h3>${esc(d.match)}</h3>
+      <div class="sel"><span class="mk">${MKT[pk.market] || ''}</span><b>${esc(pk.label)}</b> ${pk.value ? '<span class="tag t-ok">VALUE</span>' : '<span class="tag t-na">sans value</span>'} <span class="tag t-${d.confidence === 'forte' ? 'ok' : d.confidence === 'moyenne' ? 'warn' : 'na'}">confiance ${esc(d.confidence)}</span></div>
+      <div class="kpis">
+        <div><small>Cote ${esc(pk.book)}</small><b class="odds">${num(pk.odds)}</b><span>minimum pour une value : ${num(minOdds)}</span></div>
+        <div><small>Probabilité</small><b>${pct(pk.p)}</b><span>cote juste ${num(1 / pk.p)}</span></div>
+        <div><small>EV</small><b class="${pk.ev > 0 ? 'pos' : 'neg'}">${sgn(pk.ev)}</b><span>par unité misée</span></div>
+        <div><small>Mise indicative</small><b>${pk.value ? num(stake) + ' €' : 'petite'}</b><span>${pk.value ? 'quart de Kelly plafonné' : '≤ 1 % de la bankroll : pas de value'}</span></div>
+      </div>
+      <h4>L’analyse</h4><ul>${d.why.map((w) => `<li>${esc(w)}</li>`).join('')}</ul>
+      ${d.warnings?.length ? `<h4>Points de vigilance</h4><ul>${d.warnings.map((w) => `<li>${esc(w)}</li>`).join('')}</ul>` : ''}
+      <p class="muted"><small>Vérifiez la cote sur Winamax avant de parier ; si le match a commencé ou si la cote a beaucoup baissé, abstenez-vous. ${esc(d.dataNote || '')}</small></p>
+    </section>`;
   }
   function formChips(fm) {
     if (!fm) return '<span class="muted">forme indisponible</span>';
@@ -2714,6 +2762,7 @@ const SPChecker = (() => {
         </div>
         <div id="progress" class="progress" ${running ? '' : 'hidden'}><div class="pb"><i id="pbar"></i></div><div id="ptext" class="muted"></div><ol id="steps" class="steps"></ol></div>
       </section>
+      ${A ? dailyCard(A) : ''}
       ${A ? summaryBlock(A) : `<section class="card empty"><h3>Aucune analyse pour l’instant</h3><p>Le premier lancement télécharge environ deux saisons de résultats ESPN (mis en cache ensuite) puis consomme des crédits The Odds API : environ 3 par compétition scannée.</p></section>`}`;
     },
     best() {
