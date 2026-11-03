@@ -1,0 +1,2496 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>SportPredict AI</title>
+<meta name="description" content="Moteur personnel d'analyse et de détection de value bets : football, tennis, NBA.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,700;12..96,800&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+/* Mise en page : barre de navigation fixe + colonne centrale ; tableau de bord « salle de contrôle » nocturne,
+   accent ambre (projecteurs de stade), chiffres en mono tabulaire. */
+:root {
+  color-scheme: dark;
+  --bg: #0a1020; --surface: #111a2e; --surface2: #16213a; --line: #22304f;
+  --fg: #e6ebf5; --muted: #8b97b0; --accent: #f2b33d; --accent-ink: #1a1203;
+  --pos: #3fc59b; --neg: #f06a6a; --warn: #f08a3c; --info: #6aa8f7;
+  --foot: #4fa3f7; --tennis: #c9d94e; --nba: #f07b3f;
+  --f-display: 'Bricolage Grotesque', 'Segoe UI', system-ui, sans-serif;
+  --f-body: 'IBM Plex Sans', system-ui, -apple-system, sans-serif;
+  --f-mono: 'IBM Plex Mono', ui-monospace, 'SFMono-Regular', Menlo, monospace;
+  --r: 10px;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; background: var(--bg); color: var(--fg); }
+body { font: 15px/1.55 var(--f-body); padding-bottom: env(safe-area-inset-bottom, 0px); }
+a { color: var(--accent); }
+h1, h2, h3, h4 { font-family: var(--f-display); text-wrap: balance; margin: 0 0 .5rem; letter-spacing: -.01em; }
+h2 { font-size: 1.7rem; font-weight: 800; margin-top: .5rem; }
+h3 { font-size: 1.2rem; font-weight: 700; }
+h4 { font-size: .95rem; font-weight: 700; margin-top: .9rem; color: var(--fg); }
+h5 { font: 600 .8rem var(--f-body); text-transform: uppercase; letter-spacing: .06em; color: var(--muted); margin: .7rem 0 .2rem; }
+small, .muted { color: var(--muted); }
+.n, .kpi b, .kpis b, .odds { font-family: var(--f-mono); font-variant-numeric: tabular-nums; }
+.pos { color: var(--pos); } .neg { color: var(--neg); }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+.top { position: sticky; top: env(safe-area-inset-top, 0px); z-index: 20; background: color-mix(in srgb, var(--bg) 92%, transparent); backdrop-filter: blur(8px); border-bottom: 1px solid var(--line); }
+body::before { content: ""; position: fixed; inset: 0 0 auto; height: env(safe-area-inset-top, 0px); z-index: 30; background: var(--bg); }
+.top .in { max-width: 1180px; margin: 0 auto; display: flex; align-items: center; gap: 1.2rem; padding-block: .6rem; padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); }
+.brand { font: 800 1.15rem var(--f-display); white-space: nowrap; display: flex; align-items: center; gap: .5rem; }
+.brand i { width: 18px; height: 18px; border-radius: 50%; background: conic-gradient(var(--accent) 0 62%, var(--line) 0); display: inline-block; }
+.brand span { color: var(--accent); }
+nav { display: flex; gap: .2rem; overflow-x: auto; scrollbar-width: none; min-width: 0; }
+nav a { color: var(--muted); text-decoration: none; padding: .35rem .65rem; border-radius: 7px; white-space: nowrap; font-weight: 500; font-size: .9rem; }
+nav a:hover { color: var(--fg); background: var(--surface); }
+nav a.on { color: var(--accent-ink); background: var(--accent); }
+
+main { max-width: 1180px; margin: 0 auto; padding-block: 1.4rem 3rem; padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); display: grid; gap: 1.1rem; }
+.card { background: var(--surface); border: 1px solid var(--line); border-radius: var(--r); padding: 1.1rem 1.2rem; min-width: 0; }
+.card.empty { text-align: center; color: var(--muted); padding: 2rem 1rem; }
+.grid { display: grid; gap: 1rem; grid-template-columns: repeat(auto-fill, minmax(min(100%, 360px), 1fr)); }
+.grid2 { display: grid; gap: 1rem; grid-template-columns: repeat(auto-fit, minmax(min(100%, 420px), 1fr)); }
+.row { display: flex; gap: .6rem; flex-wrap: wrap; align-items: center; }
+
+.hero { display: grid; gap: 1rem; }
+.date { font: 700 clamp(1.5rem, 4vw, 2.3rem) var(--f-display); text-transform: capitalize; letter-spacing: -.02em; }
+.pills { display: flex; flex-wrap: wrap; gap: .4rem; }
+.pill { font-size: .78rem; padding: .2rem .6rem; border-radius: 99px; border: 1px solid var(--line); display: inline-flex; align-items: center; gap: .35rem; }
+.pill::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: var(--muted); }
+.p-ok::before { background: var(--pos); } .p-bad::before { background: var(--neg); } .p-run::before { background: var(--accent); animation: pulse 1s infinite alternate; }
+.kpirow { display: grid; gap: .6rem; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); }
+.kpi { background: var(--surface); border: 1px solid var(--line); border-radius: var(--r); padding: .7rem .85rem; display: grid; gap: .1rem; min-width: 0; }
+.kpi small { font-size: .72rem; text-transform: uppercase; letter-spacing: .06em; }
+.kpi b { font-size: 1.35rem; font-weight: 500; }
+.kpi span { font-size: .78rem; color: var(--muted); }
+.cta { display: flex; flex-direction: column; align-items: center; gap: .7rem; padding: 1.6rem 0 .4rem; }
+.btn-main { font: 800 clamp(1rem, 2.6vw, 1.35rem) var(--f-display); letter-spacing: .02em; color: var(--accent-ink); background: var(--accent); border: 0; border-radius: 14px; padding: 1.15rem 2.4rem; cursor: pointer; box-shadow: 0 0 0 6px color-mix(in srgb, var(--accent) 18%, transparent), 0 14px 40px -12px color-mix(in srgb, var(--accent) 60%, transparent); transition: transform .15s; max-width: 100%; }
+.btn-main:hover:not(:disabled) { transform: translateY(-1px); }
+.btn-main:disabled { opacity: .5; cursor: progress; }
+.btn-main.sm { font-size: 1rem; padding: .7rem 1.4rem; box-shadow: none; }
+.btn-sec { font: 600 .85rem var(--f-body); letter-spacing: .03em; color: var(--fg); background: var(--surface2); border: 1px solid var(--line); border-radius: 9px; padding: .55rem 1rem; cursor: pointer; }
+.btn-sec:hover:not(:disabled) { border-color: var(--accent); }
+.btn-sec:disabled { opacity: .45; }
+.file input { display: none; }
+.notice { background: color-mix(in srgb, var(--warn) 12%, var(--surface)); border: 1px solid color-mix(in srgb, var(--warn) 40%, var(--line)); border-radius: var(--r); padding: .7rem 1rem; }
+
+.progress { background: var(--surface); border: 1px solid var(--line); border-radius: var(--r); padding: 1rem 1.1rem; display: grid; gap: .6rem; }
+.pb { height: 6px; background: var(--line); border-radius: 9px; overflow: hidden; }
+.pb i { display: block; height: 100%; width: 0; background: var(--accent); transition: width .3s; }
+.steps { list-style: none; margin: 0; padding: 0; display: grid; gap: .15rem; }
+.step { display: grid; grid-template-columns: 14px 1fr auto; gap: .2rem .6rem; align-items: center; padding: .3rem 0; border-bottom: 1px dashed var(--line); }
+.step .dot { width: 9px; height: 9px; border-radius: 50%; background: var(--line); }
+.step .sst { font-size: .78rem; color: var(--muted); }
+.step .snote { grid-column: 2 / -1; font-size: .8rem; color: var(--muted); }
+.s-termine .dot { background: var(--pos); } .s-en-cours .dot { background: var(--accent); animation: pulse .8s infinite alternate; }
+.s-erreur .dot { background: var(--neg); } .s-erreur .sst { color: var(--neg); } .s-avertissement .dot { background: var(--warn); }
+@keyframes pulse { to { opacity: .3; } }
+
+.pick header, .card header { display: flex; justify-content: space-between; gap: .6rem; flex-wrap: wrap; align-items: baseline; margin-bottom: .3rem; }
+.when { font-family: var(--f-mono); font-size: .85rem; color: var(--muted); }
+.sport { font: 600 .72rem var(--f-body); text-transform: uppercase; letter-spacing: .07em; padding: .1rem .45rem; border-radius: 5px; border: 1px solid; }
+.s-football { color: var(--foot); } .s-tennis { color: var(--tennis); } .s-nba { color: var(--nba); }
+.pick h3 { font-size: 1.3rem; }
+.pick.big { border-color: color-mix(in srgb, var(--accent) 55%, var(--line)); background: linear-gradient(180deg, color-mix(in srgb, var(--accent) 6%, var(--surface)), var(--surface) 240px); }
+.pick.big h3 { font-size: clamp(1.4rem, 3.5vw, 2rem); }
+.sel { display: flex; align-items: baseline; gap: .6rem; flex-wrap: wrap; margin-bottom: .8rem; }
+.sel b { font: 700 1.15rem var(--f-display); color: var(--accent); }
+.mk { font-size: .72rem; text-transform: uppercase; letter-spacing: .07em; color: var(--muted); border: 1px solid var(--line); padding: .05rem .4rem; border-radius: 4px; }
+.kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(118px, 1fr)); gap: .5rem; }
+.kpis > div { background: var(--surface2); border-radius: 8px; padding: .5rem .65rem; display: grid; min-width: 0; }
+.kpis small { font-size: .68rem; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); }
+.kpis b { font-size: 1.15rem; font-weight: 500; }
+.kpis span { font-size: .72rem; color: var(--muted); overflow-wrap: anywhere; }
+.big .kpis b.odds { font-size: 1.6rem; color: var(--accent); }
+.why p { max-width: 75ch; }
+.risks ul, .llm ul, .info, .news { margin: .2rem 0; padding-left: 1.1rem; }
+details { margin-top: .6rem; border-top: 1px solid var(--line); padding-top: .5rem; }
+summary { cursor: pointer; color: var(--muted); font-size: .88rem; }
+summary:hover { color: var(--fg); }
+.parts { display: grid; gap: .35rem; margin-top: .5rem; }
+.sp { display: grid; grid-template-columns: minmax(120px, 1.2fr) 1fr auto; gap: .1rem .6rem; align-items: center; font-size: .85rem; }
+.sp small { grid-column: 1 / -1; font-size: .75rem; }
+.bar { height: 6px; background: var(--line); border-radius: 6px; overflow: hidden; }
+.bar i { display: block; height: 100%; background: var(--accent); }
+.chips { display: flex; flex-wrap: wrap; gap: .3rem; margin: .5rem 0; }
+.chip { font-size: .75rem; background: var(--surface2); border: 1px solid var(--line); border-radius: 99px; padding: .1rem .55rem; font-family: var(--f-mono); }
+.tag { font-size: .72rem; padding: .05rem .45rem; border-radius: 5px; font-weight: 600; white-space: nowrap; }
+.t-ok { background: color-mix(in srgb, var(--pos) 18%, transparent); color: var(--pos); }
+.t-bad { background: color-mix(in srgb, var(--neg) 18%, transparent); color: var(--neg); }
+.t-warn { background: color-mix(in srgb, var(--warn) 18%, transparent); color: var(--warn); }
+.t-na { background: var(--surface2); color: var(--muted); }
+.llm { margin-top: .8rem; background: var(--surface2); border-radius: 8px; padding: .7rem .9rem; }
+.nobet { border-color: color-mix(in srgb, var(--muted) 40%, var(--line)); text-align: center; padding: 2.2rem 1rem; }
+.nobet h3 { font-size: 1.5rem; letter-spacing: .02em; }
+
+.tw { overflow-x: auto; }
+.t { width: 100%; border-collapse: collapse; font-size: .85rem; }
+.t td, .t th { padding: .38rem .5rem; border-bottom: 1px solid var(--line); text-align: left; vertical-align: top; }
+.t th { font-weight: 600; color: var(--muted); font-size: .74rem; text-transform: uppercase; letter-spacing: .05em; white-space: nowrap; }
+.t .n { text-align: right; white-space: nowrap; }
+.hist td { white-space: nowrap; } .hist td:nth-child(2) { white-space: normal; min-width: 180px; }
+.manual button { font: 600 .75rem var(--f-mono); background: var(--surface2); color: var(--fg); border: 1px solid var(--line); border-radius: 5px; padding: .1rem .4rem; cursor: pointer; }
+
+.filters { display: flex; flex-wrap: wrap; gap: .6rem; }
+.filters label, .cfg label { display: grid; gap: .2rem; font-size: .8rem; color: var(--muted); }
+input, select { font: 500 .9rem var(--f-body); background: var(--surface2); color: var(--fg); border: 1px solid var(--line); border-radius: 7px; padding: .45rem .55rem; min-width: 0; }
+.cfg { display: grid; gap: 1rem; }
+.cfg input[type=password], .cfg input[type=text] { width: 100%; }
+.g3 { display: grid; gap: .7rem; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); }
+.chks { display: flex; flex-wrap: wrap; gap: .4rem 1rem; margin-bottom: .6rem; }
+label.chk { display: flex; align-items: center; gap: .4rem; color: var(--fg); font-size: .9rem; }
+.cal { display: grid; gap: .35rem; }
+.ev { display: grid; grid-template-columns: 150px 80px 1fr auto auto; gap: .8rem; align-items: center; text-align: left; background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: .6rem .8rem; color: var(--fg); font: inherit; cursor: pointer; }
+.ev:hover { border-color: var(--accent); }
+.ev .m { display: grid; min-width: 0; } .ev .m small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ev .sport { justify-self: start; }
+.seg { display: inline-flex; border: 1px solid var(--line); border-radius: 9px; overflow: hidden; flex-wrap: wrap; }
+.seg button { background: transparent; color: var(--muted); border: 0; padding: .45rem .9rem; font: 600 .85rem var(--f-body); cursor: pointer; }
+.seg button.on { background: var(--accent); color: var(--accent-ink); }
+.chart { width: 100%; height: auto; }
+.chart .axis { stroke: var(--line); stroke-width: 1; } .chart .dash { stroke-dasharray: 4 4; stroke: var(--muted); }
+.chart .line { fill: none; stroke: var(--accent); stroke-width: 2; } .chart .area { fill: color-mix(in srgb, var(--accent) 12%, transparent); }
+.chart .endpt { fill: var(--accent); } .chart .dotc { fill: color-mix(in srgb, var(--info) 60%, transparent); stroke: var(--info); }
+.chart .lbl { fill: var(--muted); font: 11px var(--f-mono); } .chart .lbl.b { fill: var(--fg); }
+
+.dlg { position: fixed; inset: 0; background: rgb(3 6 14 / .7); z-index: 50; display: grid; place-items: center; padding: max(16px, env(safe-area-inset-top, 0px)) max(16px, env(safe-area-inset-right, 0px)) max(16px, env(safe-area-inset-bottom, 0px)) max(16px, env(safe-area-inset-left, 0px)); }
+.dlgc { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; max-width: 900px; width: 100%; max-height: 88vh; overflow: auto; padding: 1.1rem 1.2rem; }
+.x { background: transparent; color: var(--muted); border: 0; font-size: 1.6rem; cursor: pointer; line-height: 1; }
+.toast { position: fixed; bottom: calc(18px + env(safe-area-inset-bottom, 0px)); left: 50%; transform: translateX(-50%); background: var(--surface2); border: 1px solid var(--line); border-left: 3px solid var(--pos); padding: .6rem 1rem; border-radius: 8px; z-index: 60; max-width: calc(100% - 32px); }
+.toast.bad { border-left-color: var(--neg); }
+.disc { font-size: .78rem; color: var(--muted); border-top: 1px solid var(--line); padding-top: 1rem; max-width: 90ch; }
+@media (max-width: 640px) {
+  .top .in { flex-direction: column; align-items: stretch; gap: .4rem; }
+  .ev { grid-template-columns: 1fr auto; }
+  .ev .when, .ev .n:first-of-type { grid-column: 1 / -1; }
+  .btn-main { padding: 1rem 1.2rem; width: 100%; }
+}
+[hidden] { display: none !important; }
+@media (prefers-reduced-motion: reduce) { * { animation: none !important; transition: none !important; } }
+</style>
+</head>
+<body>
+<header class="top"><div class="in">
+  <div class="brand"><i aria-hidden="true"></i>SportPredict <span>AI</span></div>
+  <nav aria-label="Pages">
+    <a href="#dashboard">Tableau de bord</a><a href="#best">Meilleur pari</a><a href="#values">Autres values</a><a href="#watch">À surveiller</a>
+    <a href="#calendar">Calendrier</a><a href="#history">Historique</a><a href="#perf">Performance</a><a href="#config">Réglages</a>
+  </nav>
+</div></header>
+<main id="main"></main>
+<div id="dlg" class="dlg" hidden><div id="dlgc" class="dlgc" role="dialog" aria-modal="true"></div></div>
+<script>
+/* SportPredict AI — moteur statistique (pur JS, sans dépendance).
+ * Ce fichier est utilisé tel quel dans le navigateur (thread principal + Web Worker)
+ * et dans Node pour les tests. Toute la logique est dans SPEngineFactory pour
+ * pouvoir être sérialisée vers le worker via Function.prototype.toString().
+ */
+function SPEngineFactory() {
+  'use strict';
+  const SP = { version: 'engine-1.0.0' };
+
+  // ---------------------------------------------------------------- RNG
+  // mulberry32 : rapide, 32 bits, reproductible avec la graine enregistrée dans le snapshot.
+  function rng(seed) {
+    let a = seed >>> 0;
+    return function () {
+      a = (a + 0x6D2B79F5) | 0;
+      let t = Math.imul(a ^ (a >>> 15), 1 | a);
+      t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+      return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+    };
+  }
+  SP.rng = rng;
+  function normalPair(r) {
+    let u = r(); while (u < 1e-12) u = r();
+    const v = r();
+    const m = Math.sqrt(-2 * Math.log(u));
+    return [m * Math.cos(2 * Math.PI * v), m * Math.sin(2 * Math.PI * v)];
+  }
+  SP.normalPair = normalPair;
+  function poissonDraw(r, lam) {
+    // inversion (λ < ~15 en football) ; approximation normale au-delà
+    if (lam > 30) return Math.max(0, Math.round(lam + Math.sqrt(lam) * normalPair(r)[0]));
+    const u = r();
+    let p = Math.exp(-lam), s = p, k = 0;
+    while (u > s && k < 60) { k++; p *= lam / k; s += p; }
+    return k;
+  }
+  SP.poissonDraw = poissonDraw;
+
+  // ---------------------------------------------------------------- cotes
+  SP.implied = (o) => 1 / o;
+  SP.ev = (p, o) => p * o - 1;
+  SP.overround = (odds) => odds.reduce((s, o) => s + 1 / o, 0) - 1;
+  // Méthode « power » : trouve k tel que Σ (1/o_i)^k = 1. Corrige mieux le biais favori/outsider
+  // que la normalisation proportionnelle. Retombe sur la normalisation si non convergé.
+  SP.devig = function (odds) {
+    const q = odds.map((o) => 1 / o);
+    const sum = q.reduce((a, b) => a + b, 0);
+    if (!(sum > 0)) return null;
+    if (Math.abs(sum - 1) < 1e-9) return q;
+    let lo = 0.5, hi = 3;
+    const f = (k) => q.reduce((s, x) => s + Math.pow(x, k), 0) - 1;
+    if (f(lo) * f(hi) > 0) return q.map((x) => x / sum);
+    for (let i = 0; i < 80; i++) {
+      const mid = (lo + hi) / 2;
+      if (f(mid) > 0) lo = mid; else hi = mid;
+    }
+    const k = (lo + hi) / 2;
+    const p = q.map((x) => Math.pow(x, k));
+    const s2 = p.reduce((a, b) => a + b, 0);
+    return p.map((x) => x / s2);
+  };
+  SP.median = function (a) {
+    if (!a.length) return NaN;
+    const s = [...a].sort((x, y) => x - y);
+    const m = s.length >> 1;
+    return s.length % 2 ? s[m] : (s[m - 1] + s[m]) / 2;
+  };
+  SP.sd = function (a) {
+    if (a.length < 2) return 0;
+    const m = a.reduce((x, y) => x + y, 0) / a.length;
+    return Math.sqrt(a.reduce((s, x) => s + (x - m) * (x - m), 0) / (a.length - 1));
+  };
+
+  // Règlement générique d'une ligne (handicap asiatique / total) : x = marge ajustée.
+  // Renvoie le rendement par unité misée (cote incluse) : gain=o, remboursé=1, perdu=0.
+  // Les lignes en quart (.25/.75) sont scindées en deux demi-mises.
+  function half(x) { return x > 1e-9 ? [1, 0] : (x < -1e-9 ? [0, 0] : [0, 1]); }
+  // Renvoie {win, push} : parts de la mise gagnées / remboursées (0, 0.5 ou 1).
+  SP.settleShares = function (margin, line) {
+    if (line == null) return margin > 0 ? { win: 1, push: 0 } : { win: 0, push: 0 };
+    const frac = Math.abs((line * 4) % 2);
+    if (Math.abs(frac - 1) < 1e-9) {
+      const a = half(margin + line - 0.25), b = half(margin + line + 0.25);
+      return { win: (a[0] + b[0]) / 2, push: (a[1] + b[1]) / 2 };
+    }
+    const a = half(margin + line);
+    return { win: a[0], push: a[1] };
+  };
+  SP.settleLine = function (margin, line, o) {
+    const s = SP.settleShares(margin, line);
+    return s.win * o + s.push;
+  };
+
+  // ---------------------------------------------------------------- Poisson / Dixon-Coles
+  function pois(k, lam) {
+    let p = Math.exp(-lam);
+    for (let i = 1; i <= k; i++) p *= lam / i;
+    return p;
+  }
+  SP.pois = pois;
+  function tau(x, y, lh, la, rho) {
+    if (x === 0 && y === 0) return 1 - lh * la * rho;
+    if (x === 0 && y === 1) return 1 + lh * rho;
+    if (x === 1 && y === 0) return 1 + la * rho;
+    if (x === 1 && y === 1) return 1 - rho;
+    return 1;
+  }
+  SP.scoreMatrix = function (lh, la, rho = 0, max = 10) {
+    const m = [];
+    let tot = 0;
+    for (let i = 0; i <= max; i++) {
+      m.push([]);
+      for (let j = 0; j <= max; j++) {
+        const v = Math.max(0, pois(i, lh) * pois(j, la) * tau(i, j, lh, la, rho));
+        m[i].push(v); tot += v;
+      }
+    }
+    for (let i = 0; i <= max; i++) for (let j = 0; j <= max; j++) m[i][j] /= tot;
+    return m;
+  };
+  SP.matrix1x2 = function (m) {
+    let h = 0, d = 0, a = 0;
+    for (let i = 0; i < m.length; i++) for (let j = 0; j < m.length; j++) {
+      if (i > j) h += m[i][j]; else if (i === j) d += m[i][j]; else a += m[i][j];
+    }
+    return [h, d, a];
+  };
+  SP.matrixOver = function (m, line) {
+    let o = 0;
+    for (let i = 0; i < m.length; i++) for (let j = 0; j < m.length; j++) if (i + j > line) o += m[i][j];
+    return o;
+  };
+
+  // Lambdas implicites du marché : (pH,pD,pA[,pOver@line]) -> (λh, λa) par moindres carrés.
+  SP.impliedLambdas = function (p1x2, over) {
+    let best = null;
+    const loss = (lh, la) => {
+      const m = SP.scoreMatrix(lh, la, -0.05, 10);
+      const r = SP.matrix1x2(m);
+      let e = (r[0] - p1x2[0]) ** 2 + (r[1] - p1x2[1]) ** 2 + (r[2] - p1x2[2]) ** 2;
+      if (over) e += (SP.matrixOver(m, over.line) - over.p) ** 2;
+      return e;
+    };
+    for (let lh = 0.2; lh <= 4.01; lh += 0.1) for (let la = 0.2; la <= 4.01; la += 0.1) {
+      const e = loss(lh, la);
+      if (!best || e < best.e) best = { lh, la, e };
+    }
+    // raffinement local
+    let step = 0.05;
+    for (let it = 0; it < 40 && step > 0.002; it++) {
+      let improved = false;
+      for (const [dh, da] of [[step, 0], [-step, 0], [0, step], [0, -step]]) {
+        const lh = best.lh + dh, la = best.la + da;
+        if (lh <= 0.05 || la <= 0.05) continue;
+        const e = loss(lh, la);
+        if (e < best.e) { best = { lh, la, e }; improved = true; }
+      }
+      if (!improved) step /= 2;
+    }
+    return best;
+  };
+
+  // Ajustement Dixon-Coles pondéré dans le temps (Dixon & Coles 1997, ξ par jour).
+  // matches : [{t (ms), h, a, hg, ag}] ; renvoie attaques/défenses, avantage domicile, rho.
+  SP.fitDixonColes = function (matches, opts = {}) {
+    const xi = opts.xi ?? 0.0019; // demi-vie ≈ 1 an
+    const ridge = opts.ridge ?? 2.0; // rétrécissement vers la moyenne (petits échantillons)
+    const now = opts.asOf ?? Math.max(...matches.map((m) => m.t));
+    const teams = [...new Set(matches.flatMap((m) => [m.h, m.a]))];
+    const idx = new Map(teams.map((t, i) => [t, i]));
+    const n = teams.length;
+    const att = new Float64Array(n), def = new Float64Array(n);
+    let home = 0.25, mu = Math.log(1.3);
+    const data = matches.filter((m) => m.t <= now).map((m) => ({
+      h: idx.get(m.h), a: idx.get(m.a), hg: m.hg, ag: m.ag,
+      w: Math.exp(-xi * (now - m.t) / 86400000),
+    }));
+    if (data.length < 20) return null;
+    const W = data.reduce((s, d) => s + d.w, 0);
+    // Newton diagonal sur la vraisemblance de Poisson pondérée (rapide et stable).
+    for (let it = 0; it < 60; it++) {
+      const gA = new Float64Array(n), hA = new Float64Array(n), gD = new Float64Array(n), hD = new Float64Array(n);
+      let gH = 0, hH = 0, gM = 0, hM = 0;
+      for (const d of data) {
+        const lh = Math.exp(mu + home + att[d.h] + def[d.a]);
+        const la = Math.exp(mu + att[d.a] + def[d.h]);
+        const rh = d.w * (d.hg - lh), ra = d.w * (d.ag - la);
+        gA[d.h] += rh; hA[d.h] += d.w * lh; gD[d.a] += rh; hD[d.a] += d.w * lh;
+        gA[d.a] += ra; hA[d.a] += d.w * la; gD[d.h] += ra; hD[d.h] += d.w * la;
+        gH += rh; hH += d.w * lh; gM += rh + ra; hM += d.w * (lh + la);
+      }
+      for (let i = 0; i < n; i++) {
+        att[i] += (gA[i] - ridge * att[i]) / (hA[i] + ridge);
+        def[i] += (gD[i] - ridge * def[i]) / (hD[i] + ridge);
+      }
+      home += gH / (hH + 1e-9) * 0.5;
+      mu += gM / (hM + 1e-9) * 0.5;
+      // identifiabilité : moyennes nulles
+      const ma = att.reduce((s, x) => s + x, 0) / n, md = def.reduce((s, x) => s + x, 0) / n;
+      for (let i = 0; i < n; i++) { att[i] -= ma; def[i] -= md; }
+      mu += ma + md;
+    }
+    // rho par recherche 1D
+    let bestRho = 0, bestLL = -Infinity;
+    for (let rho = -0.2; rho <= 0.1001; rho += 0.01) {
+      let ll = 0;
+      for (const d of data) {
+        if (d.hg > 1 || d.ag > 1) continue;
+        const lh = Math.exp(mu + home + att[d.h] + def[d.a]);
+        const la = Math.exp(mu + att[d.a] + def[d.h]);
+        const t = tau(d.hg, d.ag, lh, la, rho);
+        if (t <= 0) { ll = -Infinity; break; }
+        ll += d.w * Math.log(t);
+      }
+      if (ll > bestLL) { bestLL = ll; bestRho = rho; }
+    }
+    const games = new Map();
+    for (const d of data) { games.set(d.h, (games.get(d.h) || 0) + 1); games.set(d.a, (games.get(d.a) || 0) + 1); }
+    const model = {
+      teams, mu, home, rho: Math.round(bestRho * 100) / 100, nMatches: data.length, effN: W,
+      att: Object.fromEntries(teams.map((t, i) => [t, att[i]])),
+      def: Object.fromEntries(teams.map((t, i) => [t, def[i]])),
+      games: Object.fromEntries(teams.map((t, i) => [t, games.get(i) || 0])),
+    };
+    return model;
+  };
+  SP.dcLambdas = function (model, h, a) {
+    if (!model || !(h in model.att) || !(a in model.att)) return null;
+    return {
+      lh: Math.exp(model.mu + model.home + model.att[h] + model.def[a]),
+      la: Math.exp(model.mu + model.att[a] + model.def[h]),
+    };
+  };
+
+  // ---------------------------------------------------------------- Elo générique
+  SP.eloRun = function (matches, opts = {}) {
+    const K = opts.K ?? 20, H = opts.home ?? 60, init = 1500;
+    const R = new Map();
+    const get = (t) => (R.has(t) ? R.get(t) : init);
+    const pre = [];
+    for (const m of matches) {
+      const rh = get(m.h), ra = get(m.a);
+      const dr = rh + H - ra;
+      pre.push(dr);
+      const e = 1 / (1 + Math.pow(10, -dr / 400));
+      const s = m.hg > m.ag ? 1 : m.hg === m.ag ? 0.5 : 0;
+      const gd = Math.abs(m.hg - m.ag);
+      const mult = opts.marginMult ? opts.marginMult(gd, dr) : (gd <= 1 ? 1 : gd === 2 ? 1.5 : (11 + gd) / 8);
+      R.set(m.h, rh + K * mult * (s - e));
+      R.set(m.a, ra - K * mult * (s - e));
+    }
+    return { ratings: R, preDiff: pre, get, H };
+  };
+
+  // Régression logistique ordinale (H > D > A) sur la différence Elo, ajustée par gradient.
+  // P(A) = σ(c1 − b·x), P(A ou D) = σ(c2 − b·x)   (x = diff/100)
+  SP.fitOrdinal = function (xs, ys) {
+    let b = 0.3, c1 = -0.4, c2 = 0.6;
+    const sig = (z) => 1 / (1 + Math.exp(-z));
+    const lr = 0.05;
+    for (let it = 0; it < 400; it++) {
+      let gb = 0, g1 = 0, g2 = 0;
+      for (let i = 0; i < xs.length; i++) {
+        const x = xs[i], y = ys[i];
+        const s1 = sig(c1 - b * x), s2 = sig(c2 - b * x);
+        // log-vraisemblance et gradients
+        if (y === 2) { // extérieur
+          g1 += (1 - s1); gb += -(1 - s1) * x;
+        } else if (y === 1) { // nul
+          const pd = Math.max(1e-9, s2 - s1);
+          const d2 = s2 * (1 - s2), d1 = s1 * (1 - s1);
+          g2 += d2 / pd; g1 += -d1 / pd; gb += (-d2 * x + d1 * x) / pd;
+        } else { // domicile
+          g2 += -s2; gb += s2 * x;
+        }
+      }
+      const n = xs.length || 1;
+      b += lr * gb / n; c1 += lr * g1 / n * 4; c2 += lr * g2 / n * 4;
+      if (c2 < c1 + 0.05) c2 = c1 + 0.05;
+    }
+    return { b, c1, c2 };
+  };
+  SP.ordinalProbs = function (p, diff) {
+    const sig = (z) => 1 / (1 + Math.exp(-z));
+    const x = diff / 100;
+    const pa = sig(p.c1 - p.b * x), pad = sig(p.c2 - p.b * x);
+    return [1 - pad, Math.max(0.01, pad - pa), pa];
+  };
+
+  SP.logLoss3 = (p, y) => -Math.log(Math.max(1e-9, p[y]));
+  SP.brier3 = (p, y) => p.reduce((s, v, i) => s + (v - (i === y ? 1 : 0)) ** 2, 0);
+
+  // Pondération d'ensemble : minimise la log-loss du mélange sur les prédictions
+  // hors-échantillon (chronologiques). Grille sur le simplexe (pas 0.05).
+  SP.stackWeights = function (predsByModel, ys) {
+    const names = Object.keys(predsByModel);
+    if (names.length === 1) return { [names[0]]: 1 };
+    let best = null;
+    const step = 0.05;
+    const rec = (k, left, w) => {
+      if (k === names.length - 1) {
+        const ww = [...w, left];
+        let ll = 0;
+        for (let i = 0; i < ys.length; i++) {
+          const mix = [0, 0, 0].map((_, c) => names.reduce((s, nm, j) => s + ww[j] * predsByModel[nm][i][c], 0));
+          ll += SP.logLoss3(mix, ys[i]);
+        }
+        if (!best || ll < best.ll) best = { ll, w: ww };
+        return;
+      }
+      for (let x = 0; x <= left + 1e-9; x += step) rec(k + 1, Math.round((left - x) * 100) / 100, [...w, x]);
+    };
+    rec(0, 1, []);
+    return Object.fromEntries(names.map((n, i) => [n, best.w[i]]));
+  };
+
+  // Validation chronologique football : chaque match est prédit uniquement avec les
+  // matchs antérieurs (Elo séquentiel ; Dixon-Coles réajusté tous les `refitDays` jours).
+  SP.footballBacktest = function (matches, opts = {}) {
+    const ms = [...matches].sort((a, b) => a.t - b.t);
+    const warm = opts.warmup ?? Math.max(60, Math.floor(ms.length * 0.35));
+    const refit = (opts.refitDays ?? 14) * 86400000;
+    const elo = SP.eloRun(ms, { K: 20, home: 60 });
+    const ys = ms.map((m) => (m.hg > m.ag ? 0 : m.hg === m.ag ? 1 : 2));
+    // ordinal Elo ajusté sur la phase de chauffe seulement (pas de fuite)
+    const ord = SP.fitOrdinal(elo.preDiff.slice(0, warm).map((d) => d / 100), ys.slice(0, warm));
+    const preds = { elo: [], dc: [] }, yy = [], base = [];
+    let dc = null, lastFit = -Infinity;
+    for (let i = warm; i < ms.length; i++) {
+      const m = ms[i];
+      if (m.t - lastFit > refit || !dc) {
+        dc = SP.fitDixonColes(ms.slice(0, i), { asOf: m.t });
+        lastFit = m.t;
+      }
+      const lam = SP.dcLambdas(dc, m.h, m.a);
+      if (!lam) continue;
+      preds.dc.push(SP.matrix1x2(SP.scoreMatrix(lam.lh, lam.la, dc.rho, 10)));
+      preds.elo.push(SP.ordinalProbs(ord, elo.preDiff[i]));
+      yy.push(ys[i]);
+    }
+    if (yy.length < 30) return null;
+    // référence naïve : fréquences de la phase de chauffe
+    const fq = [0, 0, 0]; ys.slice(0, warm).forEach((y) => fq[y]++);
+    const tot = fq[0] + fq[1] + fq[2];
+    const naive = fq.map((x) => x / tot);
+    const res = { n: yy.length, models: {} };
+    for (const k of Object.keys(preds)) {
+      res.models[k] = {
+        logLoss: preds[k].reduce((s, p, i) => s + SP.logLoss3(p, yy[i]), 0) / yy.length,
+        brier: preds[k].reduce((s, p, i) => s + SP.brier3(p, yy[i]), 0) / yy.length,
+      };
+    }
+    res.naive = { logLoss: yy.reduce((s, y) => s + SP.logLoss3(naive, y), 0) / yy.length };
+    res.weights = SP.stackWeights(preds, yy);
+    const mix = yy.map((_, i) => [0, 1, 2].map((c) => Object.keys(preds).reduce((s, k) => s + res.weights[k] * preds[k][i][c], 0)));
+    res.ensemble = {
+      logLoss: mix.reduce((s, p, i) => s + SP.logLoss3(p, yy[i]), 0) / yy.length,
+      brier: mix.reduce((s, p, i) => s + SP.brier3(p, yy[i]), 0) / yy.length,
+    };
+    res.calibration = SP.calibrationBins(mix.map((p) => p[0]), yy.map((y) => (y === 0 ? 1 : 0)));
+    // ordinal final ajusté sur tout l'historique pour la prédiction du jour
+    res.ordinal = SP.fitOrdinal(elo.preDiff.map((d) => d / 100), ys);
+    res.elo = elo;
+    return res;
+  };
+
+  SP.calibrationBins = function (ps, ys, nb = 10) {
+    const bins = Array.from({ length: nb }, () => ({ n: 0, p: 0, y: 0 }));
+    ps.forEach((p, i) => {
+      const b = Math.min(nb - 1, Math.floor(p * nb));
+      bins[b].n++; bins[b].p += p; bins[b].y += ys[i];
+    });
+    return bins.filter((b) => b.n).map((b) => ({ n: b.n, pred: b.p / b.n, obs: b.y / b.n }));
+  };
+
+  // ---------------------------------------------------------------- NBA
+  // Régression ridge pondérée : marge = HCA + r_h − r_a + β_rest·(repos) ; points = μ + off + def adverse.
+  SP.fitNBA = function (games, opts = {}) {
+    const xi = opts.xi ?? 0.006; // demi-vie ≈ 115 jours
+    const lambda = opts.ridge ?? 8;
+    const asOf = opts.asOf ?? Math.max(...games.map((g) => g.t));
+    const gs = games.filter((g) => g.t < asOf + 1).map((g) => ({ ...g, w: Math.exp(-xi * (asOf - g.t) / 86400000) }));
+    if (gs.length < 50) return null;
+    const teams = [...new Set(gs.flatMap((g) => [g.h, g.a]))];
+    const id = new Map(teams.map((t, i) => [t, i]));
+    const n = teams.length;
+    // jours de repos par équipe (calculés chronologiquement)
+    const last = new Map();
+    const sorted = [...gs].sort((a, b) => a.t - b.t);
+    for (const g of sorted) {
+      const rh = last.has(g.h) ? (g.t - last.get(g.h)) / 86400000 : 3;
+      const ra = last.has(g.a) ? (g.t - last.get(g.a)) / 86400000 : 3;
+      g.b2bH = rh < 1.6 ? 1 : 0; g.b2bA = ra < 1.6 ? 1 : 0;
+      last.set(g.h, g.t); last.set(g.a, g.t);
+    }
+    // descente de coordonnées sur les points marqués : pts_h = μ + hca/2 + off_h − dfn_a + β·b2b_h
+    const off = new Float64Array(n), dfn = new Float64Array(n);
+    let mu = 112, hca = 2.5, bb = -1;
+    for (let it = 0; it < 200; it++) {
+      const nO = new Float64Array(n), dO = new Float64Array(n), nD = new Float64Array(n), dD = new Float64Array(n);
+      let sMu = 0, wMu = 0, sH = 0, wH = 0, sB = 0, wB = 0;
+      for (const g of sorted) {
+        const i = id.get(g.h), j = id.get(g.a);
+        const ph = mu + hca / 2 + off[i] - dfn[j] + bb * g.b2bH;
+        const pa = mu - hca / 2 + off[j] - dfn[i] + bb * g.b2bA;
+        const eh = g.hs - ph, ea = g.as - pa;
+        nO[i] += g.w * (eh + off[i]); dO[i] += g.w; nO[j] += g.w * (ea + off[j]); dO[j] += g.w;
+        nD[j] += g.w * (-eh + dfn[j]); dD[j] += g.w; nD[i] += g.w * (-ea + dfn[i]); dD[i] += g.w;
+        sMu += g.w * (eh + ea); wMu += 2 * g.w;
+        sH += g.w * (eh - ea); wH += g.w;
+        if (g.b2bH || g.b2bA) { sB += g.w * (eh * g.b2bH + ea * g.b2bA); wB += g.w * (g.b2bH + g.b2bA); }
+      }
+      // Jacobi amorti : off, dfn et μ absorbent le même résidu -> pas de 1/3 pour converger
+      for (let k = 0; k < n; k++) {
+        off[k] += 0.35 * (nO[k] / (dO[k] + lambda) - off[k]);
+        dfn[k] += 0.35 * (nD[k] / (dD[k] + lambda) - dfn[k]);
+      }
+      mu += 0.35 * sMu / wMu; hca += 0.5 * sH / wH; if (wB > 5) bb += 0.35 * sB / (wB + 20);
+      const mo = off.reduce((s, x) => s + x, 0) / n, md = dfn.reduce((s, x) => s + x, 0) / n;
+      for (let k = 0; k < n; k++) { off[k] -= mo; dfn[k] -= md; }
+      mu += mo - md;
+    }
+    // résidus -> écarts-types et corrélation marge/total
+    const em = [], et = [];
+    for (const g of sorted) {
+      const i = id.get(g.h), j = id.get(g.a);
+      const ph = mu + hca / 2 + off[i] - dfn[j] + bb * g.b2bH;
+      const pa = mu - hca / 2 + off[j] - dfn[i] + bb * g.b2bA;
+      em.push((g.hs - g.as) - (ph - pa)); et.push((g.hs + g.as) - (ph + pa));
+    }
+    const sdM = SP.sd(em), sdT = SP.sd(et);
+    const mM = em.reduce((s, x) => s + x, 0) / em.length, mT = et.reduce((s, x) => s + x, 0) / et.length;
+    const cov = em.reduce((s, x, k) => s + (x - mM) * (et[k] - mT), 0) / (em.length - 1);
+    return {
+      teams, mu, hca, b2b: bb, sdMargin: sdM, sdTotal: sdT, corr: cov / (sdM * sdT), n: gs.length,
+      off: Object.fromEntries(teams.map((t, k) => [t, off[k]])),
+      dfn: Object.fromEntries(teams.map((t, k) => [t, dfn[k]])),
+      lastPlayed: Object.fromEntries([...last.entries()]),
+    };
+  };
+  SP.nbaPredict = function (m, h, a, t) {
+    if (!m || !(h in m.off) || !(a in m.off)) return null;
+    const b2bH = m.lastPlayed[h] && (t - m.lastPlayed[h]) / 86400000 < 1.6 ? 1 : 0;
+    const b2bA = m.lastPlayed[a] && (t - m.lastPlayed[a]) / 86400000 < 1.6 ? 1 : 0;
+    const ph = m.mu + m.hca / 2 + m.off[h] - m.dfn[a] + m.b2b * b2bH;
+    const pa = m.mu - m.hca / 2 + m.off[a] - m.dfn[h] + m.b2b * b2bA;
+    return { ph, pa, margin: ph - pa, total: ph + pa, b2bH, b2bA };
+  };
+  SP.normCdf = function (x) {
+    // Abramowitz-Stegun 7.1.26
+    const s = x < 0 ? -1 : 1; const z = Math.abs(x) / Math.SQRT2;
+    const t = 1 / (1 + 0.3275911 * z);
+    const y = 1 - (((((1.061405429 * t - 1.453152027) * t) + 1.421413741) * t - 0.284496736) * t + 0.254829592) * t * Math.exp(-z * z);
+    return 0.5 * (1 + s * y);
+  };
+  // Validation chronologique NBA : Elo (marge) vs ridge, sur la probabilité de victoire.
+  SP.nbaBacktest = function (games, opts = {}) {
+    const gs = [...games].sort((a, b) => a.t - b.t);
+    const warm = opts.warmup ?? Math.max(150, Math.floor(gs.length * 0.4));
+    const elo = SP.eloRun(gs.map((g) => ({ h: g.h, a: g.a, hg: g.hs, ag: g.as })), {
+      K: 20, home: 70,
+      marginMult: (mov, dr) => Math.pow(mov + 3, 0.8) / (7.5 + 0.006 * Math.abs(dr)),
+    });
+    const ys = gs.map((g) => (g.hs > g.as ? 1 : 0));
+    const preds = { elo: [], ridge: [] }, yy = [];
+    let m = null, lastFit = -Infinity;
+    for (let i = warm; i < gs.length; i++) {
+      const g = gs[i];
+      if (!m || g.t - lastFit > 7 * 86400000) { m = SP.fitNBA(gs.slice(0, i), { asOf: g.t - 1 }); lastFit = g.t; }
+      const pr = SP.nbaPredict(m, g.h, g.a, g.t);
+      if (!pr) continue;
+      const pe = 1 / (1 + Math.pow(10, -elo.preDiff[i] / 400));
+      const prr = SP.normCdf(pr.margin / m.sdMargin);
+      preds.elo.push([pe, 0, 1 - pe]); preds.ridge.push([prr, 0, 1 - prr]);
+      yy.push(ys[i] ? 0 : 2);
+    }
+    if (yy.length < 50) return null;
+    const res = { n: yy.length, models: {} };
+    for (const k of Object.keys(preds)) res.models[k] = {
+      logLoss: preds[k].reduce((s, p, i) => s + SP.logLoss3(p, yy[i]), 0) / yy.length,
+      brier: preds[k].reduce((s, p, i) => s + (p[0] - (yy[i] === 0 ? 1 : 0)) ** 2, 0) / yy.length,
+    };
+    res.weights = SP.stackWeights(preds, yy);
+    const mix = yy.map((_, i) => res.weights.elo * preds.elo[i][0] + res.weights.ridge * preds.ridge[i][0]);
+    res.ensemble = {
+      logLoss: mix.reduce((s, p, i) => s - Math.log(Math.max(1e-9, yy[i] === 0 ? p : 1 - p)), 0) / yy.length,
+      brier: mix.reduce((s, p, i) => s + (p - (yy[i] === 0 ? 1 : 0)) ** 2, 0) / yy.length,
+    };
+    res.calibration = SP.calibrationBins(mix, yy.map((y) => (y === 0 ? 1 : 0)));
+    res.elo = elo;
+    return res;
+  };
+  // Convertit une probabilité de victoire en marge attendue (inverse de Φ(m/σ)).
+  SP.probToMargin = function (p, sd) {
+    let lo = -40, hi = 40;
+    for (let i = 0; i < 60; i++) { const mid = (lo + hi) / 2; if (SP.normCdf(mid / sd) < p) lo = mid; else hi = mid; }
+    return (lo + hi) / 2;
+  };
+
+  // ---------------------------------------------------------------- Tennis
+  // Probabilité de gagner un jeu de service avec probabilité p de gagner le point.
+  SP.holdProb = function (p) {
+    const q = 1 - p;
+    const deuce = (p * p) / (p * p + q * q);
+    return p ** 4 * (1 + 4 * q + 10 * q * q) + 20 * p ** 3 * q ** 3 * deuce;
+  };
+  // Tie-break (7 points, 2 d'écart) : programmation dynamique exacte.
+  SP.tiebreakProb = function (pa, pb) {
+    // A sert le 1er point, puis alternance par 2.
+    const memo = new Map();
+    const f = (a, b) => {
+      if (a >= 7 && a - b >= 2) return 1;
+      if (b >= 7 && b - a >= 2) return 0;
+      if (a >= 6 && b >= 6 && a === b) {
+        // à égalité tardive : deux points (un service chacun)
+        const w = pa * (1 - pb), l = (1 - pa) * pb;
+        return w / (w + l);
+      }
+      const key = a * 100 + b;
+      if (memo.has(key)) return memo.get(key);
+      const k = a + b;
+      const aServes = k === 0 || Math.floor((k - 1) / 2) % 2 === 1;
+      const pw = aServes ? pa : 1 - pb;
+      const v = pw * f(a + 1, b) + (1 - pw) * f(a, b + 1);
+      memo.set(key, v);
+      return v;
+    };
+    return f(0, 0);
+  };
+  // Probabilité analytique de gain du match (sets indépendants, alternance du service ignorée
+  // au niveau du set via moyenne des deux ordres de service).
+  SP.tennisMatchProb = function (pa, pb, bestOf = 3) {
+    const ha = SP.holdProb(pa), hb = SP.holdProb(pb), tb = SP.tiebreakProb(pa, pb);
+    const setP = (aFirst) => {
+      const memo = new Map();
+      const g = (x, y) => {
+        if (x === 6 && y <= 4) return 1; if (y === 6 && x <= 4) return 0;
+        if (x === 7) return 1; if (y === 7) return 0;
+        if (x === 6 && y === 6) return tb;
+        const key = x * 10 + y; if (memo.has(key)) return memo.get(key);
+        const aServe = ((x + y) % 2 === 0) === aFirst;
+        const pw = aServe ? ha : 1 - hb;
+        const v = pw * g(x + 1, y) + (1 - pw) * g(x, y + 1);
+        memo.set(key, v); return v;
+      };
+      return g(0, 0);
+    };
+    const s = (setP(true) + setP(false)) / 2;
+    const need = (bestOf + 1) / 2;
+    const memo = new Map();
+    const m = (x, y) => {
+      if (x === need) return 1; if (y === need) return 0;
+      const k = x * 10 + y; if (memo.has(k)) return memo.get(k);
+      const v = s * m(x + 1, y) + (1 - s) * m(x, y + 1); memo.set(k, v); return v;
+    };
+    return m(0, 0);
+  };
+  // Résout l'écart de service d tel que P(match) = p cible, autour de la moyenne du circuit.
+  SP.tennisSolveServe = function (pTarget, base, bestOf = 3) {
+    let lo = -0.2, hi = 0.2;
+    for (let i = 0; i < 50; i++) {
+      const d = (lo + hi) / 2;
+      if (SP.tennisMatchProb(base + d, base - d, bestOf) < pTarget) lo = d; else hi = d;
+    }
+    const d = (lo + hi) / 2;
+    return { pa: base + d, pb: base - d, d };
+  };
+
+  // ---------------------------------------------------------------- Monte-Carlo
+  // Simulation par lots avec arrêt adaptatif. Chaque simulation tire d'abord les paramètres
+  // dans leur loi d'incertitude (incertitude épistémique), puis le résultat (aléa sportif).
+  // Le résultat est un histogramme ; tous les marchés en sont dérivés.
+  SP.simulate = function (spec, onProgress) {
+    const seed = spec.seed >>> 0;
+    const r = rng(seed);
+    const batch = spec.batch ?? 50000;
+    const maxN = spec.maxN ?? 1000000;
+    const minN = spec.minN ?? 100000;
+    const tol = spec.tol ?? 0.0015; // demi-largeur IC95 visée sur la probabilité clé
+    let n = 0;
+    const t0 = Date.now();
+    let hist, stat;
+    // terciles de scénario (défavorable / normal / favorable) selon le tirage de paramètre
+    const scen = [{ n: 0, k: 0 }, { n: 0, k: 0 }, { n: 0, k: 0 }];
+    const key = spec.keyEvent; // fonction(échantillon) -> bool, pour l'arrêt adaptatif
+    let kHits = 0;
+    if (spec.kind === 'football') {
+      const M = 16; hist = new Float64Array(M * M);
+      const { lh, la, sigma, rho } = spec;
+      // corrélation des faibles scores (Dixon-Coles) : rééchantillonnage par acceptation
+      const tauMax = Math.max(tau(0, 0, lh, la, rho), tau(0, 1, lh, la, rho), tau(1, 0, lh, la, rho), tau(1, 1, lh, la, rho), 1);
+      while (n < maxN) {
+        for (let b = 0; b < batch; b++) {
+          const [z1, z2] = normalPair(r);
+          const zc = spec.corrZ ?? 0.5; // part commune de l'incertitude (ex. tempo du match)
+          const e1 = Math.sqrt(1 - zc) * z1 + Math.sqrt(zc) * z2;
+          const e2 = Math.sqrt(1 - zc) * normalPair(r)[0] + Math.sqrt(zc) * z2;
+          const L1 = lh * Math.exp(sigma * e1 - sigma * sigma / 2);
+          const L2 = la * Math.exp(sigma * e2 - sigma * sigma / 2);
+          let x, y;
+          for (let tries = 0; tries < 20; tries++) {
+            x = poissonDraw(r, L1); y = poissonDraw(r, L2);
+            if (r() * tauMax <= tau(x, y, L1, L2, rho)) break;
+          }
+          x = Math.min(M - 1, x); y = Math.min(M - 1, y);
+          hist[x * M + y]++;
+          const hit = key(x, y) ? 1 : 0; kHits += hit;
+          const zs = e1 - e2; const si = zs < -0.6 ? 0 : zs > 0.6 ? 2 : 1;
+          scen[si].n++; scen[si].k += hit;
+        }
+        n += batch;
+        const p = kHits / n, hw = 1.96 * Math.sqrt(p * (1 - p) / n);
+        if (onProgress) onProgress(n, hw);
+        if (n >= minN && hw < tol) break;
+      }
+      stat = { M };
+    } else if (spec.kind === 'nba') {
+      const LO = 50, HI = 200, W = HI - LO + 1; hist = new Float64Array(W * W);
+      const { ph, pa, sdM, sdT, corr, sigmaM } = spec; const sigmaT = spec.sigmaT || 0;
+      while (n < maxN) {
+        for (let b = 0; b < batch; b++) {
+          const [z0] = normalPair(r);
+          const mShift = sigmaM * z0; // incertitude sur la force relative
+          const [a1, a2] = normalPair(r);
+          const em = a1, et = corr * a1 + Math.sqrt(1 - corr * corr) * a2;
+          const margin = (ph - pa) + mShift + sdM * em;
+          const total = (ph + pa) + sigmaT * normalPair(r)[0] + sdT * et;
+          let hs = Math.round((total + margin) / 2), as = Math.round((total - margin) / 2);
+          let guard = 0;
+          while (hs === as && guard++ < 5) { // prolongation : ~ N(10.5, 3) par équipe
+            const [o1, o2] = normalPair(r);
+            hs += Math.round(10.5 + 3 * o1); as += Math.round(10.5 + 3 * o2);
+          }
+          if (hs === as) hs += r() < 0.5 ? 1 : -1;
+          hs = Math.min(HI, Math.max(LO, hs)); as = Math.min(HI, Math.max(LO, as));
+          hist[(hs - LO) * W + (as - LO)]++;
+          const hit = key(hs, as) ? 1 : 0; kHits += hit;
+          const si = z0 < -0.6 ? 0 : z0 > 0.6 ? 2 : 1;
+          scen[si].n++; scen[si].k += hit;
+        }
+        n += batch;
+        const p = kHits / n, hw = 1.96 * Math.sqrt(p * (1 - p) / n);
+        if (onProgress) onProgress(n, hw);
+        if (n >= minN && hw < tol) break;
+      }
+      stat = { LO, W };
+    } else if (spec.kind === 'tennis') {
+      // simulation jeu par jeu (probabilités de jeu de service exactes), sets et tie-breaks.
+      const bestOf = spec.bestOf || 3, need = (bestOf + 1) / 2;
+      const G = 80; hist = new Float64Array(G * 2 * 6); // [jeuxTotal][vainqueur][sets perdant]
+      const marginHist = new Float64Array(81); // jeux A − jeux B, décalé de 40
+      const { pa: pa0, pb: pb0, sigmaD } = spec;
+      while (n < maxN) {
+        for (let b = 0; b < batch; b++) {
+          const z = normalPair(r)[0];
+          const d = sigmaD * z;
+          const pa = Math.min(0.95, Math.max(0.3, pa0 + d)), pb = Math.min(0.95, Math.max(0.3, pb0 - d));
+          const ha = SP.holdProb(pa), hb = SP.holdProb(pb);
+          const tbp = SP.tiebreakProb(pa, pb);
+          let sa = 0, sb = 0, ga = 0, gb = 0, aServe = r() < 0.5;
+          while (sa < need && sb < need) {
+            let x = 0, y = 0;
+            for (;;) {
+              if (x === 6 && y === 6) { if (r() < tbp) x++; else y++; aServe = !aServe; break; }
+              const win = aServe ? r() < ha : r() >= hb;
+              if (win) x++; else y++;
+              aServe = !aServe;
+              if ((x >= 6 || y >= 6) && Math.abs(x - y) >= 2) break;
+              if (x === 7 || y === 7) break;
+            }
+            ga += x; gb += y; if (x > y) sa++; else sb++;
+          }
+          const tot = Math.min(G - 1, ga + gb), wA = sa > sb ? 1 : 0, lostSets = wA ? sb : sa;
+          hist[(tot * 2 + wA) * 6 + lostSets]++;
+          marginHist[Math.max(0, Math.min(80, ga - gb + 40))]++;
+          const hit = key(ga, gb, wA) ? 1 : 0; kHits += hit;
+          const si = z < -0.6 ? 0 : z > 0.6 ? 2 : 1;
+          scen[si].n++; scen[si].k += hit;
+        }
+        n += batch;
+        const p = kHits / n, hw = 1.96 * Math.sqrt(p * (1 - p) / n);
+        if (onProgress) onProgress(n, hw);
+        if (n >= minN && hw < tol) break;
+      }
+      stat = { G, marginHist: Array.from(marginHist) };
+    }
+    const p = kHits / n;
+    return {
+      kind: spec.kind, n, seed, ms: Date.now() - t0, hist: Array.from(hist), ...stat,
+      key: { p, ci95: 1.96 * Math.sqrt(p * (1 - p) / n) },
+      scenarios: scen.map((s, i) => ({ name: ['défavorable', 'normal', 'favorable'][i], weight: s.n / n, p: s.n ? s.k / s.n : null })),
+    };
+  };
+
+  // Évalue un marché à partir de l'histogramme simulé. Renvoie P(gain), P(rembours.), rendement espéré.
+  SP.evalFromSim = function (sim, sel, odds) {
+    let w = 0, push = 0, ret = 0, tot = 0;
+    const acc = (cnt, margin) => {
+      if (!cnt) return;
+      tot += cnt;
+      const sh = SP.settleShares(margin, sel.line);
+      w += cnt * sh.win; push += cnt * sh.push; ret += cnt * (sh.win * odds + sh.push);
+    };
+    if (sim.kind === 'football') {
+      const M = sim.M;
+      for (let x = 0; x < M; x++) for (let y = 0; y < M; y++) {
+        const c = sim.hist[x * M + y]; if (!c) continue;
+        acc(c, SP.selMargin(sel, x, y));
+      }
+    } else if (sim.kind === 'nba') {
+      const { LO, W } = sim;
+      for (let i = 0; i < W; i++) for (let j = 0; j < W; j++) {
+        const c = sim.hist[i * W + j]; if (!c) continue;
+        acc(c, SP.selMargin(sel, i + LO, j + LO));
+      }
+    } else if (sim.kind === 'tennis') {
+      if (sel.type === 'spread') {
+        sim.marginHist.forEach((c, k) => acc(c, SP.selMargin(sel, k - 40, 0, null)));
+      } else {
+        const G = sim.G;
+        for (let t = 0; t < G; t++) for (let wA = 0; wA < 2; wA++) for (let ls = 0; ls < 6; ls++) {
+          const c = sim.hist[(t * 2 + wA) * 6 + ls]; if (!c) continue;
+          acc(c, SP.selMargin(sel, t, 0, wA));
+        }
+      }
+    }
+    const pWin = w / tot, pPush = push / tot;
+    return { pWin, pPush, ev: ret / tot - 1, ci95: 1.96 * Math.sqrt(pWin * (1 - pWin) / tot) };
+  };
+  // « Marge » d'une sélection pour un résultat simulé : >0 gagné, 0 nul, <0 perdu (avant ligne).
+  SP.selMargin = function (sel, x, y, wA) {
+    switch (sel.type) {
+      case 'home': return x - y;          // h2h domicile (football : nul = perdu)
+      case 'away': return y - x;
+      case 'draw': return x === y ? 1 : -1;
+      case 'over': return x + y;           // avec sel.line négative : x+y + (−line)
+      case 'under': return -(x + y);
+      case 'ahHome': return x - y;
+      case 'ahAway': return y - x;
+      case 'tennisA': return wA === 1 ? 1 : -1;
+      case 'tennisB': return wA === 0 ? 1 : -1;
+      case 'tOver': return x;             // tennis : x = total de jeux
+      case 'tUnder': return -x;
+      case 'spread': return sel.side === 'A' ? x : -x; // x = jeux A − jeux B
+      default: return 0;
+    }
+  };
+  // Convertit une sélection de cote en {type, line} pour selMargin/settleLine.
+  SP.normalizeSel = function (sel) {
+    if (sel.type === 'over' || sel.type === 'tOver') return { ...sel, line: -sel.point };
+    if (sel.type === 'under' || sel.type === 'tUnder') return { ...sel, line: sel.point };
+    if (sel.type === 'ahHome' || sel.type === 'ahAway' || sel.type === 'spread') return { ...sel, line: sel.point };
+    return { ...sel, line: null };
+  };
+
+  // ---------------------------------------------------------------- Score de qualité
+  // Score explicable sur 100 (≠ probabilité de réussite). Chaque composante est renvoyée.
+  SP.qualityScore = function (c) {
+    const parts = [];
+    const add = (name, pts, max, why) => parts.push({ name, pts: Math.max(0, Math.min(max, pts)), max, why });
+    // 1. value rapportée à l'incertitude (z-score de l'edge)
+    const z = c.edge / Math.max(0.005, c.uncert);
+    add('Value / incertitude', 25 * Math.min(1, Math.max(0, z) / 3), 25, `edge ${(c.edge * 100).toFixed(1)} pts, z=${z.toFixed(2)}`);
+    // 2. accord entre modèles
+    add('Accord des modèles', c.modelGap == null ? 6 : 15 * Math.max(0, 1 - c.modelGap / 0.08), 15,
+      c.modelGap == null ? 'un seul modèle disponible' : `écart max ${(c.modelGap * 100).toFixed(1)} pts`);
+    // 3. qualité des données
+    add('Qualité des données', c.dataQuality * 15, 15, c.dataNote || '');
+    // 4. calibration
+    add('Calibration', c.calib == null ? 4 : 10 * Math.max(0, Math.min(1, c.calib)), 10,
+      c.calib == null ? 'pas de backtest disponible' : `gain log-loss vs naïf ${(c.calib * 100).toFixed(0)}%`);
+    // 5. stabilité des simulations
+    add('Stabilité simulations', 10 * Math.max(0, 1 - c.mcSpread / 0.15), 10, `écart scénarios ${(c.mcSpread * 100).toFixed(1)} pts`);
+    // 6. disponibilité/fraîcheur des cotes
+    const fresh = Math.max(0, 1 - c.oddsAgeMin / 60);
+    add('Disponibilité des cotes', 10 * (0.6 * fresh + 0.4 * Math.min(1, c.booksAtPrice / 3)), 10,
+      `${Math.round(c.oddsAgeMin)} min, ${c.booksAtPrice} bookmaker(s) ≥ cote`);
+    // 7. risques contextuels / informations
+    add('Risques contextuels', 10 - c.riskPenalty, 10, c.riskNote || 'aucun signal');
+    // 8. zone de cote privilégiée
+    add('Zone de cote', c.odds >= 1.4 && c.odds <= 2.2 ? 5 : c.odds < 1.4 ? 2 : 3, 5, `cote ${c.odds.toFixed(2)}`);
+    const total = parts.reduce((s, p) => s + p.pts, 0);
+    return { total: Math.round(total), parts };
+  };
+
+  return SP;
+}
+if (typeof module !== 'undefined' && module.exports) module.exports = SPEngineFactory;
+
+</script>
+<script>
+/* SportPredict AI — connecteurs de données.
+ * Chaque connecteur est indépendant et renvoie des objets horodatés avec leur provenance.
+ * Aucune donnée manquante n'est inventée : un échec renvoie { ok:false, error }.
+ */
+const SPData = (() => {
+  const LS = {
+    get(k, d) { try { const v = localStorage.getItem(k); return v == null ? d : JSON.parse(v); } catch { return d; } },
+    set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); return true; } catch { return false; } },
+    del(k) { try { localStorage.removeItem(k); } catch { /* ignore */ } },
+  };
+  const log = [];
+  const apiStatus = {}; // fournisseur -> {ok, at, msg, remaining}
+  function setStatus(provider, ok, msg, extra = {}) {
+    apiStatus[provider] = { ok, at: Date.now(), msg, ...extra };
+  }
+  function meta(source, url, extra = {}) {
+    return { source, url, fetchedAt: new Date().toISOString(), status: 'vérifié', ...extra };
+  }
+
+  // Cache mémoire + localStorage, avec TTL. La clé n'inclut jamais la clé API.
+  const mem = new Map();
+  async function cachedJSON(cacheKey, url, ttlMs, provider, { headers, raw } = {}) {
+    const now = Date.now();
+    const m = mem.get(cacheKey) || LS.get('sp:c:' + cacheKey, null);
+    if (m && now - m.at < ttlMs) return { ok: true, data: m.data, at: m.at, cached: true, headers: m.headers || {} };
+    const ctrl = new AbortController();
+    const to = setTimeout(() => ctrl.abort(), 25000);
+    try {
+      const res = await fetch(url, { headers, signal: ctrl.signal });
+      const hdr = {};
+      for (const h of ['x-requests-remaining', 'x-requests-used', 'x-requests-last']) {
+        const v = res.headers.get(h); if (v != null) hdr[h] = v;
+      }
+      if (!res.ok) {
+        let body = ''; try { body = (await res.text()).slice(0, 200); } catch { /* ignore */ }
+        throw new Error(`HTTP ${res.status} ${body}`);
+      }
+      const data = await res.json();
+      const entry = { at: now, data, headers: hdr };
+      mem.set(cacheKey, entry);
+      if (!raw) LS.set('sp:c:' + cacheKey, entry);
+      setStatus(provider, true, 'OK', hdr['x-requests-remaining'] ? { remaining: +hdr['x-requests-remaining'] } : {});
+      log.push({ at: now, provider, url: cacheKey, ok: true });
+      return { ok: true, data, at: now, cached: false, headers: hdr };
+    } catch (e) {
+      const msg = e.name === 'AbortError' ? 'délai dépassé (25 s)' : (e.message || String(e));
+      setStatus(provider, false, msg);
+      log.push({ at: now, provider, url: cacheKey, ok: false, msg });
+      // stratégie de secours : dernière version en cache, signalée comme périmée
+      if (m) return { ok: true, data: m.data, at: m.at, cached: true, stale: true, error: msg, headers: m.headers || {} };
+      return { ok: false, error: msg };
+    } finally { clearTimeout(to); }
+  }
+  function purgeCache() {
+    try { Object.keys(localStorage).filter((k) => k.startsWith('sp:c:')).forEach((k) => localStorage.removeItem(k)); } catch { /* ignore */ }
+    mem.clear();
+  }
+
+  // ------------------------------------------------------------------ The Odds API
+  const ODDS = 'https://api.the-odds-api.com/v4';
+  // Correspondance compétitions The Odds API -> ESPN (identifiants publics ESPN).
+  const FOOTBALL = {
+    soccer_france_ligue_one: { espn: 'fra.1', name: 'Ligue 1', stats: true, on: true },
+    soccer_epl: { espn: 'eng.1', name: 'Premier League', stats: true, on: true },
+    soccer_spain_la_liga: { espn: 'esp.1', name: 'Liga', stats: true, on: true },
+    soccer_italy_serie_a: { espn: 'ita.1', name: 'Serie A', stats: true, on: true },
+    soccer_germany_bundesliga: { espn: 'ger.1', name: 'Bundesliga', stats: true, on: true },
+    soccer_uefa_champs_league: { espn: 'uefa.champions', name: 'Ligue des champions', stats: false, on: true },
+    soccer_uefa_europa_league: { espn: 'uefa.europa', name: 'Europa League', stats: false, on: true },
+    soccer_uefa_europa_conference_league: { espn: 'uefa.europa.conf', name: 'Conference League', stats: false, on: false },
+    soccer_france_ligue_two: { espn: 'fra.2', name: 'Ligue 2', stats: true, on: false },
+    soccer_efl_champ: { espn: 'eng.2', name: 'Championship', stats: true, on: false },
+    soccer_netherlands_eredivisie: { espn: 'ned.1', name: 'Eredivisie', stats: true, on: false },
+    soccer_portugal_primeira_liga: { espn: 'por.1', name: 'Liga Portugal', stats: true, on: false },
+  };
+
+  async function oddsSports(key) {
+    // gratuit (ne consomme pas de crédit)
+    return cachedJSON('odds:sports', `${ODDS}/sports?apiKey=${encodeURIComponent(key)}`, 30 * 60e3, 'The Odds API');
+  }
+  function isoNoMs(d) { return new Date(d).toISOString().replace(/\.\d{3}Z$/, 'Z'); }
+  async function oddsFor(key, sportKey, { regions, markets, hours = 48, ttlMin = 10 }) {
+    const from = isoNoMs(Date.now()), to = isoNoMs(Date.now() + hours * 3600e3);
+    const q = `regions=${regions}&markets=${markets}&oddsFormat=decimal&dateFormat=iso&commenceTimeFrom=${from}&commenceTimeTo=${to}`;
+    const ck = `odds:${sportKey}:${regions}:${markets}:${hours}`;
+    return cachedJSON(ck, `${ODDS}/sports/${sportKey}/odds?apiKey=${encodeURIComponent(key)}&${q}`, ttlMin * 60e3, 'The Odds API', { raw: true });
+  }
+  async function oddsEvent(key, sportKey, eventId, { regions, markets }) {
+    const q = `regions=${regions}&markets=${markets}&oddsFormat=decimal&dateFormat=iso`;
+    return cachedJSON(`odds:ev:${eventId}:${Date.now()}`, `${ODDS}/sports/${sportKey}/events/${eventId}/odds?apiKey=${encodeURIComponent(key)}&${q}`, 0, 'The Odds API', { raw: true });
+  }
+  async function oddsScores(key, sportKey, daysFrom = 3) {
+    return cachedJSON(`odds:scores:${sportKey}`, `${ODDS}/sports/${sportKey}/scores?apiKey=${encodeURIComponent(key)}&daysFrom=${daysFrom}&dateFormat=iso`, 30 * 60e3, 'The Odds API', { raw: true });
+  }
+
+  // ------------------------------------------------------------------ ESPN (public, sans clé)
+  const ESPN = 'https://site.api.espn.com/apis/site/v2/sports';
+  const ymd = (d) => new Date(d).toISOString().slice(0, 10).replace(/-/g, '');
+  function parseEspnEvents(data) {
+    const out = [];
+    for (const ev of data?.events || []) {
+      const c = ev.competitions?.[0]; if (!c) continue;
+      const home = c.competitors?.find((x) => x.homeAway === 'home'), away = c.competitors?.find((x) => x.homeAway === 'away');
+      if (!home || !away) continue;
+      out.push({
+        id: ev.id, t: Date.parse(ev.date), completed: !!ev.status?.type?.completed, state: ev.status?.type?.state,
+        h: home.team?.displayName, a: away.team?.displayName,
+        hs: home.score != null ? +home.score : null, as: away.score != null ? +away.score : null,
+        venue: c.venue?.fullName || null,
+      });
+    }
+    return out;
+  }
+  // Résultats d'une période, découpée en tranches (ESPN limite le volume par requête).
+  async function espnResults(sport, league, fromMs, toMs, chunkDays) {
+    const all = []; const errors = [];
+    for (let s = fromMs; s < toMs; s += chunkDays * 86400e3) {
+      const e = Math.min(toMs, s + (chunkDays - 1) * 86400e3);
+      const past = e < Date.now() - 2 * 86400e3;
+      const r = await cachedJSON(`espn:${sport}:${league}:${ymd(s)}-${ymd(e)}`,
+        `${ESPN}/${sport}/${league}/scoreboard?dates=${ymd(s)}-${ymd(e)}&limit=1000`,
+        past ? 30 * 86400e3 : 6 * 3600e3, 'ESPN');
+      if (!r.ok) { errors.push(r.error); continue; }
+      all.push(...parseEspnEvents(r.data));
+    }
+    const seen = new Set();
+    const games = all.filter((g) => g.completed && g.hs != null && !seen.has(g.id) && seen.add(g.id));
+    return { games, errors, meta: meta('ESPN scoreboard', `${ESPN}/${sport}/${league}/scoreboard`) };
+  }
+  async function espnScoreboard(sport, league, fromMs, toMs) {
+    const r = await cachedJSON(`espn:sb:${sport}:${league}:${ymd(fromMs)}-${ymd(toMs)}`,
+      `${ESPN}/${sport}/${league}/scoreboard?dates=${ymd(fromMs)}-${ymd(toMs)}&limit=500`, 15 * 60e3, 'ESPN');
+    return r.ok ? { ok: true, events: parseEspnEvents(r.data), at: r.at } : r;
+  }
+  async function espnSummary(sport, league, eventId) {
+    return cachedJSON(`espn:sum:${league}:${eventId}`, `${ESPN}/${sport}/${league}/summary?event=${eventId}`, 10 * 60e3, 'ESPN');
+  }
+  async function espnNews(sport, league) {
+    const r = await cachedJSON(`espn:news:${sport}:${league}`, `${ESPN}/${sport}/${league}/news?limit=50`, 30 * 60e3, 'ESPN');
+    if (!r.ok) return r;
+    return {
+      ok: true,
+      items: (r.data.articles || []).map((a) => ({
+        title: a.headline, desc: a.description || '', published: a.published || a.lastModified || null,
+        url: a.links?.web?.href || null, source: 'ESPN',
+      })),
+      at: r.at,
+    };
+  }
+  async function nbaInjuries() {
+    const r = await cachedJSON('espn:nba:injuries', `${ESPN}/basketball/nba/injuries`, 20 * 60e3, 'ESPN');
+    if (!r.ok) return r;
+    const byTeam = {};
+    for (const t of r.data.injuries || []) {
+      const name = t.displayName || t.team?.displayName;
+      byTeam[name] = (t.injuries || []).map((i) => ({
+        player: i.athlete?.displayName || '?', status: i.status || i.type?.description || '?',
+        detail: i.shortComment || i.longComment || '', date: i.date || null,
+      }));
+    }
+    return { ok: true, byTeam, at: r.at, meta: meta('ESPN injuries', `${ESPN}/basketball/nba/injuries`) };
+  }
+
+  // ------------------------------------------------------------------ appariement des noms
+  const STOP = new Set(['fc', 'cf', 'afc', 'sc', 'ac', 'as', 'ssc', 'us', 'rc', 'cd', 'ud', 'sd', 'club', 'de', 'the', 'calcio', 'fk', 'sv', 'vfb', 'vfl', 'tsg', 'bv', 'sl', 'ogc', 'losc', 'stade', 'rcd', 'ca', 'sco', 'hsc', 'aj', 'if', '1', '04', '05', '1899', '1846', '1907', '1913', 'and', 'hove']);
+  const ALIAS = {
+    'inter milan': 'internazionale', 'paris saint germain': 'paris saint-germain', 'psg': 'paris saint-germain',
+    'athletic bilbao': 'athletic club', 'la clippers': 'los angeles clippers', 'man utd': 'manchester united',
+    'man city': 'manchester city', 'wolves': 'wolverhampton wanderers', 'spurs': 'tottenham hotspur',
+    'bayern munchen': 'bayern munich', 'atletico madrid': 'atletico de madrid', 'celta vigo': 'celta',
+    'sevilla fc': 'sevilla', 'as roma': 'roma', 'ac milan': 'milan', 'olympique lyonnais': 'lyon',
+    'olympique de marseille': 'marseille', 'brest': 'stade brestois', 'rennes': 'stade rennais',
+  };
+  function norm(s) {
+    let x = (s || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[&.'’-]/g, ' ').replace(/\s+/g, ' ').trim();
+    if (ALIAS[x]) x = ALIAS[x];
+    return x;
+  }
+  function tokens(s) { return norm(s).split(' ').filter((t) => t && !STOP.has(t)); }
+  function sim(a, b) {
+    const na = norm(a), nb = norm(b);
+    if (na === nb) return 1;
+    const A = tokens(a), B = tokens(b);
+    if (!A.length || !B.length) return 0;
+    let inter = 0;
+    for (const t of A) if (B.some((u) => u === t || (t.length > 3 && u.length > 3 && (u.startsWith(t) || t.startsWith(u))))) inter++;
+    return inter / Math.max(A.length, B.length);
+  }
+  function bestMatch(name, candidates) {
+    let best = null, score = 0;
+    for (const c of candidates) { const s = sim(name, c); if (s > score) { score = s; best = c; } }
+    return { name: score >= 0.5 ? best : null, score };
+  }
+
+  // ------------------------------------------------------------------ Claude (analyse qualitative)
+  let anthropicMod = null;
+  async function claudeAnalyze(apiKey, payload) {
+    if (!anthropicMod) anthropicMod = await import('https://cdn.jsdelivr.net/npm/@anthropic-ai/sdk@0.135.0/+esm');
+    const Anthropic = anthropicMod.default || anthropicMod.Anthropic;
+    const client = new Anthropic({ apiKey, dangerouslyAllowBrowser: true });
+    const schema = {
+      type: 'object', additionalProperties: false,
+      required: ['resume', 'facteurs_favorables', 'facteurs_defavorables', 'risques', 'contradictions', 'impact', 'sources_utilisees'],
+      properties: {
+        resume: { type: 'string' },
+        facteurs_favorables: { type: 'array', items: { type: 'string' } },
+        facteurs_defavorables: { type: 'array', items: { type: 'string' } },
+        risques: { type: 'array', items: { type: 'string' } },
+        contradictions: { type: 'array', items: { type: 'string' } },
+        impact: { type: 'string', enum: ['aucun', 'mineur', 'majeur'] },
+        sources_utilisees: { type: 'array', items: { type: 'string' } },
+      },
+    };
+    const system = `Tu es l'analyste qualitatif de SportPredict AI. Tu reçois une sélection de pari déjà calculée par des modèles statistiques, ainsi que des titres d'actualité et des rapports de blessures horodatés, chacun avec un identifiant de source [S1], [S2]...
+Règles :
+- N'utilise QUE les informations fournies. N'invente aucune statistique, aucun nom, aucune blessure.
+- Ne donne pas de probabilité et ne décide pas du résultat : tu identifies uniquement des facteurs et des risques.
+- Chaque facteur ou risque cite l'identifiant de sa source, par exemple « [S3] ».
+- Une rumeur ou une information non officielle est signalée comme telle.
+- impact = "majeur" seulement si une information fournie peut changer sensiblement la probabilité (ex. absence confirmée ou incertaine d'un joueur clé, changement d'entraîneur, rotation annoncée) ; "aucun" si les sources ne disent rien de pertinent.
+- Réponds en français, de façon concise.`;
+    const res = await client.beta.messages.create({
+      model: 'claude-opus-5-5',
+      max_tokens: 4000,
+      betas: ['server-side-fallback-2026-07-01'],
+      fallbacks: 'default',
+      output_config: { effort: 'low', format: { type: 'json_schema', schema } },
+      system,
+      messages: [{ role: 'user', content: JSON.stringify(payload) }],
+    });
+    if (res.stop_reason === 'refusal') throw new Error('analyse refusée par le modèle');
+    const txt = (res.content || []).filter((b) => b.type === 'text').map((b) => b.text).join('');
+    setStatus('Claude', true, 'OK');
+    return JSON.parse(txt);
+  }
+
+  return {
+    LS, log, apiStatus, setStatus, meta, purgeCache, FOOTBALL,
+    oddsSports, oddsFor, oddsEvent, oddsScores,
+    espnResults, espnScoreboard, espnSummary, espnNews, nbaInjuries,
+    norm, sim, bestMatch, claudeAnalyze,
+  };
+})();
+
+</script>
+<script>
+/* SportPredict AI — historique immuable, résultats, CLV et performance. */
+const SPStore = (() => {
+  const D = SPData;
+  const K = { analyses: 'sp:analyses', picks: 'sp:picks', results: 'sp:results', clv: 'sp:clv' };
+  const get = (k, d) => D.LS.get(k, d);
+
+  function saveAnalysis(A) {
+    // conserve les 30 dernières analyses détaillées (l'événementiel complet est volumineux)
+    const list = get(K.analyses, []);
+    list.push(A);
+    while (list.length > 30) list.shift();
+    if (!D.LS.set(K.analyses, list)) { // stockage plein : on allège les plus anciennes
+      list.forEach((a, i) => { if (i < list.length - 3) a.events = []; });
+      D.LS.set(K.analyses, list);
+    }
+    // publication : les pronostics publiés ne sont jamais modifiés ensuite
+    const picks = get(K.picks, []);
+    const pub = [A.best, ...A.values].filter(Boolean).map((p) => ({ ...p, analysisId: A.id, parentId: A.parentId, publishedAt: A.finishedAt }));
+    for (const p of pub) {
+      // version : nombre de publications antérieures sur la même sélection du même événement
+      p.version = picks.filter((x) => x.eventId === p.eventId && x.selId === p.selId).length + 1;
+      picks.push(p);
+    }
+    D.LS.set(K.picks, picks);
+    return pub;
+  }
+  const analyses = () => get(K.analyses, []);
+  const lastAnalysis = () => { const a = analyses(); return a[a.length - 1] || null; };
+  const picks = () => get(K.picks, []);
+  const results = () => get(K.results, {});
+  const clv = () => get(K.clv, {});
+
+  // Résultat : enregistré à part, le pronostic publié reste intact.
+  function setResult(pid, r) {
+    const all = results();
+    if (all[pid] && !r.overwrite) return false;
+    all[pid] = { ...r, at: Date.now() };
+    D.LS.set(K.results, all);
+    return true;
+  }
+  function recordCLV(pid, data) {
+    const all = clv();
+    all[pid] = { ...(all[pid] || {}), last: { ...data, at: Date.now() } };
+    D.LS.set(K.clv, all);
+  }
+
+  // Règlement d'un pari à partir du score final.
+  function settle(p, hs, as) {
+    const SP = SPPipeline.SP;
+    let sel;
+    if (p.sport === 'tennis') return null;
+    sel = SP.normalizeSel({ type: p.type, point: p.point });
+    const sh = SP.settleShares(SP.selMargin(sel, hs, as), sel.line);
+    const profit = sh.win * (p.odds - 1) - (1 - sh.win - sh.push);
+    const status = sh.win === 1 ? 'gagné' : sh.push === 1 ? 'remboursé' : sh.win === 0.5 ? 'demi-gagné' : (sh.push === 0.5 ? 'demi-perdu' : 'perdu');
+    return { status, profit, score: `${hs}-${as}`, win: sh.win, push: sh.push };
+  }
+  async function autoSettle() {
+    const pend = picks().filter((p) => !results()[p.pid] && p.t < Date.now() - 2.5 * 3600e3 && p.sport !== 'tennis');
+    let n = 0;
+    const groups = new Map();
+    for (const p of pend) {
+      const lg = p.sport === 'nba' ? ['basketball', 'nba'] : ['soccer', D.FOOTBALL[p.sportKey]?.espn];
+      if (!lg[1]) continue;
+      const key = lg.join('|') + '|' + new Date(p.t).toISOString().slice(0, 10);
+      if (!groups.has(key)) groups.set(key, { lg, t: p.t, list: [] });
+      groups.get(key).list.push(p);
+    }
+    for (const g of groups.values()) {
+      const sb = await D.espnScoreboard(g.lg[0], g.lg[1], g.t - 86400e3, g.t + 86400e3);
+      if (!sb.ok) continue;
+      for (const p of g.list) {
+        const ev = sb.events.find((x) => x.completed && D.sim(x.h, p.home) >= 0.5 && D.sim(x.a, p.away) >= 0.5 && Math.abs(x.t - p.t) < 36 * 3600e3);
+        if (!ev) continue;
+        const r = settle(p, ev.hs, ev.as);
+        if (r && setResult(p.pid, { ...r, source: 'ESPN scoreboard (automatique)', espnId: ev.id })) n++;
+      }
+    }
+    return n;
+  }
+
+  // Performance : mise fixe d'une unité par pronostic publié.
+  function perf(days) {
+    const R = results(), CL = clv();
+    const since = days ? Date.now() - days * 86400e3 : 0;
+    const ps = picks().filter((p) => p.publishedAt >= since);
+    const settled = ps.filter((p) => R[p.pid] && R[p.pid].status !== 'annulé');
+    const sum = (a, f) => a.reduce((s, x) => s + f(x), 0);
+    const profit = sum(settled, (p) => R[p.pid].profit);
+    const wins = settled.filter((p) => R[p.pid].win > 0).length;
+    const bin = settled.filter((p) => R[p.pid].push === 0 && (R[p.pid].win === 0 || R[p.pid].win === 1));
+    const brier = bin.length ? sum(bin, (p) => (p.p - R[p.pid].win) ** 2) / bin.length : null;
+    const logloss = bin.length ? sum(bin, (p) => -Math.log(Math.max(1e-9, R[p.pid].win ? p.p : 1 - p.p))) / bin.length : null;
+    const brierMkt = bin.filter((p) => p.pMkt != null).length ? sum(bin.filter((p) => p.pMkt != null), (p) => (p.pMkt - R[p.pid].win) ** 2) / bin.filter((p) => p.pMkt != null).length : null;
+    const clvs = ps.map((p) => CL[p.pid]?.last).filter((x) => x && x.fair);
+    const clvAvg = clvs.length ? sum(ps.filter((p) => CL[p.pid]?.last?.fair), (p) => p.odds * CL[p.pid].last.fair - 1) / clvs.length : null;
+    const group = (f) => {
+      const m = {};
+      for (const p of settled) { const k = f(p); m[k] = m[k] || { n: 0, profit: 0, wins: 0 }; m[k].n++; m[k].profit += R[p.pid].profit; m[k].wins += R[p.pid].win > 0 ? 1 : 0; }
+      return m;
+    };
+    const curve = []; let cum = 0;
+    for (const p of [...settled].sort((a, b) => a.t - b.t)) { cum += R[p.pid].profit; curve.push({ t: p.t, v: cum }); }
+    // poids du marché suggéré (non appliqué automatiquement) : minimise la log-loss sur l'historique
+    const both = bin.filter((p) => p.pMkt != null && p.pStats != null);
+    let wSuggest = null;
+    if (both.length >= 50) {
+      let best = null;
+      for (let w = 0; w <= 1.0001; w += 0.05) {
+        const ll = sum(both, (p) => { const q = w * p.pMkt + (1 - w) * p.pStats; return -Math.log(Math.max(1e-9, R[p.pid].win ? q : 1 - q)); });
+        if (!best || ll < best.ll) best = { ll, w: Math.round(w * 100) / 100 };
+      }
+      wSuggest = { ...best, n: both.length };
+    }
+    return {
+      n: ps.length, settled: settled.length, pending: ps.length - settled.length, wins, hit: settled.length ? wins / settled.length : null,
+      profit, yield: settled.length ? profit / settled.length : null, roiBank: profit / 100, avgOdds: settled.length ? sum(settled, (p) => p.odds) / settled.length : null,
+      brier, logloss, brierMkt, clv: clvAvg, nClv: clvs.length,
+      bySport: group((p) => p.sport), byMarket: group((p) => p.market), byMonth: group((p) => new Date(p.t).toISOString().slice(0, 7)),
+      curve, calibration: SPPipeline.SP.calibrationBins(bin.map((p) => p.p), bin.map((p) => R[p.pid].win)), wSuggest,
+    };
+  }
+
+  function exportAll() {
+    return JSON.stringify({ format: 'sportpredict-v1', exportedAt: new Date().toISOString(), analyses: analyses(), picks: picks(), results: results(), clv: clv() });
+  }
+  function importAll(txt) {
+    const d = JSON.parse(txt);
+    if (d.format !== 'sportpredict-v1') throw new Error('format de fichier inconnu');
+    // fusion sans écrasement des pronostics existants
+    const have = new Set(picks().map((p) => p.pid));
+    D.LS.set(K.picks, [...picks(), ...d.picks.filter((p) => !have.has(p.pid))]);
+    D.LS.set(K.results, { ...d.results, ...results() });
+    D.LS.set(K.clv, { ...d.clv, ...clv() });
+    const ha = new Set(analyses().map((a) => a.id));
+    D.LS.set(K.analyses, [...d.analyses.filter((a) => !ha.has(a.id)).map((a) => ({ ...a, events: [] })), ...analyses()].slice(-30));
+  }
+  return { saveAnalysis, analyses, lastAnalysis, picks, results, clv, setResult, recordCLV, autoSettle, perf, exportAll, importAll, settle };
+})();
+
+</script>
+<script>
+/* SportPredict AI — pipeline d'analyse (phase 1 présélection, phase 2 approfondie). */
+const SPPipeline = (() => {
+  const SP = SPEngineFactory();
+  const D = SPData;
+  const DAY = 86400e3;
+
+  // ------------------------------------------------------------ configuration
+  const DEFAULT_CFG = {
+    oddsKey: '', claudeKey: '', regions: 'eu', markets: 'h2h,totals,spreads',
+    leagues: Object.fromEntries(Object.entries(D.FOOTBALL).map(([k, v]) => [k, v.on])),
+    tennis: true, nba: true, maxTennisTournaments: 4,
+    wMarket: 0.65, minEV: 0.02, minOdds: 1.20, maxOdds: 3.5, prefLo: 1.40, prefHi: 2.20,
+    maxOddsAgeMin: 45, maxGap: 0.10, maxSims: 1000000, minSims: 100000, tol: 0.0015, phase2Events: 14,
+    hours: 24, extendTo48: true, autoOn: false, autoTime: '09:00', notif: false, preMatchRecheck: false,
+  };
+  function cfg() {
+    const c = { ...DEFAULT_CFG, ...D.LS.get('sp:cfg', {}) };
+    c.leagues = { ...DEFAULT_CFG.leagues, ...(c.leagues || {}) };
+    return c;
+  }
+  function saveCfg(c) { D.LS.set('sp:cfg', c); }
+
+  // ------------------------------------------------------------ workers Monte-Carlo
+  let pool = null;
+  function makePool() {
+    const src = `${SPEngineFactory.toString()}
+const SP = SPEngineFactory();
+onmessage = (e) => {
+  const { id, spec, sel } = e.data;
+  const key = (x, y, w) => {
+    const m = sel.type === 'spread' ? SP.selMargin(sel, x - y, 0, w) : SP.selMargin(sel, x, y, w);
+    return SP.settleShares(m, sel.line).win > 0.5;
+  };
+  try {
+    const out = SP.simulate({ ...spec, keyEvent: key }, (n) => postMessage({ id, progress: n }));
+    postMessage({ id, done: out });
+  } catch (err) { postMessage({ id, error: String(err) }); }
+};`;
+    const url = URL.createObjectURL(new Blob([src], { type: 'text/javascript' }));
+    const n = Math.max(1, Math.min(4, (navigator.hardwareConcurrency || 2) - 1));
+    const workers = Array.from({ length: n }, () => new Worker(url));
+    return { workers, n };
+  }
+  function runSims(tasks, onProgress) {
+    if (!pool) pool = makePool();
+    return new Promise((resolve) => {
+      const results = new Array(tasks.length);
+      let next = 0, done = 0, simsDone = 0;
+      const live = new Map();
+      if (!tasks.length) return resolve(results);
+      const start = (w) => {
+        if (next >= tasks.length) return;
+        const i = next++;
+        live.set(i, 0);
+        w.onmessage = (e) => {
+          const m = e.data;
+          if (m.progress != null) { live.set(i, m.progress); onProgress && onProgress(done, tasks.length, simsDone + [...live.values()].reduce((a, b) => a + b, 0)); return; }
+          live.delete(i);
+          results[i] = m.done || { error: m.error };
+          if (m.done) simsDone += m.done.n;
+          done++;
+          onProgress && onProgress(done, tasks.length, simsDone);
+          if (done === tasks.length) resolve(results); else start(w);
+        };
+        w.postMessage({ id: i, spec: tasks[i].spec, sel: tasks[i].sel });
+      };
+      pool.workers.forEach(start);
+    });
+  }
+
+  // ------------------------------------------------------------ marchés
+  function buildMarkets(ev) {
+    const mk = { h2h: new Map(), totals: new Map(), spreads: new Map() };
+    let sharp = null;
+    for (const b of ev.bookmakers || []) {
+      for (const m of b.markets || []) {
+        if (!mk[m.key]) continue;
+        // regroupe par ligne : h2h -> 'main' ; totals -> point ; spreads -> point du domicile/joueur A
+        const groups = new Map();
+        for (const o of m.outcomes) {
+          let g = 'main';
+          if (m.key === 'totals') g = String(o.point);
+          if (m.key === 'spreads') g = String(o.name === ev.home_team ? o.point : -o.point);
+          if (!groups.has(g)) groups.set(g, []);
+          groups.get(g).push(o);
+        }
+        for (const [g, outs] of groups) {
+          if (!mk[m.key].has(g)) mk[m.key].set(g, { line: g, books: [] });
+          mk[m.key].get(g).books.push({ book: b.key, title: b.title, last: Date.parse(m.last_update || b.last_update), outs });
+        }
+      }
+      if (b.key === 'pinnacle') sharp = 'pinnacle';
+    }
+    // sélections
+    const sels = [];
+    const label = (mkey, o, g) => {
+      if (mkey === 'h2h') return o.name === 'Draw' ? 'Match nul' : `${o.name} gagne`;
+      if (mkey === 'totals') return `${o.name === 'Over' ? 'Plus' : 'Moins'} de ${o.point}`;
+      return `${o.name} ${o.point > 0 ? '+' : ''}${o.point}`;
+    };
+    for (const mkey of ['h2h', 'totals', 'spreads']) {
+      for (const [g, grp] of mk[mkey]) {
+        const names = [...new Set(grp.books.flatMap((b) => b.outs.map((o) => o.name)))];
+        const nOut = mkey === 'h2h' ? (names.includes('Draw') ? 3 : 2) : 2;
+        // probabilité juste par livre (marge retirée), uniquement si le livre couvre toutes les issues
+        const fairByBook = [];
+        for (const b of grp.books) {
+          if (b.outs.length !== nOut) continue;
+          const pr = SP.devig(b.outs.map((o) => o.price));
+          if (!pr) continue;
+          fairByBook.push({ book: b.book, p: Object.fromEntries(b.outs.map((o, i) => [o.name, pr[i]])), margin: SP.overround(b.outs.map((o) => o.price)) });
+        }
+        for (const name of names) {
+          const offers = [];
+          for (const b of grp.books) {
+            const o = b.outs.find((x) => x.name === name); if (!o) continue;
+            offers.push({ book: b.book, title: b.title, price: o.price, point: o.point, last: b.last });
+          }
+          if (!offers.length) continue;
+          offers.sort((x, y) => y.price - x.price);
+          const pin = fairByBook.find((f) => f.book === 'pinnacle');
+          const fps = fairByBook.map((f) => f.p[name]).filter((x) => x != null);
+          const fair = pin ? pin.p[name] : (fps.length ? SP.median(fps) : null);
+          const o0 = offers[0];
+          let type;
+          if (mkey === 'h2h') type = name === 'Draw' ? 'draw' : (name === ev.home_team ? 'home' : 'away');
+          if (mkey === 'totals') type = name === 'Over' ? 'over' : 'under';
+          if (mkey === 'spreads') type = name === ev.home_team ? 'ahHome' : 'ahAway';
+          sels.push({
+            id: `${mkey}|${g}|${name}`, mkey, line: g, name, type, point: o0.point ?? null,
+            label: label(mkey, { name, point: o0.point }, g), offers, best: o0, second: offers[1] || null,
+            mean: offers.reduce((s, x) => s + x.price, 0) / offers.length,
+            fairMkt: fair, fairSource: pin ? 'Pinnacle (marge retirée)' : (fps.length ? `consensus de ${fps.length} bookmakers (médiane, marge retirée)` : 'indisponible'),
+            fairSd: SP.sd(fps), nBooks: offers.length,
+            pinnacle: offers.find((x) => x.book === 'pinnacle')?.price || null,
+          });
+        }
+      }
+    }
+    return { sels, sharp, nBooks: (ev.bookmakers || []).length };
+  }
+
+  // ------------------------------------------------------------ données statistiques
+  async function footballStats(espnLeague, step) {
+    const seasonStart = Date.UTC(new Date().getUTCFullYear() - (new Date().getUTCMonth() < 6 ? 2 : 1), 6, 15);
+    const r = await D.espnResults('soccer', espnLeague, seasonStart, Date.now(), 45);
+    if (!r.games.length) return { ok: false, error: r.errors[0] || 'aucun résultat renvoyé par ESPN' };
+    const ms = r.games.map((g) => ({ t: g.t, h: g.h, a: g.a, hg: g.hs, ag: g.as })).sort((a, b) => a.t - b.t);
+    await new Promise((res) => setTimeout(res, 0));
+    const bt = ms.length >= 120 ? SP.footballBacktest(ms) : null;
+    const dc = SP.fitDixonColes(ms);
+    step && step.note(`${espnLeague}: ${ms.length} matchs`);
+    return { ok: true, n: ms.length, ms, dc, bt, errors: r.errors, meta: r.meta, last: ms[ms.length - 1]?.t };
+  }
+  async function nbaStats() {
+    const y = new Date().getUTCFullYear(), mo = new Date().getUTCMonth();
+    const seasonStart = Date.UTC(mo >= 9 ? y - 1 : y - 2, 9, 15); // saison précédente + saison en cours
+    const r = await D.espnResults('basketball', 'nba', seasonStart, Date.now(), 12);
+    if (!r.games.length) return { ok: false, error: r.errors[0] || 'aucun résultat renvoyé par ESPN' };
+    const gs = r.games.map((g) => ({ t: g.t, h: g.h, a: g.a, hs: g.hs, as: g.as })).sort((a, b) => a.t - b.t);
+    await new Promise((res) => setTimeout(res, 0));
+    const bt = gs.length >= 300 ? SP.nbaBacktest(gs) : null;
+    const m = SP.fitNBA(gs);
+    const elo = bt ? bt.elo : SP.eloRun(gs.map((g) => ({ h: g.h, a: g.a, hg: g.hs, ag: g.as })), { K: 20, home: 70 });
+    return { ok: true, n: gs.length, gs, model: m, bt, elo, errors: r.errors, meta: r.meta };
+  }
+
+  // ------------------------------------------------------------ tennis
+  const CLAY = /(roland|french open|monte|madrid|rome|italian|barcelona|hamburg|geneva|lyon|bastad|gstaad|umag|kitzb|estoril|munich|houston|marrakech|buenos|rio|santiago|cordoba|charleston|bogota|rabat|strasbourg|palermo|prague|warsaw|iasi|parma)/i;
+  const GRASS = /(wimbledon|queen|halle|eastbourne|hertogenbosch|mallorca|stuttgart open|newport|berlin|bad homburg|nottingham|birmingham)/i;
+  const INDOOR = /(paris masters|atp finals|wta finals|vienna|basel|stockholm|antwerp|metz|sofia|rotterdam|marseille|montpellier|dallas|linz|ostrava|moscow|st\.? petersburg|astana|belgrade|next gen|davis cup|billie jean)/i;
+  function tennisContext(sportKey, title) {
+    const s = `${sportKey} ${title}`;
+    const surface = CLAY.test(s) ? 'terre battue' : GRASS.test(s) ? 'gazon' : INDOOR.test(s) ? 'dur indoor' : 'dur outdoor';
+    const surfaceVerified = CLAY.test(s) || GRASS.test(s) || INDOOR.test(s);
+    const wta = /wta/i.test(sportKey);
+    const slam = /(aus_open|french_open|wimbledon|us_open)/i.test(sportKey);
+    // moyennes circuit de points gagnés au service (ordre de grandeur public ATP/WTA) — hypothèse paramétrique
+    const base = wta ? { 'terre battue': 0.555, gazon: 0.585, 'dur indoor': 0.575, 'dur outdoor': 0.565 }[surface]
+      : { 'terre battue': 0.625, gazon: 0.665, 'dur indoor': 0.655, 'dur outdoor': 0.645 }[surface];
+    return { surface, surfaceVerified, tour: wta ? 'WTA' : 'ATP', bestOf: slam && !wta ? 5 : 3, base };
+  }
+
+  // ------------------------------------------------------------ évaluation d'un événement
+  function selProbFromMatrix(mat, sel) {
+    const pseudo = { kind: 'football', M: mat.length, hist: mat.flat() };
+    return SP.evalFromSim(pseudo, SP.normalizeSel(sel), sel.best.price);
+  }
+  function modelFootball(E, C, stats) {
+    const h2h = E.mk.sels.filter((s) => s.mkey === 'h2h');
+    const get = (t) => h2h.find((s) => s.type === t)?.fairMkt;
+    const p1x2 = [get('home'), get('draw'), get('away')];
+    if (p1x2.some((x) => x == null)) return { error: 'cotes 1X2 incomplètes' };
+    const tots = E.mk.sels.filter((s) => s.mkey === 'totals' && s.type === 'over' && s.fairMkt != null);
+    tots.sort((a, b) => Math.abs(a.point - 2.5) - Math.abs(b.point - 2.5));
+    const over = tots[0] ? { line: tots[0].point, p: tots[0].fairMkt } : null;
+    const lm = SP.impliedLambdas(p1x2, over);
+    const out = { models: [{ name: 'Marché (marge retirée)', p1x2, lh: lm.lh, la: lm.la }], mkt: lm };
+    let ls = null, statsNote = 'statistiques indisponibles pour cette compétition';
+    if (stats && stats.ok && stats.dc) {
+      const mh = D.bestMatch(E.home, stats.dc.teams), ma = D.bestMatch(E.away, stats.dc.teams);
+      if (mh.name && ma.name) {
+        const lam = SP.dcLambdas(stats.dc, mh.name, ma.name);
+        const pdc = SP.matrix1x2(SP.scoreMatrix(lam.lh, lam.la, stats.dc.rho));
+        out.models.push({ name: 'Dixon-Coles (pondéré temps)', p1x2: pdc, lh: lam.lh, la: lam.la });
+        let pst = pdc;
+        if (stats.bt) {
+          const R = stats.bt.elo.ratings;
+          const diff = (R.get(mh.name) ?? 1500) + stats.bt.elo.H - (R.get(ma.name) ?? 1500);
+          const pel = SP.ordinalProbs(stats.bt.ordinal, diff);
+          out.models.push({ name: 'Elo + régression logistique ordinale', p1x2: pel });
+          const w = stats.bt.weights;
+          pst = [0, 1, 2].map((i) => w.dc * pdc[i] + w.elo * pel[i]);
+          out.models.push({ name: `Ensemble stats (poids backtest DC ${w.dc.toFixed(2)} / Elo ${w.elo.toFixed(2)})`, p1x2: pst });
+        }
+        // λ stats : cohérents avec l'ensemble 1X2 et le total de Dixon-Coles
+        const mDC = SP.scoreMatrix(lam.lh, lam.la, stats.dc.rho);
+        ls = SP.impliedLambdas(pst, { line: 2.5, p: SP.matrixOver(mDC, 2.5) });
+        out.st = { ...ls, p1x2: pst, match: [mh, ma], games: [stats.dc.games[mh.name], stats.dc.games[ma.name]] };
+        statsNote = `${stats.n} matchs ESPN, appariement ${(Math.min(mh.score, ma.score) * 100).toFixed(0)}%`;
+      } else statsNote = `équipe(s) non appariée(s) dans les données ESPN (${E.home} / ${E.away})`;
+    }
+    out.statsNote = statsNote;
+    const w = C.wMarket;
+    const lh = ls ? Math.exp(w * Math.log(lm.lh) + (1 - w) * Math.log(ls.lh)) : lm.lh;
+    const la = ls ? Math.exp(w * Math.log(lm.la) + (1 - w) * Math.log(ls.la)) : lm.la;
+    const gap = ls ? (Math.abs(Math.log(ls.lh / lm.lh)) + Math.abs(Math.log(ls.la / lm.la))) / 2 : 0;
+    const sigma = Math.sqrt(0.06 ** 2 + (gap / 2) ** 2) + (ls ? 0 : 0.03);
+    out.final = { lh, la, rho: stats?.dc?.rho ?? -0.05, sigma };
+    const matF = SP.scoreMatrix(lh, la, out.final.rho), matM = SP.scoreMatrix(lm.lh, lm.la, -0.05), matS = ls ? SP.scoreMatrix(ls.lh, ls.la, stats.dc.rho) : null;
+    out.models.push({ name: `Final (marché ${w} / stats ${(1 - w).toFixed(2)})`, p1x2: SP.matrix1x2(matF), lh, la });
+    out.phase1 = (sel) => {
+      const pf = selProbFromMatrix(matF, sel);
+      const pm = sel.fairMkt != null && sel.mkey !== 'spreads' ? sel.fairMkt : selProbFromMatrix(matM, sel).pWin;
+      const ps = matS ? selProbFromMatrix(matS, sel).pWin : null;
+      return { pWin: pf.pWin, pPush: pf.pPush, ev: pf.ev, pMkt: pm, pStats: ps };
+    };
+    out.simSpec = { kind: 'football', lh, la, rho: out.final.rho, sigma };
+    out.dataQuality = ls ? Math.min(1, 0.5 + Math.min(out.st.games[0], out.st.games[1]) / 40) : 0.35;
+    out.calib = stats?.bt ? Math.max(0, (stats.bt.naive.logLoss - stats.bt.ensemble.logLoss) / 0.08) : null;
+    return out;
+  }
+  function modelNBA(E, C, stats) {
+    const h2h = E.mk.sels.filter((s) => s.mkey === 'h2h');
+    const pH = h2h.find((s) => s.type === 'home')?.fairMkt;
+    if (pH == null) return { error: 'cotes vainqueur incomplètes' };
+    const sdM = stats?.model?.sdMargin || 12.5, sdT = stats?.model?.sdTotal || 18.5;
+    let mm = SP.probToMargin(pH, sdM);
+    const sp = E.mk.sels.filter((s) => s.mkey === 'spreads' && s.type === 'ahHome' && s.fairMkt != null).sort((a, b) => Math.abs(a.fairMkt - 0.5) - Math.abs(b.fairMkt - 0.5))[0];
+    if (sp) mm = -sp.point + SP.probToMargin(sp.fairMkt, sdM);
+    const to = E.mk.sels.filter((s) => s.mkey === 'totals' && s.type === 'over' && s.fairMkt != null).sort((a, b) => Math.abs(a.fairMkt - 0.5) - Math.abs(b.fairMkt - 0.5))[0];
+    const tm = to ? to.point + SP.probToMargin(to.fairMkt, sdT) : null;
+    const out = { models: [{ name: 'Marché (marge retirée)', pHome: pH, margin: mm, total: tm }], statsNote: 'statistiques indisponibles' };
+    let ms = null, ts = null;
+    if (stats && stats.ok && stats.model) {
+      const mh = D.bestMatch(E.home, stats.model.teams), ma = D.bestMatch(E.away, stats.model.teams);
+      if (mh.name && ma.name) {
+        const pr = SP.nbaPredict(stats.model, mh.name, ma.name, E.t);
+        out.models.push({ name: `Régression ridge (repos/back-to-back β=${stats.model.b2b.toFixed(1)})`, pHome: SP.normCdf(pr.margin / sdM), margin: pr.margin, total: pr.total });
+        ms = pr.margin; ts = pr.total; out.b2b = { home: pr.b2bH, away: pr.b2bA };
+        if (stats.bt) {
+          const R = stats.elo.ratings;
+          const pe = 1 / (1 + Math.pow(10, -((R.get(mh.name) ?? 1500) + 70 - (R.get(ma.name) ?? 1500)) / 400));
+          const me = SP.probToMargin(pe, sdM);
+          out.models.push({ name: 'Elo (marge de victoire)', pHome: pe, margin: me });
+          const w = stats.bt.weights;
+          ms = w.ridge * pr.margin + w.elo * me;
+          out.models.push({ name: `Ensemble stats (ridge ${w.ridge.toFixed(2)} / Elo ${w.elo.toFixed(2)})`, pHome: SP.normCdf(ms / sdM), margin: ms, total: ts });
+        }
+        out.statsNote = `${stats.n} matchs ESPN, appariement ${(Math.min(mh.score, ma.score) * 100).toFixed(0)}%`;
+        out.matched = [mh.name, ma.name];
+      } else out.statsNote = `équipe(s) non appariée(s) (${E.home} / ${E.away})`;
+    }
+    const w = C.wMarket;
+    const fM = ms != null ? w * mm + (1 - w) * ms : mm;
+    const fT = tm != null ? (ts != null ? w * tm + (1 - w) * ts : tm) : ts;
+    if (fT == null) return { error: 'aucun total disponible (ni marché ni modèle)' };
+    out.models.push({ name: `Final (marché ${w} / stats ${(1 - w).toFixed(2)})`, pHome: SP.normCdf(fM / sdM), margin: fM, total: fT });
+    const sigmaM = Math.sqrt(1 + (ms != null ? ((ms - mm) / 2) ** 2 : 4));
+    const sigmaT = Math.sqrt(2 + (ts != null && tm != null ? ((ts - tm) / 2) ** 2 : 9));
+    const corr = stats?.model?.corr ?? 0;
+    out.simSpec = { kind: 'nba', ph: (fT + fM) / 2, pa: (fT - fM) / 2, sdM, sdT, corr: Math.max(-0.5, Math.min(0.5, corr)), sigmaM, sigmaT };
+    const pNorm = (mu, sd, sel, line) => {
+      // probabilité analytique (loi normale) d'une sélection
+      if (sel.mkey === 'h2h') return sel.type === 'home' ? SP.normCdf(mu.m / sd.m) : 1 - SP.normCdf(mu.m / sd.m);
+      if (sel.mkey === 'spreads') return sel.type === 'ahHome' ? SP.normCdf((mu.m + sel.point) / sd.m) : 1 - SP.normCdf((mu.m - sel.point) / sd.m);
+      if (mu.t == null) return null;
+      return sel.type === 'over' ? 1 - SP.normCdf((sel.point - mu.t) / sd.t) : SP.normCdf((sel.point - mu.t) / sd.t);
+    };
+    const sdF = { m: Math.sqrt(sdM ** 2 + sigmaM ** 2), t: Math.sqrt(sdT ** 2 + sigmaT ** 2) };
+    out.phase1 = (sel) => {
+      const p = pNorm({ m: fM, t: fT }, sdF, sel);
+      return {
+        pWin: p, pPush: 0, ev: p * sel.best.price - 1,
+        pMkt: sel.fairMkt ?? pNorm({ m: mm, t: tm }, { m: sdM, t: sdT }, sel),
+        pStats: ms != null ? pNorm({ m: ms, t: ts }, { m: sdM, t: sdT }, sel) : null,
+      };
+    };
+    out.dataQuality = ms != null ? 0.85 : 0.4;
+    out.calib = stats?.bt ? Math.max(0, (Math.log(2) - stats.bt.ensemble.logLoss) / 0.1) : null;
+    return out;
+  }
+  function modelTennis(E) {
+    const h2h = E.mk.sels.filter((s) => s.mkey === 'h2h');
+    const sA = h2h.find((s) => s.name === E.home);
+    if (!sA || sA.fairMkt == null) return { error: 'cotes vainqueur incomplètes' };
+    const ctx = tennisContext(E.sportKey, E.comp);
+    const sv = SP.tennisSolveServe(sA.fairMkt, ctx.base, ctx.bestOf);
+    const sigmaD = Math.max(0.004, (sA.fairSd || 0.01) / 9);
+    const out = {
+      ctx, models: [{ name: 'Marché (marge retirée)', pA: sA.fairMkt }, { name: `Service implicite (${ctx.tour}, ${ctx.surface}, BO${ctx.bestOf})`, serveA: sv.pa, serveB: sv.pb }],
+      statsNote: 'modèle unique dérivé du marché : Elo surface et statistiques de service non disponibles via une source gratuite accessible',
+      simSpec: { kind: 'tennis', pa: sv.pa, pb: sv.pb, sigmaD, bestOf: ctx.bestOf },
+      dataQuality: ctx.surfaceVerified ? 0.4 : 0.3, calib: null,
+    };
+    out.phase1 = null; // phase 1 tennis : simulation rapide
+    return out;
+  }
+
+  // ------------------------------------------------------------ validation
+  function assess(c, C, ctx) {
+    const reasons = [], warn = [];
+    const o = c.best.price;
+    if (o < C.minOdds) reasons.push(`cote ${o.toFixed(2)} < minimum ${C.minOdds.toFixed(2)}`);
+    if (o > C.maxOdds) reasons.push(`cote ${o.toFixed(2)} > plafond ${C.maxOdds.toFixed(2)}`);
+    if (c.t <= Date.now() + 15 * 60e3) reasons.push('événement commencé ou trop proche du coup d’envoi');
+    const ageMin = (Date.now() - c.best.last) / 60e3;
+    if (!(ageMin <= C.maxOddsAgeMin)) reasons.push(`cote trop ancienne (${Math.round(ageMin)} min)`);
+    if (c.ev <= 0) reasons.push('espérance négative');
+    else if (c.ev < C.minEV) reasons.push(`EV ${(c.ev * 100).toFixed(1)}% < seuil ${(C.minEV * 100).toFixed(1)}%`);
+    if (c.edge < c.uncert) reasons.push(`value (${(c.edge * 100).toFixed(1)} pts) inférieure à l’incertitude (${(c.uncert * 100).toFixed(1)} pts)`);
+    if (c.second && c.best.book !== 'pinnacle' && c.best.price / c.second.price > 1.07) reasons.push(`cote isolée (${c.best.title} ${c.best.price} vs ${c.second.price} ailleurs) : possible erreur ou cote obsolète`);
+    if (c.modelGap != null && c.modelGap > C.maxGap) reasons.push(`divergence modèles/marché de ${(c.modelGap * 100).toFixed(1)} pts non expliquée`);
+    if (c.fairMkt == null && c.sport !== 'nba') reasons.push('probabilité de marché indisponible');
+    if (c.simN && c.simCI > 0.01) reasons.push('simulations insuffisamment stables');
+    if (c.mcSpread > 0.2) reasons.push('résultat trop sensible aux hypothèses (scénarios)');
+    if (c.llm?.impact === 'majeur') reasons.push('information majeure à confirmer (analyse des actualités)');
+    if (c.critical) reasons.push(c.critical);
+    for (const w of ctx.warnings || []) warn.push(w);
+    return { ok: reasons.length === 0, reasons, warn };
+  }
+
+  // ------------------------------------------------------------ analyse complète
+  async function run(ui, opts = {}) {
+    const C = cfg();
+    const t0 = Date.now();
+    const A = {
+      id: 'A' + t0, startedAt: t0, parentId: opts.parentId || null, kind: opts.parentId ? 'réanalyse' : 'analyse complète',
+      cfg: { ...C, oddsKey: undefined, claudeKey: undefined }, engine: SP.version,
+      events: [], errors: [], counts: {}, best: null, values: [], watch: [], combo: null, sources: {},
+    };
+    const S = ui.steps;
+    if (!C.oddsKey) {
+      S.fail(0, 'Clé The Odds API manquante : ajoutez-la dans Réglages.');
+      A.errors.push('Clé The Odds API manquante');
+      return finish(A, ui);
+    }
+    // ---------------- 1. matchs
+    S.start(0);
+    const sp = await D.oddsSports(C.oddsKey);
+    if (!sp.ok) { S.fail(0, 'The Odds API : ' + sp.error); A.errors.push(sp.error); return finish(A, ui); }
+    const active = sp.data.filter((s) => s.active);
+    const keys = [];
+    for (const [k, on] of Object.entries(C.leagues)) if (on && active.find((s) => s.key === k)) keys.push(k);
+    if (C.nba && active.find((s) => s.key === 'basketball_nba')) keys.push('basketball_nba');
+    if (C.tennis) active.filter((s) => s.group === 'Tennis' && !s.has_outrights).slice(0, C.maxTennisTournaments).forEach((s) => keys.push(s.key));
+    if (opts.onlyKeys) keys.splice(0, keys.length, ...keys.filter((k) => opts.onlyKeys.has(k)));
+    const titles = Object.fromEntries(active.map((s) => [s.key, s.title]));
+    const hours = C.extendTo48 ? 48 : C.hours;
+    let raw = [];
+    for (let i = 0; i < keys.length; i++) {
+      S.progress(0, i, keys.length, titles[keys[i]]);
+      const r = await D.oddsFor(C.oddsKey, keys[i], { regions: C.regions, markets: keys[i].startsWith('tennis') ? 'h2h,totals,spreads' : C.markets, hours, ttlMin: opts.force ? 0 : 10 });
+      if (!r.ok) { A.errors.push(`${titles[keys[i]]}: ${r.error}`); continue; }
+      raw.push(...r.data.map((e) => ({ ...e, _fetched: r.at, _stale: !!r.stale })));
+    }
+    raw = raw.filter((e) => Date.parse(e.commence_time) > Date.now());
+    A.counts.available = raw.length;
+    A.sources.odds = { provider: 'The Odds API', regions: C.regions, at: Date.now(), remaining: D.apiStatus['The Odds API']?.remaining ?? null };
+    S.done(0, `${raw.length} événements à venir (${keys.length} compétitions)`);
+
+    // ---------------- 2. statistiques
+    S.start(1);
+    const fbStats = {};
+    const leaguesNeeded = [...new Set(raw.filter((e) => D.FOOTBALL[e.sport_key]?.stats).map((e) => e.sport_key))];
+    let k = 0;
+    for (const lk of leaguesNeeded) {
+      S.progress(1, k++, leaguesNeeded.length + (C.nba ? 1 : 0), D.FOOTBALL[lk].name);
+      try { fbStats[lk] = await footballStats(D.FOOTBALL[lk].espn); } catch (e) { fbStats[lk] = { ok: false, error: String(e) }; }
+      if (!fbStats[lk].ok) A.errors.push(`Stats ${D.FOOTBALL[lk].name}: ${fbStats[lk].error}`);
+    }
+    let nba = null;
+    if (raw.some((e) => e.sport_key === 'basketball_nba')) {
+      S.progress(1, k, leaguesNeeded.length + 1, 'NBA');
+      try { nba = await nbaStats(); } catch (e) { nba = { ok: false, error: String(e) }; }
+      if (!nba.ok) A.errors.push('Stats NBA : ' + nba.error);
+    }
+    A.backtests = {
+      ...Object.fromEntries(Object.entries(fbStats).filter(([, v]) => v.ok && v.bt).map(([kk, v]) => [D.FOOTBALL[kk].name, { n: v.bt.n, models: v.bt.models, ensemble: v.bt.ensemble, naive: v.bt.naive, weights: v.bt.weights, calibration: v.bt.calibration }])),
+      ...(nba?.bt ? { NBA: { n: nba.bt.n, models: nba.bt.models, ensemble: nba.bt.ensemble, weights: nba.bt.weights, calibration: nba.bt.calibration } } : {}),
+    };
+    const okStats = Object.values(fbStats).filter((v) => v.ok).length + (nba?.ok ? 1 : 0);
+    S.done(1, `${okStats} jeu(x) de données chargé(s) ; backtests : ${Object.keys(A.backtests).join(', ') || 'aucun'}`, okStats < leaguesNeeded.length + (nba ? 1 : 0));
+
+    // ---------------- 3. blessures
+    S.start(2);
+    let inj = null;
+    if (nba) { inj = await D.nbaInjuries(); if (!inj.ok) A.errors.push('Blessures NBA : ' + inj.error); }
+    S.done(2, `NBA : ${inj?.ok ? 'rapport ESPN chargé' : 'indisponible'} · Football et tennis : pas de source gratuite structurée (signalé comme indisponible)`, !inj?.ok && !!nba);
+
+    // préparation des événements
+    const events = raw.map((e) => {
+      const sport = e.sport_key.startsWith('soccer') ? 'football' : e.sport_key === 'basketball_nba' ? 'nba' : 'tennis';
+      const E = {
+        id: e.id, sport, sportKey: e.sport_key, comp: D.FOOTBALL[e.sport_key]?.name || titles[e.sport_key] || e.sport_title,
+        home: e.home_team, away: e.away_team, t: Date.parse(e.commence_time), fetched: e._fetched, staleOdds: e._stale,
+        mk: buildMarkets(e), info: [], warnings: [], risk: 0,
+      };
+      E.day = new Date(E.t).toLocaleDateString('fr-FR', { timeZone: 'Europe/Paris' }) === new Date().toLocaleDateString('fr-FR', { timeZone: 'Europe/Paris' }) ? 'aujourd’hui' : 'demain';
+      if (E.t - Date.now() > 24 * 3600e3) E.day = 'J+2';
+      return E;
+    });
+    // blessures NBA par équipe
+    if (inj?.ok) for (const E of events.filter((x) => x.sport === 'nba')) {
+      for (const side of ['home', 'away']) {
+        const m = D.bestMatch(E[side], Object.keys(inj.byTeam));
+        const list = m.name ? inj.byTeam[m.name] : [];
+        const unsure = list.filter((p) => /question|doubt|day-to-day|game time/i.test(p.status));
+        const out = list.filter((p) => /^out/i.test(p.status));
+        E.info.push({ kind: 'blessures', team: E[side], out, unsure, status: 'vérifié', source: 'ESPN NBA injuries', at: inj.at });
+        if (unsure.length) { E.risk += Math.min(4, unsure.length * 1.5); E.warnings.push(`${E[side]} : ${unsure.length} joueur(s) incertain(s) (${unsure.map((p) => p.player).join(', ')}) — jamais considérés comme disponibles`); }
+      }
+    }
+
+    // ---------------- 4. compositions
+    S.start(3);
+    let lineupsChecked = 0;
+    const soon = events.filter((E) => E.sport === 'football' && E.t - Date.now() < 3 * 3600e3);
+    for (const E of soon.slice(0, 12)) {
+      const lg = D.FOOTBALL[E.sportKey]?.espn; if (!lg) continue;
+      const sb = await D.espnScoreboard('soccer', lg, Date.now() - DAY, Date.now() + DAY);
+      if (!sb.ok) continue;
+      const ev = sb.events.find((x) => D.sim(x.h, E.home) >= 0.5 && D.sim(x.a, E.away) >= 0.5);
+      if (!ev) continue;
+      const sum = await D.espnSummary('soccer', lg, ev.id);
+      lineupsChecked++;
+      const rosters = sum.ok ? (sum.data.rosters || []) : [];
+      const pub = rosters.some((r) => (r.roster || []).some((p) => p.starter));
+      E.lineup = { status: pub ? 'vérifié' : 'indisponible', source: 'ESPN summary', at: Date.now(), espnId: ev.id };
+      E.info.push({ kind: 'composition', status: pub ? 'vérifié' : 'indisponible', note: pub ? 'compositions officielles publiées' : 'compositions non publiées', source: 'ESPN', at: Date.now() });
+    }
+    for (const E of events.filter((x) => x.sport === 'football' && !x.lineup)) {
+      E.info.push({ kind: 'composition', status: 'indisponible', note: 'compositions non encore publiées (habituellement ~1 h avant le match)', source: '—' });
+      E.risk += 1.5;
+    }
+    S.done(3, `${lineupsChecked} match(s) proches vérifiés ; les autres : compositions non publiées`);
+
+    // ---------------- 5. actualités
+    S.start(4);
+    const newsBy = {};
+    const feeds = [...new Set(events.map((E) => E.sport === 'football' ? `soccer|${D.FOOTBALL[E.sportKey]?.espn}` : E.sport === 'nba' ? 'basketball|nba' : (/wta/.test(E.sportKey) ? 'tennis|wta' : 'tennis|atp')))].filter((f) => !f.endsWith('undefined'));
+    for (let i = 0; i < feeds.length; i++) {
+      S.progress(4, i, feeds.length, feeds[i]);
+      const [s, l] = feeds[i].split('|');
+      const r = await D.espnNews(s, l);
+      newsBy[feeds[i]] = r.ok ? r.items : [];
+      if (!r.ok) A.errors.push(`Actualités ${l} : ${r.error}`);
+    }
+    for (const E of events) {
+      const f = E.sport === 'football' ? `soccer|${D.FOOTBALL[E.sportKey]?.espn}` : E.sport === 'nba' ? 'basketball|nba' : (/wta/.test(E.sportKey) ? 'tennis|wta' : 'tennis|atp');
+      const items = newsBy[f] || [];
+      const keyTok = (n) => D.norm(n).split(' ').filter((x) => x.length > 3).sort((a, b) => b.length - a.length)[0] || D.norm(n);
+      const kh = keyTok(E.home), ka = keyTok(E.away);
+      E.news = items.filter((it) => { const tx = D.norm(it.title + ' ' + it.desc); return tx.includes(kh) || tx.includes(ka); }).slice(0, 8);
+    }
+    S.done(4, `${feeds.length} flux ESPN ; ${events.reduce((s, E) => s + (E.news?.length || 0), 0)} articles reliés à des matchs`);
+
+    // ---------------- 6. cotes
+    S.start(5);
+    let nMarkets = 0;
+    for (const E of events) nMarkets += E.mk.sels.length;
+    A.counts.markets = nMarkets;
+    const withSharp = events.filter((E) => E.mk.sharp).length;
+    S.done(5, `${nMarkets} sélections comparées sur ${events.reduce((s, E) => s + E.mk.nBooks, 0)} offres bookmakers ; Pinnacle présent sur ${withSharp}/${events.length} événements`);
+
+    // ---------------- 7. modèles (phase 1 : présélection)
+    S.start(6);
+    const cands = [];
+    const quickTennis = [];
+    for (const E of events) {
+      let M;
+      try {
+        if (E.sport === 'football') M = modelFootball(E, C, fbStats[E.sportKey]);
+        else if (E.sport === 'nba') M = modelNBA(E, C, nba);
+        else M = modelTennis(E);
+      } catch (err) { M = { error: String(err) }; }
+      E.model = M;
+      if (M.error) { E.skip = M.error; continue; }
+      if (E.sport === 'tennis') quickTennis.push(E);
+      else {
+        for (const s of E.mk.sels) {
+          const r = M.phase1(s);
+          if (r.pWin == null) continue;
+          Object.assign(s, { p1: r });
+        }
+      }
+    }
+    // tennis : simulation rapide 20 000 pour la présélection
+    if (quickTennis.length) {
+      const res = await runSims(quickTennis.map((E) => ({ spec: { ...E.model.simSpec, seed: hashSeed(E.id), minN: 20000, maxN: 20000, batch: 20000 }, sel: { type: 'tennisA', line: null } })));
+      quickTennis.forEach((E, i) => {
+        const simr = res[i]; if (!simr || simr.error) { E.skip = 'simulation échouée'; return; }
+        for (const s of E.mk.sels) {
+          const sel = tennisSel(E, s); if (!sel) continue;
+          const r = SP.evalFromSim(simr, SP.normalizeSel(sel), s.best.price);
+          s.p1 = tennisBlend(s, r, C);
+        }
+      });
+    }
+    for (const E of events) for (const s of E.mk.sels) if (s.p1) cands.push({ E, s, ev1: s.p1.ev });
+    A.counts.analysed = events.filter((E) => !E.skip).length;
+    S.done(6, `${A.counts.analysed} événements modélisés (phase 1) ; ${events.filter((E) => E.skip).length} écartés faute de données`);
+
+    // ---------------- 8. Monte-Carlo (phase 2 : approfondie)
+    S.start(7);
+    const byEvent = new Map();
+    for (const c of cands) {
+      if (c.s.best.price < C.minOdds || c.s.best.price > C.maxOdds) continue;
+      const cur = byEvent.get(c.E.id);
+      if (!cur || c.ev1 > cur.ev1) byEvent.set(c.E.id, c);
+    }
+    const top = [...byEvent.values()].filter((c) => c.ev1 > -0.04).sort((a, b) => b.ev1 - a.ev1).slice(0, C.phase2Events);
+    const tasks = top.map((c) => {
+      const sel = c.E.sport === 'tennis' ? tennisSel(c.E, c.s) : { type: c.s.type, point: c.s.point };
+      return { spec: { ...c.E.model.simSpec, seed: hashSeed(c.E.id + c.s.id), minN: C.minSims, maxN: C.maxSims, tol: C.tol }, sel: SP.normalizeSel(sel) };
+    });
+    const simRes = await runSims(tasks, (d, n, sims) => S.progress(7, d, n, `${fmtInt(sims)} simulations`));
+    let totalSims = 0;
+    top.forEach((c, i) => {
+      const r = simRes[i]; if (!r || r.error) { c.E.simError = r?.error || 'échec'; return; }
+      c.E.sim = r; totalSims += r.n;
+      for (const s of c.E.mk.sels) {
+        const sel = c.E.sport === 'tennis' ? tennisSel(c.E, s) : { type: s.type, point: s.point };
+        if (!sel || !s.p1) continue;
+        const e = SP.evalFromSim(r, SP.normalizeSel(sel), s.best.price);
+        s.p2 = c.E.sport === 'tennis' ? { ...tennisBlend(s, e, C), ci: e.ci95, n: r.n } : { pWin: e.pWin, pPush: e.pPush, ev: e.ev, ci: e.ci95, n: r.n };
+      }
+    });
+    A.counts.sims = totalSims;
+    S.done(7, `${top.length} événements approfondis · ${fmtInt(totalSims)} simulations (arrêt adaptatif, IC95 visé ±${(C.tol * 100).toFixed(2)} pt)`);
+
+    // ---------------- 9. classement
+    S.start(8);
+    const scored = [];
+    for (const E of events) {
+      if (E.skip) continue;
+      for (const s of E.mk.sels) {
+        const p = s.p2 || s.p1; if (!p) continue;
+        const pStats = s.p1.pStats, pMkt = s.p1.pMkt;
+        const modelGap = pStats != null && pMkt != null ? Math.abs(pStats - pMkt) : null;
+        const ci = s.p2 ? s.p2.ci : 0.01;
+        const uncert = Math.sqrt(ci ** 2 + (s.fairSd || 0.01) ** 2 + ((modelGap || 0) / 2) ** 2);
+        const sc = E.sim?.scenarios?.map((x) => x.p).filter((x) => x != null) || [];
+        const keySel = top.find((c) => c.E === E)?.s === s;
+        const mcSpread = keySel && sc.length ? Math.max(...sc) - Math.min(...sc) : 0.05;
+        const c = {
+          E, s, sport: E.sport, t: E.t, best: s.best, second: s.second, fairMkt: s.fairMkt,
+          p: p.pWin, pPush: p.pPush || 0, ev: p.ev, edge: p.pWin - 1 / s.best.price, uncert, modelGap, pStats, pMkt,
+          simN: s.p2?.n || 0, simCI: s.p2?.ci ?? null, mcSpread,
+          booksAtPrice: s.offers.filter((o) => o.price >= s.best.price - 1e-9).length,
+        };
+        const riskNote = [...E.warnings, ...(E.sport === 'football' && !E.lineup ? ['compositions non publiées'] : []), ...(E.staleOdds ? ['cotes issues du cache (fournisseur indisponible)'] : [])];
+        if (E.staleOdds) c.critical = 'cotes non actualisées (fournisseur indisponible)';
+        c.q = SP.qualityScore({
+          edge: c.edge, uncert, modelGap, dataQuality: E.model.dataQuality, dataNote: E.model.statsNote, calib: E.model.calib,
+          mcSpread, oddsAgeMin: (Date.now() - s.best.last) / 60e3, booksAtPrice: c.booksAtPrice, riskPenalty: E.risk, riskNote: riskNote.join(' ; '), odds: s.best.price,
+        });
+        c.check = assess(c, C, E);
+        scored.push(c);
+      }
+    }
+    A.counts.scored = scored.length;
+    S.done(8, `${scored.length} sélections notées ; ${scored.filter((c) => c.check.ok).length} passent les filtres`);
+
+    // ---------------- 10. validation finale
+    S.start(9);
+    let valid = scored.filter((c) => c.check.ok && c.simN > 0);
+    // une sélection par événement (la mieux notée), 48 h seulement si exceptionnelle
+    const perEvent = new Map();
+    for (const c of valid.sort((a, b) => b.q.total - a.q.total || b.ev - a.ev)) if (!perEvent.has(c.E.id)) perEvent.set(c.E.id, c);
+    valid = [...perEvent.values()].filter((c) => c.E.t - Date.now() <= C.hours * 3600e3 || c.q.total >= 75);
+    // analyse qualitative (facultative) des meilleures sélections
+    if (C.claudeKey && valid.length) {
+      const top6 = valid.slice(0, 6);
+      for (let i = 0; i < top6.length; i++) {
+        S.progress(9, i, top6.length, 'analyse des actualités (Claude)');
+        const c = top6[i];
+        try { c.llm = await D.claudeAnalyze(C.claudeKey, llmPayload(c)); } catch (e) { c.llmError = String(e.message || e); D.setStatus('Claude', false, c.llmError); }
+        c.check = assess(c, C, c.E);
+      }
+      valid = valid.filter((c) => c.check.ok);
+    }
+    // re-vérification : l'événement n'a pas commencé, la cote est toujours fraîche
+    valid = valid.filter((c) => c.E.t > Date.now() + 15 * 60e3);
+    valid.sort((a, b) => b.q.total - a.q.total || b.ev - a.ev);
+    A.best = valid[0] ? pack(valid[0], 'best') : null;
+    A.values = valid.slice(1, 6).map((c) => pack(c, 'value'));
+    // opportunités à surveiller
+    const watch = [];
+    const usedEv = new Set(valid.slice(0, 6).map((c) => c.E.id));
+    for (const c of scored.sort((a, b) => b.ev - a.ev)) {
+      if (usedEv.has(c.E.id) || watch.length >= 5) continue;
+      if (c.best.price < C.minOdds || c.best.price > C.maxOdds || c.E.t <= Date.now() + 15 * 60e3) continue;
+      const need = [];
+      const reqOdds = (1 + C.minEV) / c.p;
+      if (c.ev < C.minEV && c.ev > -0.04) need.push(`cote ≥ ${reqOdds.toFixed(2)} (actuellement ${c.best.price.toFixed(2)} chez ${c.best.title})`);
+      if (c.E.sport === 'football' && !c.E.lineup) need.push('composition officielle (~1 h avant) confirmant les titulaires');
+      if (c.E.warnings.length) need.push('statut des joueurs incertains confirmé');
+      if (c.check.reasons.some((r) => r.startsWith('divergence'))) need.push('explication de l’écart entre modèles et marché (blessure, rotation…)');
+      if (c.llm?.impact === 'majeur') need.push('confirmation de l’information signalée dans les actualités');
+      if (!need.length || c.ev < -0.04 || c.check.reasons.some((r) => /isolée|ancienne|commencé/.test(r))) continue;
+      usedEv.add(c.E.id);
+      watch.push({ ...pack(c, 'watch'), need });
+    }
+    A.watch = watch;
+    // combiné : uniquement s'il bat chaque simple (sélections d'événements différents)
+    if (valid.length >= 2) {
+      const [a, b] = valid;
+      const pj = a.p * b.p, oj = a.best.price * b.best.price, evj = pj * oj - 1;
+      // rémunération du risque : EV / écart-type du rendement (un combiné augmente toujours l'EV brute)
+      const ratio = (p, o) => (p * o - 1) / (o * Math.sqrt(p * (1 - p)));
+      const rj = ratio(pj, oj), rs = Math.max(ratio(a.p, a.best.price), ratio(b.p, b.best.price));
+      if (rj > rs && pj >= 0.3 && a.E.id !== b.E.id) A.combo = { legs: [pack(a), pack(b)], p: pj, odds: oj, ev: evj, ratio: rj, ratioSingles: rs, note: 'Événements distincts supposés indépendants (matchs différents). Retenu car son EV rapportée au risque dépasse celle des paris simples.' };
+      else A.comboRejected = `combiné étudié (${a.E.home}/${b.E.home}) : EV ${(evj * 100).toFixed(1)} % mais rapport EV/risque ${rj.toFixed(3)} ≤ ${rs.toFixed(3)} pour le meilleur simple — non retenu`;
+    }
+    A.events = events.map(slimEvent);
+    A.finishedAt = Date.now();
+    S.done(9, A.best ? `meilleur pari : ${A.best.match} — ${A.best.label}` : 'aucun pari validé', false);
+    return finish(A, ui);
+  }
+
+  // Tennis : le modèle jeu par jeu repose sur une hypothèse de taux de service moyen du circuit.
+  // Pour les totaux/handicaps, il est combiné au prix juste du marché et l'écart est soumis à la règle de divergence.
+  function tennisBlend(s, r, C) {
+    const pm = r.pWin;
+    const useMkt = s.mkey !== 'h2h' && s.fairMkt != null;
+    const p = useMkt ? C.wMarket * s.fairMkt + (1 - C.wMarket) * pm : pm;
+    return { pWin: p, pPush: r.pPush, ev: p * s.best.price + r.pPush - 1, pMkt: s.fairMkt, pStats: s.mkey !== 'h2h' ? pm : null };
+  }
+  function tennisSel(E, s) {
+    if (s.mkey === 'h2h') return { type: s.name === E.home ? 'tennisA' : 'tennisB' };
+    if (s.mkey === 'totals') return { type: s.type === 'over' ? 'tOver' : 'tUnder', point: s.point };
+    if (s.mkey === 'spreads') return { type: 'spread', side: s.name === E.home ? 'A' : 'B', point: s.point };
+    return null;
+  }
+  function llmPayload(c) {
+    const src = [];
+    (c.E.news || []).forEach((n) => src.push({ id: `S${src.length + 1}`, type: 'actualité', titre: n.title, resume: n.desc, publie: n.published, source: n.source }));
+    for (const i of c.E.info) {
+      if (i.kind === 'blessures') src.push({ id: `S${src.length + 1}`, type: 'rapport blessures officiel', equipe: i.team, out: i.out.map((p) => `${p.player} (${p.detail})`), incertains: i.unsure.map((p) => `${p.player} : ${p.status}`), source: i.source });
+      if (i.kind === 'composition') src.push({ id: `S${src.length + 1}`, type: 'composition', statut: i.note, source: i.source });
+    }
+    return {
+      match: `${c.E.home} vs ${c.E.away}`, competition: c.E.comp, debut: new Date(c.E.t).toISOString(), sport: c.E.sport,
+      selection: c.s.label, cote: c.best.price, probabilite_modele: +c.p.toFixed(4), probabilite_marche: c.pMkt != null ? +c.pMkt.toFixed(4) : null,
+      facteurs_statistiques: c.E.model.statsNote, avertissements: c.E.warnings, sources: src,
+    };
+  }
+  function pack(c, cat) {
+    const E = c.E;
+    return {
+      pid: `${E.id}|${c.s.id}|${Date.now()}`, cat, sport: E.sport, comp: E.comp, match: `${E.home} – ${E.away}`, home: E.home, away: E.away,
+      eventId: E.id, sportKey: E.sportKey, t: E.t, day: E.day, market: c.s.mkey, selId: c.s.id, label: c.s.label, type: c.s.type, point: c.s.point, side: c.s.name,
+      odds: c.best.price, book: c.best.title, bookKey: c.best.book, oddsAt: c.best.last, second: c.second?.price || null,
+      p: c.p, pPush: c.pPush, pImplied: 1 / c.best.price, pMkt: c.pMkt, pStats: c.pStats, fairSource: c.s.fairSource,
+      ev: c.ev, edge: c.edge, uncert: c.uncert, modelGap: c.modelGap, sims: c.simN, ci: c.simCI,
+      score: c.q.total, scoreParts: c.q.parts, reasons: c.check.reasons, warnings: c.check.warn,
+      scenarios: E.sim?.scenarios || null, models: E.model.models, statsNote: E.model.statsNote, ctx: E.model.ctx || null,
+      info: E.info, news: E.news || [], llm: c.llm || null, llmError: c.llmError || null,
+      offers: c.s.offers.slice(0, 8).map((o) => ({ title: o.title, price: o.price, last: o.last })),
+      seed: E.sim?.seed ?? null, engine: SP.version, wMarket: cfg().wMarket,
+    };
+  }
+  function slimEvent(E) {
+    return {
+      id: E.id, sport: E.sport, sportKey: E.sportKey, comp: E.comp, home: E.home, away: E.away, t: E.t, day: E.day, skip: E.skip || null,
+      statsNote: E.model?.statsNote || null, models: E.model?.models || null, ctx: E.model?.ctx || null, warnings: E.warnings, info: E.info, news: E.news || [],
+      sims: E.sim ? { n: E.sim.n, ms: E.sim.ms, scenarios: E.sim.scenarios, key: E.sim.key } : null,
+      sels: E.mk.sels.map((s) => ({
+        id: s.id, mkey: s.mkey, label: s.label, best: s.best.price, book: s.best.title, last: s.best.last, nBooks: s.nBooks, mean: s.mean, pin: s.pinnacle,
+        fair: s.fairMkt, p: (s.p2 || s.p1)?.pWin ?? null, ev: (s.p2 || s.p1)?.ev ?? null, deep: !!s.p2,
+      })),
+    };
+  }
+  function finish(A, ui) {
+    A.finishedAt = A.finishedAt || Date.now();
+    SPStore.saveAnalysis(A);
+    ui.onDone && ui.onDone(A);
+    return A;
+  }
+  function hashSeed(s) { let h = 2166136261; for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 16777619); } return h >>> 0; }
+  const fmtInt = (n) => new Intl.NumberFormat('fr-FR').format(n);
+
+  return { run, cfg, saveCfg, DEFAULT_CFG, SP, tennisContext };
+})();
+
+</script>
+<script>
+/* SportPredict AI — interface. */
+(() => {
+  const D = SPData, P = SPPipeline, S = SPStore, SP = P.SP;
+  const $ = (q, el = document) => el.querySelector(q);
+  const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  const pct = (x, d = 1) => (x == null || isNaN(x) ? '—' : (x * 100).toFixed(d) + ' %');
+  const sgn = (x, d = 1) => (x == null || isNaN(x) ? '—' : (x >= 0 ? '+' : '') + (x * 100).toFixed(d) + ' %');
+  const num = (x, d = 2) => (x == null || isNaN(x) ? '—' : Number(x).toFixed(d));
+  const int = (n) => (n == null ? '—' : new Intl.NumberFormat('fr-FR').format(n));
+  const TZ = 'Europe/Paris';
+  const dt = (t) => new Date(t).toLocaleString('fr-FR', { timeZone: TZ, weekday: 'short', day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' });
+  const hm = (t) => new Date(t).toLocaleTimeString('fr-FR', { timeZone: TZ, hour: '2-digit', minute: '2-digit' });
+  const ago = (t) => { const m = Math.round((Date.now() - t) / 60e3); return m < 1 ? 'à l’instant' : m < 60 ? `il y a ${m} min` : m < 1440 ? `il y a ${Math.round(m / 60)} h` : `il y a ${Math.round(m / 1440)} j`; };
+  const SPORT = { football: 'Football', tennis: 'Tennis', nba: 'NBA' };
+  const MKT = { h2h: 'Vainqueur', totals: 'Total', spreads: 'Handicap' };
+
+  const STEPS = ['Récupération des matchs', 'Collecte des statistiques', 'Analyse des blessures', 'Vérification des compositions', 'Analyse des actualités', 'Comparaison des cotes', 'Calcul des modèles', 'Simulations Monte-Carlo', 'Classement des opportunités', 'Validation finale'];
+  let running = false;
+  const state = { steps: STEPS.map((n) => ({ name: n, st: 'attente', note: '', frac: 0 })) };
+
+  // ------------------------------------------------------------ progression réelle
+  const stepsUI = {
+    start(i) { state.steps[i].st = 'en cours'; state.steps[i].frac = 0; renderProgress(); },
+    progress(i, d, n, note) { state.steps[i].frac = n ? d / n : 0; state.steps[i].note = note ? `${note} (${d}/${n})` : `${d}/${n}`; renderProgress(); },
+    done(i, note, warn) { state.steps[i].st = warn ? 'avertissement' : 'terminé'; state.steps[i].frac = 1; state.steps[i].note = note || ''; renderProgress(); },
+    fail(i, msg) { state.steps[i].st = 'erreur'; state.steps[i].note = msg; for (let k = i + 1; k < STEPS.length; k++) state.steps[k].st = 'non exécutée'; renderProgress(); },
+  };
+  function renderProgress() {
+    const el = $('#progress'); if (!el) return;
+    const done = state.steps.reduce((s, x) => s + (['terminé', 'avertissement', 'erreur', 'non exécutée'].includes(x.st) ? 1 : x.st === 'en cours' ? x.frac : 0), 0);
+    el.hidden = false;
+    $('#pbar').style.width = (done / STEPS.length * 100).toFixed(1) + '%';
+    $('#ptext').textContent = `${Math.round(done / STEPS.length * 100)} % — ${state.steps.filter((x) => x.st === 'terminé' || x.st === 'avertissement').length}/10 étapes terminées`;
+    $('#steps').innerHTML = state.steps.map((s, i) => `<li class="step s-${s.st.replace(/\s/g, '-').normalize('NFD').replace(/[̀-ͯ]/g, '')}"><span class="dot"></span><span class="sn">${i + 1}. ${esc(s.name)}</span><span class="sst">${esc(s.st)}</span>${s.note ? `<span class="snote">${esc(s.note)}</span>` : ''}</li>`).join('');
+  }
+
+  async function launch(opts = {}) {
+    if (running) return;
+    running = true;
+    state.steps.forEach((s) => { s.st = 'attente'; s.note = ''; s.frac = 0; });
+    document.body.classList.add('busy');
+    renderProgress();
+    try {
+      const A = await P.run({ steps: stepsUI }, opts);
+      afterRun(A, opts);
+    } catch (e) {
+      console.error(e);
+      toast('Analyse interrompue : ' + (e.message || e), 'bad');
+    } finally {
+      running = false;
+      document.body.classList.remove('busy');
+      route();
+    }
+  }
+  function afterRun(A, opts) {
+    // CLV : dernière cote juste relevée avant le début pour chaque pronostic en attente
+    for (const p of S.picks()) {
+      if (S.results()[p.pid] || p.t < Date.now()) continue;
+      const E = A.events.find((e) => e.id === p.eventId); if (!E) continue;
+      const s = E.sels.find((x) => x.id === p.selId); if (!s) continue;
+      S.recordCLV(p.pid, { odds: s.best, fair: s.fair, book: s.book });
+    }
+    if (opts.parentId) {
+      const prev = S.analyses().find((a) => a.id === opts.parentId);
+      const tracked = prev ? [prev.best, ...prev.values, ...prev.watch].filter(Boolean) : [];
+      A.recheck = tracked.map((p) => {
+        const E = A.events.find((e) => e.id === p.eventId);
+        const s = E?.sels.find((x) => x.id === p.selId);
+        if (!E || !s) return { ...p, verdict: 'événement ou marché indisponible', status: 'bad' };
+        const keep = (A.best && A.best.selId === p.selId && A.best.eventId === p.eventId) || A.values.some((v) => v.selId === p.selId && v.eventId === p.eventId);
+        return { match: p.match, label: p.label, oldOdds: p.odds, newOdds: s.best, oldP: p.p, newP: s.p, oldEV: p.ev, newEV: s.ev, verdict: keep ? 'value confirmée' : (s.ev != null && s.ev > 0 ? 'value réduite : ne passe plus tous les critères' : 'value disparue — pari plus intéressant'), status: keep ? 'good' : 'bad' };
+      });
+      const list = S.analyses(); list[list.length - 1] = A; D.LS.set('sp:analyses', list);
+    }
+    if (P.cfg().notif && A.best && 'Notification' in window && Notification.permission === 'granted') {
+      try { new Notification('SportPredict AI — pari validé', { body: `${A.best.match} · ${A.best.label} @ ${A.best.odds}` }); } catch { /* ignore */ }
+    }
+    location.hash = A.best || A.values.length ? '#best' : '#dashboard';
+  }
+
+  // ------------------------------------------------------------ composants
+  function statusPills() {
+    const st = D.apiStatus, C = P.cfg();
+    const pill = (name, s, extra = '') => `<span class="pill ${s == null ? 'p-idle' : s.ok ? 'p-ok' : 'p-bad'}" title="${esc(s?.msg || 'pas encore appelé')}">${esc(name)}${extra}</span>`;
+    return `<div class="pills">
+      ${pill('The Odds API', C.oddsKey ? st['The Odds API'] : { ok: false, msg: 'clé manquante' }, st['The Odds API']?.remaining != null ? ` · ${st['The Odds API'].remaining} crédits` : '')}
+      ${pill('ESPN', st.ESPN)}
+      ${C.claudeKey ? pill('Claude', st.Claude) : '<span class="pill p-idle" title="facultatif">Claude : non configuré</span>'}
+      <span class="pill ${running ? 'p-run' : 'p-ok'}">Moteur ${running ? 'en analyse' : 'prêt'} · ${esc(SP.version)}</span></div>`;
+  }
+  function pickCard(p, big) {
+    const parts = (p.scoreParts || []).map((x) => `<div class="sp"><span>${esc(x.name)}</span><span class="bar"><i style="width:${x.pts / x.max * 100}%"></i></span><b>${x.pts.toFixed(0)}/${x.max}</b><small>${esc(x.why)}</small></div>`).join('');
+    const models = (p.models || []).map((m) => `<tr><td>${esc(m.name)}</td><td class="n">${m.p1x2 ? m.p1x2.map((x) => pct(x)).join(' · ') : m.pHome != null ? pct(m.pHome) + (m.margin != null ? ` · marge ${num(m.margin, 1)}` : '') + (m.total != null ? ` · total ${num(m.total, 1)}` : '') : m.pA != null ? pct(m.pA) : m.serveA ? `service ${pct(m.serveA)} / ${pct(m.serveB)}` : '—'}${m.lh ? ` · λ ${num(m.lh)}/${num(m.la)}` : ''}</td></tr>`).join('');
+    const scen = (p.scenarios || []).map((s) => `<span class="chip">${esc(s.name)} ${pct(s.weight, 0)} → ${pct(s.p)}</span>`).join('');
+    const llm = p.llm ? `<div class="llm"><h4>Analyse des actualités (Claude) — impact : ${esc(p.llm.impact)}</h4><p>${esc(p.llm.resume)}</p>
+      ${list('Facteurs favorables', p.llm.facteurs_favorables)}${list('Facteurs défavorables', p.llm.facteurs_defavorables)}${list('Risques', p.llm.risques)}${list('Contradictions', p.llm.contradictions)}</div>` : p.llmError ? `<p class="muted">Analyse Claude indisponible : ${esc(p.llmError)}</p>` : '';
+    const news = (p.news || []).length ? `<details><summary>${p.news.length} article(s) relié(s)</summary><ul class="news">${p.news.map((n, i) => `<li><b>[S${i + 1}]</b> ${n.url ? `<a href="${esc(n.url)}" target="_blank" rel="noopener">${esc(n.title)}</a>` : esc(n.title)} <small>${esc(n.source)} · ${n.published ? dt(Date.parse(n.published)) : 'date inconnue'}</small></li>`).join('')}</ul></details>` : '<p class="muted">Aucun article ESPN relié à ce match.</p>';
+    const info = (p.info || []).map((i) => i.kind === 'blessures'
+      ? `<li><span class="tag t-${i.status === 'vérifié' ? 'ok' : 'warn'}">${esc(i.status)}</span> Blessures ${esc(i.team)} : ${i.out.length ? 'out ' + esc(i.out.map((x) => x.player).join(', ')) : 'aucun out'}${i.unsure.length ? ' · incertains ' + esc(i.unsure.map((x) => `${x.player} (${x.status})`).join(', ')) : ''} <small>${esc(i.source)}</small></li>`
+      : `<li><span class="tag t-${i.status === 'vérifié' ? 'ok' : 'na'}">${esc(i.status)}</span> ${esc(i.note)} <small>${esc(i.source)}</small></li>`).join('');
+    return `<article class="card pick ${big ? 'big' : ''}">
+      <header><div><span class="sport s-${p.sport}">${SPORT[p.sport]}</span> <span class="muted">${esc(p.comp)}</span>${p.day && p.day !== 'aujourd’hui' ? ` <span class="tag t-warn">${esc(p.day)}</span>` : ''}</div><div class="when">${dt(p.t)}</div></header>
+      <h3>${esc(p.match)}</h3>
+      <div class="sel"><span class="mk">${MKT[p.market] || p.market}</span><b>${esc(p.label)}</b></div>
+      <div class="kpis">
+        <div><small>Cote</small><b class="odds">${num(p.odds)}</b><span>${esc(p.book)} · ${ago(p.oddsAt)}</span></div>
+        <div><small>Probabilité estimée</small><b>${pct(p.p)}</b><span>${p.ci != null ? `IC95 MC ±${pct(p.ci, 2)}` : ''}${p.pPush ? ` · remb. ${pct(p.pPush)}` : ''}</span></div>
+        <div><small>Prob. implicite</small><b>${pct(p.pImplied)}</b><span>marché juste ${pct(p.pMkt)}</span></div>
+        <div><small>Edge</small><b class="${p.edge > 0 ? 'pos' : 'neg'}">${sgn(p.edge)}</b><span>incertitude ±${pct(p.uncert)}</span></div>
+        <div><small>EV</small><b class="${p.ev > 0 ? 'pos' : 'neg'}">${sgn(p.ev)}</b><span>par unité misée</span></div>
+        <div><small>Score qualité</small><b>${p.score}/100</b><span>≠ probabilité</span></div>
+        <div><small>Simulations</small><b>${int(p.sims)}</b><span>graine ${p.seed ?? '—'}</span></div>
+      </div>
+      ${big ? `<div class="why"><h4>Pourquoi cette sélection</h4><p>${esc(whyText(p))}</p></div>` : ''}
+      ${p.warnings?.length ? `<div class="risks"><h4>Risques identifiés</h4><ul>${p.warnings.map((w) => `<li>${esc(w)}</li>`).join('')}</ul></div>` : `<div class="risks"><h4>Risques identifiés</h4><ul><li>Aucun signal spécifique dans les sources consultées. Le résultat reste aléatoire.</li></ul></div>`}
+      <details ${big ? 'open' : ''}><summary>Détail du score de qualité</summary><div class="parts">${parts}</div></details>
+      <details><summary>Modèles et scénarios</summary><table class="t">${models}</table><div class="chips">${scen}</div><p class="muted">${esc(p.statsNote || '')} · probabilité de marché : ${esc(p.fairSource || '')}</p></details>
+      <details><summary>Cotes relevées (${(p.offers || []).length})</summary><table class="t">${(p.offers || []).map((o) => `<tr><td>${esc(o.title)}</td><td class="n">${num(o.price)}</td><td class="n muted">${ago(o.last)}</td></tr>`).join('')}</table></details>
+      <details><summary>Informations et sources</summary><ul class="info">${info || '<li class="muted">Aucune information structurée disponible.</li>'}</ul>${news}</details>
+      ${llm}
+    </article>`;
+  }
+  function list(t, a) { return a?.length ? `<h5>${esc(t)}</h5><ul>${a.map((x) => `<li>${esc(x)}</li>`).join('')}</ul>` : ''; }
+  function whyText(p) {
+    const bits = [];
+    bits.push(`Le modèle estime ${pct(p.p)} contre ${pct(p.pImplied)} implicite à ${num(p.odds)} chez ${p.book}, soit une EV théorique de ${sgn(p.ev)}.`);
+    if (p.pMkt != null) bits.push(`La probabilité « juste » du marché (${p.fairSource}) est ${pct(p.pMkt)} : la cote proposée est donc au-dessus du prix juste.`);
+    if (p.pStats != null) bits.push(`Le modèle statistique indépendant donne ${pct(p.pStats)} (écart ${pct(p.modelGap)} avec le marché).`);
+    else bits.push('Aucun modèle statistique indépendant n’est disponible ici : la value repose sur la comparaison des bookmakers.');
+    bits.push(`Retenue devant les autres pour son score de qualité ${p.score}/100, qui combine value rapportée à l’incertitude, accord des modèles, qualité des données, fraîcheur des cotes et risques.`);
+    return bits.join(' ');
+  }
+
+  // ------------------------------------------------------------ pages
+  const pages = {
+    dashboard() {
+      const A = S.lastAnalysis(), C = P.cfg();
+      const today = new Date().toLocaleDateString('fr-FR', { timeZone: TZ, weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
+      const kpi = (l, v, s) => `<div class="kpi"><small>${l}</small><b>${v}</b>${s ? `<span>${s}</span>` : ''}</div>`;
+      return `<section class="hero">
+        <div class="date">${esc(today)}</div>
+        ${statusPills()}
+        <div class="kpirow">
+          ${kpi('Événements disponibles', int(A?.counts?.available), '48 h, compétitions actives')}
+          ${kpi('Matchs analysés', int(A?.counts?.analysed))}
+          ${kpi('Sélections étudiées', int(A?.counts?.markets))}
+          ${kpi('Simulations', int(A?.counts?.sims))}
+          ${kpi('Dernière actualisation', A ? ago(A.finishedAt) : 'jamais', A ? dt(A.finishedAt) : '')}
+        </div>
+        ${!C.oddsKey ? `<div class="notice">Pour lancer une analyse, ajoutez votre clé <b>The Odds API</b> dans <a href="#config">Réglages</a> (offre gratuite : 500 crédits/mois).</div>` : ''}
+        <div class="cta">
+          <button id="go" class="btn-main" ${running ? 'disabled' : ''}>LANCER L’ANALYSE COMPLÈTE</button>
+          <button id="re" class="btn-sec" ${running || !A ? 'disabled' : ''}>ACTUALISER ET RÉANALYSER</button>
+        </div>
+        <div id="progress" class="progress" ${running ? '' : 'hidden'}><div class="pb"><i id="pbar"></i></div><div id="ptext" class="muted"></div><ol id="steps" class="steps"></ol></div>
+      </section>
+      ${A ? summaryBlock(A) : `<section class="card empty"><h3>Aucune analyse pour l’instant</h3><p>Le premier lancement télécharge environ deux saisons de résultats ESPN (mis en cache ensuite) puis consomme des crédits The Odds API : environ 3 par compétition scannée.</p></section>`}`;
+    },
+    best() {
+      const A = S.lastAnalysis();
+      if (!A) return emptyRun();
+      return `<h2>Meilleur pari du jour</h2>${A.best ? pickCard(A.best, true) : noBet(A)}
+        ${A.combo ? `<section class="card"><h3>Étude de combiné (exceptionnelle)</h3><p>${A.combo.legs.map((l) => esc(`${l.match} : ${l.label} @ ${num(l.odds)}`)).join('<br>')}</p><p>Probabilité conjointe ${pct(A.combo.p)} · cote ${num(A.combo.odds)} · EV ${sgn(A.combo.ev)}</p><p class="muted">${esc(A.combo.note)}</p></section>` : ''}
+        ${!A.combo && A.comboRejected ? `<p class="muted">${esc(A.comboRejected)}</p>` : ''}
+        ${A.recheck ? recheckBlock(A) : ''}`;
+    },
+    values() {
+      const A = S.lastAnalysis(); if (!A) return emptyRun();
+      return `<h2>Autres values</h2><p class="muted">Classées par score de qualité. Au plus cinq, jamais complétées artificiellement.</p>${A.values.length ? `<div class="grid">${A.values.map((v) => pickCard(v)).join('')}</div>` : '<section class="card empty"><p>Aucune autre value validée lors de cette analyse.</p></section>'}`;
+    },
+    watch() {
+      const A = S.lastAnalysis(); if (!A) return emptyRun();
+      return `<h2>Opportunités à surveiller</h2><p class="muted">Non validées aujourd’hui. Pour chacune, ce qui doit changer pour qu’elle le devienne.</p>
+      ${A.watch.length ? `<div class="grid">${A.watch.map((w) => `<article class="card"><header><div><span class="sport s-${w.sport}">${SPORT[w.sport]}</span> <span class="muted">${esc(w.comp)}</span></div><div class="when">${dt(w.t)}</div></header>
+        <h3>${esc(w.match)}</h3><div class="sel"><span class="mk">${MKT[w.market]}</span><b>${esc(w.label)}</b></div>
+        <p>Cote ${num(w.odds)} (${esc(w.book)}) · prob. ${pct(w.p)} · EV ${sgn(w.ev)} · score ${w.score}/100</p>
+        <h4>Ce qui doit changer</h4><ul>${w.need.map((n) => `<li>${esc(n)}</li>`).join('')}</ul>
+        <h4>Motifs actuels de rejet</h4><ul class="muted">${w.reasons.map((n) => `<li>${esc(n)}</li>`).join('') || '<li>—</li>'}</ul></article>`).join('')}</div>` : '<section class="card empty"><p>Rien à surveiller pour l’instant.</p></section>'}`;
+    },
+    calendar() {
+      const A = S.lastAnalysis(); if (!A) return emptyRun();
+      const f = calFilter;
+      const comps = [...new Set(A.events.map((e) => e.comp))].sort();
+      const evs = A.events.filter((e) => (!f.sport || e.sport === f.sport) && (!f.comp || e.comp === f.comp) && (!f.day || e.day === f.day))
+        .map((e) => ({ ...e, sels: e.sels.filter((s) => (!f.mkt || s.mkey === f.mkt) && (!f.omin || s.best >= f.omin) && (!f.omax || s.best <= f.omax)) }))
+        .filter((e) => e.sels.length).sort((a, b) => a.t - b.t);
+      const opt = (v, l, cur) => `<option value="${esc(v)}" ${cur === v ? 'selected' : ''}>${esc(l)}</option>`;
+      return `<h2>Calendrier</h2>
+      <form id="calf" class="filters">
+        <label>Sport <select id="f-sport">${opt('', 'Tous', f.sport)}${opt('football', 'Football', f.sport)}${opt('tennis', 'Tennis', f.sport)}${opt('nba', 'NBA', f.sport)}</select></label>
+        <label>Compétition <select id="f-comp">${opt('', 'Toutes', f.comp)}${comps.map((c) => opt(c, c, f.comp)).join('')}</select></label>
+        <label>Date <select id="f-day">${opt('', 'Toutes', f.day)}${opt('aujourd’hui', 'Aujourd’hui', f.day)}${opt('demain', 'Demain', f.day)}${opt('J+2', 'J+2', f.day)}</select></label>
+        <label>Marché <select id="f-mkt">${opt('', 'Tous', f.mkt)}${opt('h2h', 'Vainqueur', f.mkt)}${opt('totals', 'Total', f.mkt)}${opt('spreads', 'Handicap', f.mkt)}</select></label>
+        <label>Cote min <input id="f-omin" type="number" step="0.05" min="1" value="${f.omin || ''}"></label>
+        <label>Cote max <input id="f-omax" type="number" step="0.05" min="1" value="${f.omax || ''}"></label>
+      </form>
+      <p class="muted">${evs.length} événement(s) · analyse du ${dt(A.finishedAt)}</p>
+      <div class="cal">${evs.map((e) => `<button class="ev" data-ev="${esc(e.id)}"><span class="when">${dt(e.t)}</span><span class="sport s-${e.sport}">${SPORT[e.sport]}</span><span class="m"><b>${esc(e.home)} – ${esc(e.away)}</b><small>${esc(e.comp)}${e.skip ? ' · écarté : ' + esc(e.skip) : ''}</small></span><span class="n">${e.sims ? int(e.sims.n) + ' sims' : 'phase 1'}</span><span class="n ${Math.max(...e.sels.map((s) => s.ev ?? -1)) > 0 ? 'pos' : ''}">EV max ${sgn(Math.max(...e.sels.map((s) => s.ev ?? -1)))}</span></button>`).join('')}</div>`;
+    },
+    history() {
+      const ps = S.picks().slice().reverse(), R = S.results(), CL = S.clv();
+      return `<h2>Historique</h2>
+      <div class="row"><button id="settle" class="btn-sec">Mettre à jour les résultats</button><button id="exp" class="btn-sec">Exporter (JSON)</button><label class="btn-sec file">Importer<input id="imp" type="file" accept="application/json"></label></div>
+      <p class="muted">Les pronostics publiés ne sont jamais modifiés. Le résultat est enregistré à part (automatiquement via ESPN pour football/NBA, manuellement pour le tennis).</p>
+      <div class="tw"><table class="t hist"><thead><tr><th>Publié</th><th>Match</th><th>Sport</th><th>Marché</th><th>Cote</th><th>Prob.</th><th>Bookmaker</th><th>v.</th><th>Résultat</th><th>P/L</th><th>CLV</th></tr></thead><tbody>
+      ${ps.map((p) => { const r = R[p.pid]; const c = CL[p.pid]?.last; return `<tr><td>${dt(p.publishedAt)}</td><td>${esc(p.match)}<br><small class="muted">${dt(p.t)} · ${p.cat === 'best' ? 'meilleur pari' : 'value'}</small></td><td>${SPORT[p.sport]}</td><td>${esc(p.label)}</td><td class="n">${num(p.odds)}</td><td class="n">${pct(p.p)}</td><td>${esc(p.book)}</td><td class="n">${p.version}</td>
+        <td>${r ? `<span class="tag t-${r.profit > 0 ? 'ok' : r.profit < 0 ? 'bad' : 'na'}">${esc(r.status)}</span> <small>${esc(r.score || '')}</small>` : (p.t < Date.now() ? `<span class="manual" data-pid="${esc(p.pid)}"><button data-r="gagné">G</button><button data-r="perdu">P</button><button data-r="remboursé">R</button><button data-r="annulé">A</button></span>` : '<span class="tag t-na">en attente</span>')}</td>
+        <td class="n ${r?.profit > 0 ? 'pos' : r?.profit < 0 ? 'neg' : ''}">${r ? (r.profit >= 0 ? '+' : '') + r.profit.toFixed(2) + ' u' : '—'}</td><td class="n">${c?.fair ? sgn(p.odds * c.fair - 1) : '—'}</td></tr>`; }).join('') || '<tr><td colspan="11" class="muted">Aucun pronostic publié pour l’instant.</td></tr>'}
+      </tbody></table></div>
+      <h3>Analyses</h3><div class="tw"><table class="t"><thead><tr><th>Date</th><th>Type</th><th>Événements</th><th>Simulations</th><th>Meilleur pari</th><th>Erreurs</th></tr></thead><tbody>
+      ${S.analyses().slice().reverse().map((a) => `<tr><td>${dt(a.finishedAt)}</td><td>${esc(a.kind)}</td><td class="n">${int(a.counts?.available)}</td><td class="n">${int(a.counts?.sims)}</td><td>${a.best ? esc(a.best.match + ' · ' + a.best.label) : 'aucun'}</td><td class="muted">${esc((a.errors || []).slice(0, 3).join(' ; '))}</td></tr>`).join('')}
+      </tbody></table></div>`;
+    },
+    perf() {
+      const d = perfDays, m = S.perf(d);
+      const A = S.lastAnalysis();
+      const k = (l, v, s) => `<div class="kpi"><small>${l}</small><b>${v}</b>${s ? `<span>${s}</span>` : ''}</div>`;
+      const grp = (o, lab) => Object.entries(o).map(([key, v]) => `<tr><td>${esc(lab ? lab[key] || key : key)}</td><td class="n">${v.n}</td><td class="n">${pct(v.wins / v.n)}</td><td class="n ${v.profit >= 0 ? 'pos' : 'neg'}">${(v.profit >= 0 ? '+' : '') + v.profit.toFixed(2)} u</td><td class="n">${sgn(v.profit / v.n)}</td></tr>`).join('') || '<tr><td colspan="5" class="muted">—</td></tr>';
+      const head = '<thead><tr><th></th><th>Paris</th><th>Réussite</th><th>Profit</th><th>Yield</th></tr></thead>';
+      return `<h2>Performance</h2>
+      <div class="seg">${[[7, '7 jours'], [30, '30 jours'], [90, '90 jours'], [0, 'Depuis le lancement']].map(([v, l]) => `<button data-days="${v}" class="${d === v ? 'on' : ''}">${l}</button>`).join('')}</div>
+      <div class="kpirow">
+        ${k('Pronostics', int(m.n), `${m.settled} réglés · ${m.pending} en attente`)}
+        ${k('Taux de réussite', pct(m.hit), 'ne mesure pas la rentabilité')}
+        ${k('Yield', sgn(m.yield), 'profit / mises (1 u fixe)')}
+        ${k('ROI bankroll', sgn(m.roiBank), 'sur 100 u initiales')}
+        ${k('Profit théorique', (m.profit >= 0 ? '+' : '') + m.profit.toFixed(2) + ' u')}
+        ${k('Cote moyenne', num(m.avgOdds))}
+        ${k('CLV moyen', sgn(m.clv), `${m.nClv} relevé(s), dernière cote avant match`)}
+        ${k('Brier', num(m.brier, 3), m.brierMkt != null ? `marché : ${num(m.brierMkt, 3)}` : '')}
+        ${k('Log loss', num(m.logloss, 3))}
+      </div>
+      <div class="grid2">
+        <section class="card"><h3>Profit cumulé</h3>${lineChart(m.curve)}</section>
+        <section class="card"><h3>Calibration des pronostics publiés</h3>${calChart(m.calibration)}</section>
+      </div>
+      <div class="grid2">
+        <section class="card"><h3>Par sport</h3><table class="t">${head}${grp(m.bySport, SPORT)}</table></section>
+        <section class="card"><h3>Par marché</h3><table class="t">${head}${grp(m.byMarket, MKT)}</table></section>
+      </div>
+      <section class="card"><h3>Par mois</h3><table class="t">${head}${grp(m.byMonth)}</table></section>
+      <section class="card"><h3>Poids du marché dans l’ensemble</h3>
+        <p>Valeur utilisée : <b>${P.cfg().wMarket}</b>. ${m.wSuggest ? `L’historique (${m.wSuggest.n} pronostics réglés) suggère <b>${m.wSuggest.w}</b> (log loss minimale). <button id="applyw" data-w="${m.wSuggest.w}" class="btn-sec">Appliquer après vérification</button>` : 'Une suggestion apparaîtra après 50 pronostics réglés disposant des deux probabilités. Elle n’est jamais appliquée automatiquement.'}</p></section>
+      <section class="card"><h3>Backtests chronologiques de la dernière analyse</h3>${A?.backtests && Object.keys(A.backtests).length ? `<div class="tw"><table class="t"><thead><tr><th>Compétition</th><th>Matchs testés</th><th>Log loss par modèle</th><th>Ensemble</th><th>Naïf</th><th>Poids</th></tr></thead><tbody>${Object.entries(A.backtests).map(([n, b]) => `<tr><td>${esc(n)}</td><td class="n">${b.n}</td><td>${Object.entries(b.models).map(([mm, v]) => `${mm} ${num(v.logLoss, 4)}`).join(' · ')}</td><td class="n">${num(b.ensemble.logLoss, 4)}</td><td class="n">${b.naive ? num(b.naive.logLoss, 4) : '—'}</td><td>${Object.entries(b.weights).map(([mm, w]) => `${mm} ${w.toFixed(2)}`).join(' · ')}</td></tr>`).join('')}</tbody></table></div><p class="muted">Chaque match est prédit uniquement avec les matchs antérieurs (aucune donnée postérieure). Les performances passées ne garantissent pas les performances futures.</p>` : '<p class="muted">Aucun backtest disponible (lancez une analyse).</p>'}</section>`;
+    },
+    config() {
+      const C = P.cfg();
+      const chk = (id, v, l) => `<label class="chk"><input type="checkbox" id="${id}" ${v ? 'checked' : ''}> ${l}</label>`;
+      const n = (id, v, l, step = 0.01) => `<label>${l}<input id="${id}" type="number" step="${step}" value="${v}"></label>`;
+      return `<h2>Réglages</h2>
+      <form id="cfgf" class="cfg">
+        <section class="card"><h3>Clés API (stockées uniquement dans ce navigateur)</h3>
+          <label>Clé The Odds API <input id="c-odds" type="password" autocomplete="off" value="${esc(C.oddsKey)}" placeholder="obligatoire"></label>
+          <p class="muted">Inscription sur the-odds-api.com : 500 crédits/mois gratuits. Une analyse coûte ≈ (nombre de compétitions) × (marchés : 3) × (régions : 1) crédits.</p>
+          <label>Clé API Anthropic (facultative) <input id="c-claude" type="password" autocomplete="off" value="${esc(C.claudeKey)}" placeholder="pour l’analyse des actualités"></label>
+          <p class="muted">console.anthropic.com. Utilisée seulement pour les 6 meilleures sélections. Elle ne crée jamais de probabilité.</p>
+          <label>Régions bookmakers <select id="c-reg">${['eu', 'uk', 'eu,uk', 'eu,us'].map((r) => `<option ${C.regions === r ? 'selected' : ''}>${r}</option>`).join('')}</select></label>
+        </section>
+        <section class="card"><h3>Compétitions</h3><div class="chks">${Object.entries(D.FOOTBALL).map(([k2, v]) => chk('L-' + k2, C.leagues[k2], v.name + (v.stats ? '' : ' <small>(marché seul)</small>'))).join('')}
+          ${chk('c-nba', C.nba, 'NBA')}${chk('c-tennis', C.tennis, 'Tennis ATP/WTA (tournois actifs)')}</div>
+          ${n('c-tt', C.maxTennisTournaments, 'Tournois de tennis max', 1)}</section>
+        <section class="card"><h3>Critères de sélection</h3><div class="g3">
+          ${n('c-minodds', C.minOdds, 'Cote minimale (≥ 1.20)')}${n('c-maxodds', C.maxOdds, 'Cote maximale')}${n('c-minev', C.minEV, 'EV minimale (0.02 = 2 %)', 0.005)}
+          ${n('c-age', C.maxOddsAgeMin, 'Âge max des cotes (min)', 1)}${n('c-gap', C.maxGap, 'Divergence max modèles/marché', 0.01)}${n('c-wm', C.wMarket, 'Poids du marché (0–1)', 0.05)}
+          ${n('c-hours', C.hours, 'Fenêtre prioritaire (h)', 1)}${chk('c-48', C.extendTo48, 'Étendre à 48 h si opportunité exceptionnelle (score ≥ 75)')}</div></section>
+        <section class="card"><h3>Simulations</h3><div class="g3">
+          ${n('c-mins', C.minSims, 'Minimum par événement', 10000)}${n('c-maxs', C.maxSims, 'Maximum par événement', 100000)}${n('c-tol', C.tol, 'Précision visée (demi-IC95)', 0.0005)}${n('c-p2', C.phase2Events, 'Événements en phase 2', 1)}</div>
+          <p class="muted">Arrêt adaptatif : la simulation s’arrête dès que l’erreur d’échantillonnage passe sous la précision visée. Plus de simulations réduisent l’erreur numérique, pas les biais du modèle.</p></section>
+        <section class="card"><h3>Automatisation (onglet ouvert)</h3><div class="g3">
+          ${chk('c-auto', C.autoOn, 'Analyse quotidienne automatique')}<label>Heure (Europe/Paris)<input id="c-time" type="time" value="${esc(C.autoTime)}"></label>
+          ${chk('c-pre', C.preMatchRecheck, 'Réanalyse 60 min avant les paris suivis')}${chk('c-notif', C.notif, 'Notifications du navigateur')}</div>
+          <p class="muted">Ces automatismes ne fonctionnent que lorsque la page est ouverte : il n’y a pas de serveur.</p></section>
+        <div class="row"><button class="btn-main sm" type="submit">Enregistrer</button><button id="purge" type="button" class="btn-sec">Vider le cache des données</button></div>
+      </form>
+      <section class="card"><h3>Journal des appels</h3><div class="tw"><table class="t">${D.log.slice(-40).reverse().map((l) => `<tr><td>${hm(l.at)}</td><td>${esc(l.provider)}</td><td class="muted">${esc(l.url)}</td><td>${l.ok ? 'OK' : esc(l.msg)}</td></tr>`).join('') || '<tr><td class="muted">Aucun appel dans cette session.</td></tr>'}</table></div></section>`;
+    },
+  };
+  let calFilter = {}, perfDays = 30;
+
+  function emptyRun() { return `<section class="card empty"><h3>Aucune analyse</h3><p>Lancez une analyse depuis le <a href="#dashboard">tableau de bord</a>.</p></section>`; }
+  function noBet(A) {
+    const rej = A.events?.length ? '' : '';
+    return `<section class="card nobet"><h3>AUCUN PARI VALIDÉ</h3><p>Les opportunités disponibles ne répondent pas à nos critères statistiques.</p>${A.errors?.length ? `<p class="muted">Incidents : ${esc(A.errors.join(' ; '))}</p>` : ''}${rej}</section>`;
+  }
+  function summaryBlock(A) {
+    return `<section class="card summary"><h3>Résultat de la dernière analyse</h3>
+      ${A.best ? `<p><span class="tag t-ok">meilleur pari</span> <b>${esc(A.best.match)}</b> — ${esc(A.best.label)} @ ${num(A.best.odds)} (${esc(A.best.book)}) · EV ${sgn(A.best.ev)} · score ${A.best.score}/100 · <a href="#best">voir le détail</a></p>` : '<p><b>AUCUN PARI VALIDÉ</b> : les opportunités disponibles ne répondent pas à nos critères statistiques.</p>'}
+      <p>${A.values.length} autre(s) value(s) · ${A.watch.length} opportunité(s) à surveiller</p>
+      ${A.errors?.length ? `<details><summary>${A.errors.length} incident(s) de collecte</summary><ul>${A.errors.map((e) => `<li>${esc(e)}</li>`).join('')}</ul></details>` : ''}</section>`;
+  }
+  function recheckBlock(A) {
+    return `<section class="card"><h3>Réanalyse du ${dt(A.finishedAt)} — comparaison avec la version précédente</h3><div class="tw"><table class="t"><thead><tr><th>Match</th><th>Sélection</th><th>Cote</th><th>Prob.</th><th>EV</th><th>Verdict</th></tr></thead><tbody>${A.recheck.map((r) => `<tr><td>${esc(r.match)}</td><td>${esc(r.label)}</td><td class="n">${num(r.oldOdds)} → ${num(r.newOdds)}</td><td class="n">${pct(r.oldP)} → ${pct(r.newP)}</td><td class="n">${sgn(r.oldEV)} → ${sgn(r.newEV)}</td><td><span class="tag t-${r.status === 'good' ? 'ok' : 'bad'}">${esc(r.verdict)}</span></td></tr>`).join('')}</tbody></table></div><p class="muted">L’ancienne version reste dans l’historique.</p></section>`;
+  }
+  function eventDetail(id) {
+    const A = S.lastAnalysis(); const e = A?.events.find((x) => x.id === id); if (!e) return;
+    const dlg = $('#dlg');
+    $('#dlgc').innerHTML = `<header><div><span class="sport s-${e.sport}">${SPORT[e.sport]}</span> <span class="muted">${esc(e.comp)}</span></div><button id="dlgx" class="x" aria-label="Fermer">×</button></header>
+      <h3>${esc(e.home)} – ${esc(e.away)}</h3><p class="muted">${dt(e.t)} · ${esc(e.statsNote || '')}${e.ctx ? ` · surface ${esc(e.ctx.surface)}${e.ctx.surfaceVerified ? '' : ' (non vérifiée)'}` : ''}</p>
+      ${e.skip ? `<p class="notice">Écarté : ${esc(e.skip)}</p>` : ''}
+      <table class="t">${(e.models || []).map((m) => `<tr><td>${esc(m.name)}</td><td class="n">${m.p1x2 ? m.p1x2.map((x) => pct(x)).join(' · ') : m.pHome != null ? pct(m.pHome) : m.pA != null ? pct(m.pA) : m.serveA ? `service ${pct(m.serveA)} / ${pct(m.serveB)}` : ''}${m.lh ? ` · λ ${num(m.lh)}/${num(m.la)}` : ''}${m.margin != null ? ` · marge ${num(m.margin, 1)}` : ''}${m.total != null ? ` · total ${num(m.total, 1)}` : ''}</td></tr>`).join('')}</table>
+      ${e.sims ? `<p>${int(e.sims.n)} simulations en ${e.sims.ms} ms · scénarios : ${e.sims.scenarios.map((s) => `${s.name} ${pct(s.p)}`).join(' · ')}</p>` : '<p class="muted">Phase 1 seulement (pas de simulation approfondie : potentiel insuffisant).</p>'}
+      <div class="tw"><table class="t"><thead><tr><th>Sélection</th><th>Meilleure cote</th><th>Moyenne</th><th>Pinnacle</th><th>Prob. marché</th><th>Prob. modèle</th><th>EV</th></tr></thead><tbody>
+      ${e.sels.map((s) => `<tr><td>${MKT[s.mkey]} · ${esc(s.label)}</td><td class="n">${num(s.best)} <small class="muted">${esc(s.book)}</small></td><td class="n">${num(s.mean)}</td><td class="n">${num(s.pin)}</td><td class="n">${pct(s.fair)}</td><td class="n">${pct(s.p)}${s.deep ? '' : ' <small class="muted">p1</small>'}</td><td class="n ${s.ev > 0 ? 'pos' : 'neg'}">${sgn(s.ev)}</td></tr>`).join('')}</tbody></table></div>
+      ${e.warnings?.length ? `<h4>Avertissements</h4><ul>${e.warnings.map((w) => `<li>${esc(w)}</li>`).join('')}</ul>` : ''}
+      ${e.news?.length ? `<h4>Actualités reliées</h4><ul class="news">${e.news.map((n) => `<li>${n.url ? `<a href="${esc(n.url)}" target="_blank" rel="noopener">${esc(n.title)}</a>` : esc(n.title)} <small>${n.published ? dt(Date.parse(n.published)) : ''}</small></li>`).join('')}</ul>` : ''}`;
+    dlg.hidden = false;
+    $('#dlgx').onclick = () => { dlg.hidden = true; };
+  }
+
+  // ------------------------------------------------------------ graphiques SVG
+  function lineChart(pts) {
+    if (pts.length < 2) return '<p class="muted">Au moins deux pronostics réglés sont nécessaires.</p>';
+    const W = 560, H = 200, pad = 36;
+    const ys = pts.map((p) => p.v), lo = Math.min(0, ...ys), hi = Math.max(0, ...ys), span = hi - lo || 1;
+    const X = (i) => pad + i / (pts.length - 1) * (W - pad - 10), Y = (v) => 10 + (hi - v) / span * (H - 40);
+    const d = pts.map((p, i) => `${i ? 'L' : 'M'}${X(i).toFixed(1)},${Y(p.v).toFixed(1)}`).join('');
+    const last = pts[pts.length - 1];
+    return `<svg viewBox="0 0 ${W} ${H}" class="chart" role="img" aria-label="Profit cumulé">
+      <line x1="${pad}" x2="${W - 10}" y1="${Y(0)}" y2="${Y(0)}" class="axis"/>
+      <text x="4" y="${Y(hi) + 4}" class="lbl">${hi.toFixed(1)}</text><text x="4" y="${Y(lo) + 4}" class="lbl">${lo.toFixed(1)}</text><text x="4" y="${Y(0) + 4}" class="lbl">0</text>
+      <path d="${d} L${X(pts.length - 1)},${Y(0)} L${X(0)},${Y(0)} Z" class="area"/><path d="${d}" class="line"/>
+      <circle cx="${X(pts.length - 1)}" cy="${Y(last.v)}" r="4" class="endpt"/><text x="${X(pts.length - 1) - 4}" y="${Y(last.v) - 8}" text-anchor="end" class="lbl b">${last.v >= 0 ? '+' : ''}${last.v.toFixed(2)} u</text></svg>`;
+  }
+  function calChart(bins) {
+    if (!bins.length) return '<p class="muted">Pas encore de pronostics réglés.</p>';
+    const W = 300, H = 220, pad = 34, s = (v) => v * (W - pad - 10);
+    return `<svg viewBox="0 0 ${W} ${H}" class="chart" role="img" aria-label="Calibration">
+      <line x1="${pad}" y1="${H - 24}" x2="${pad + s(1)}" y2="${H - 24 - s(1) * (H - 34) / (W - pad - 10)}" class="axis dash"/>
+      ${bins.map((b) => `<circle cx="${pad + s(b.pred)}" cy="${H - 24 - b.obs * (H - 34)}" r="${3 + Math.min(8, Math.sqrt(b.n))}" class="dotc"><title>${b.n} paris · prédit ${pct(b.pred)} · observé ${pct(b.obs)}</title></circle>`).join('')}
+      <text x="${pad}" y="${H - 6}" class="lbl">0 %</text><text x="${W - 10}" y="${H - 6}" text-anchor="end" class="lbl">prob. prédite 100 %</text><text x="2" y="14" class="lbl">observé</text></svg>`;
+  }
+
+  // ------------------------------------------------------------ routage et événements
+  function route() {
+    const h = (location.hash || '#dashboard').slice(1);
+    const page = pages[h] ? h : 'dashboard';
+    document.querySelectorAll('nav a').forEach((a) => a.classList.toggle('on', a.getAttribute('href') === '#' + page));
+    $('#main').innerHTML = pages[page]() + disclaimer();
+    if (page === 'dashboard' && running) renderProgress();
+    bind(page);
+  }
+  function disclaimer() {
+    return `<footer class="disc">Outil d’analyse et d’aide à la décision, sans placement de paris. Aucun gain n’est garanti : une value théorique n’est pas un bénéfice. Les paris sportifs comportent des risques financiers et de dépendance — interdits aux moins de 18 ans. Aide : Joueurs Info Service, 09 74 75 13 13 (appel non surtaxé).</footer>`;
+  }
+  function bind(page) {
+    if (page === 'dashboard') {
+      $('#go')?.addEventListener('click', () => launch());
+      $('#re')?.addEventListener('click', () => {
+        const A = S.lastAnalysis(); if (!A) return;
+        const tracked = [A.best, ...A.values, ...A.watch].filter((p) => p && p.t > Date.now());
+        const keys = new Set(tracked.map((p) => p.sportKey));
+        launch({ force: true, parentId: A.id, onlyKeys: keys.size ? keys : null });
+      });
+    }
+    if (page === 'calendar') {
+      $('#calf').addEventListener('change', () => {
+        calFilter = { sport: $('#f-sport').value, comp: $('#f-comp').value, day: $('#f-day').value, mkt: $('#f-mkt').value, omin: +$('#f-omin').value || 0, omax: +$('#f-omax').value || 0 };
+        route();
+      });
+      document.querySelectorAll('.ev').forEach((b) => b.addEventListener('click', () => eventDetail(b.dataset.ev)));
+    }
+    if (page === 'history') {
+      $('#settle').onclick = async () => { const n = await S.autoSettle(); toast(`${n} résultat(s) enregistré(s)`); route(); };
+      $('#exp').onclick = () => {
+        const blob = new Blob([S.exportAll()], { type: 'application/json' });
+        const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = `sportpredict-${new Date().toISOString().slice(0, 10)}.json`; a.click();
+      };
+      $('#imp').onchange = async (e) => { try { S.importAll(await e.target.files[0].text()); toast('Historique importé'); route(); } catch (err) { toast('Import impossible : ' + err.message, 'bad'); } };
+      document.querySelectorAll('.manual button').forEach((b) => b.addEventListener('click', () => {
+        const pid = b.parentElement.dataset.pid; const p = S.picks().find((x) => x.pid === pid); const r = b.dataset.r;
+        const profit = r === 'gagné' ? p.odds - 1 : r === 'perdu' ? -1 : 0;
+        S.setResult(pid, { status: r, profit, win: r === 'gagné' ? 1 : 0, push: r === 'remboursé' ? 1 : 0, source: 'saisie manuelle' });
+        route();
+      }));
+    }
+    if (page === 'perf') {
+      document.querySelectorAll('.seg button').forEach((b) => b.addEventListener('click', () => { perfDays = +b.dataset.days; route(); }));
+      $('#applyw')?.addEventListener('click', (e) => { const C = P.cfg(); C.wMarket = +e.target.dataset.w; P.saveCfg(C); toast('Poids du marché mis à jour'); route(); });
+    }
+    if (page === 'config') {
+      $('#cfgf').addEventListener('submit', (e) => {
+        e.preventDefault();
+        const C = P.cfg(), v = (id) => $('#' + id).value, c = (id) => $('#' + id).checked;
+        C.oddsKey = v('c-odds').trim(); C.claudeKey = v('c-claude').trim(); C.regions = v('c-reg');
+        for (const k of Object.keys(D.FOOTBALL)) C.leagues[k] = c('L-' + k);
+        C.nba = c('c-nba'); C.tennis = c('c-tennis'); C.maxTennisTournaments = Math.max(0, +v('c-tt'));
+        C.minOdds = Math.max(1.2, +v('c-minodds')); C.maxOdds = +v('c-maxodds'); C.minEV = Math.max(0, +v('c-minev'));
+        C.maxOddsAgeMin = +v('c-age'); C.maxGap = +v('c-gap'); C.wMarket = Math.min(1, Math.max(0, +v('c-wm'))); C.hours = +v('c-hours'); C.extendTo48 = c('c-48');
+        C.minSims = Math.max(10000, +v('c-mins')); C.maxSims = Math.max(C.minSims, +v('c-maxs')); C.tol = Math.max(0.0005, +v('c-tol')); C.phase2Events = Math.max(1, +v('c-p2'));
+        C.autoOn = c('c-auto'); C.autoTime = v('c-time'); C.preMatchRecheck = c('c-pre'); C.notif = c('c-notif');
+        if (C.notif && 'Notification' in window && Notification.permission === 'default') Notification.requestPermission();
+        P.saveCfg(C); toast('Réglages enregistrés');
+      });
+      $('#purge').onclick = () => { D.purgeCache(); toast('Cache vidé'); };
+    }
+  }
+  function toast(msg, kind) {
+    const t = document.createElement('div'); t.className = 'toast ' + (kind || ''); t.textContent = msg;
+    document.body.appendChild(t); setTimeout(() => t.remove(), 4000);
+  }
+
+  // automatisation quotidienne / pré-match (page ouverte)
+  setInterval(() => {
+    const C = P.cfg(); if (running) return;
+    const now = new Date();
+    const hhmm = now.toLocaleTimeString('fr-FR', { timeZone: TZ, hour: '2-digit', minute: '2-digit' });
+    const today = now.toLocaleDateString('fr-FR', { timeZone: TZ });
+    if (C.autoOn && hhmm === C.autoTime && D.LS.get('sp:lastAuto', '') !== today) { D.LS.set('sp:lastAuto', today); launch(); return; }
+    if (C.preMatchRecheck) {
+      const A = S.lastAnalysis();
+      const due = A && [A.best, ...A.values].filter(Boolean).find((p) => p.t - Date.now() < 65 * 60e3 && p.t - Date.now() > 50 * 60e3);
+      if (due && D.LS.get('sp:pre:' + due.eventId, 0) === 0) { D.LS.set('sp:pre:' + due.eventId, 1); launch({ force: true, parentId: A.id, onlyKeys: new Set([due.sportKey]) }); }
+    }
+  }, 30e3);
+
+  window.addEventListener('hashchange', route);
+  document.addEventListener('keydown', (e) => { if (e.key === 'Escape') $('#dlg').hidden = true; });
+  $('#dlg').addEventListener('click', (e) => { if (e.target.id === 'dlg') $('#dlg').hidden = true; });
+  route();
+  S.autoSettle().then((n) => { if (n) { toast(`${n} résultat(s) mis à jour`); route(); } }).catch(() => {});
+})();
+
+</script>
+</body>
+</html>

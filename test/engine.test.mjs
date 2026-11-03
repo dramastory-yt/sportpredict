@@ -1,0 +1,109 @@
+// Tests du moteur : node test/engine.test.mjs
+// Les données synthétiques ci-dessous servent UNIQUEMENT à vérifier que les algorithmes
+// retrouvent des paramètres connus. Elles ne sont jamais affichées dans l'application.
+import { createRequire } from 'module';
+const require = createRequire(import.meta.url);
+const SP = require('../src/engine.js')();
+let fails = 0, passes = 0;
+const ok = (cond, msg) => { if (cond) { passes++; } else { fails++; console.error('ÉCHEC:', msg); } };
+const near = (a, b, tol, msg) => ok(Math.abs(a - b) <= tol, `${msg} (obtenu ${a}, attendu ${b} ± ${tol})`);
+
+// --- cotes
+near(SP.ev(0.65, 1.80), 0.17, 1e-9, 'EV exemple du cahier des charges');
+const dv = SP.devig([1.9, 3.6, 4.2]);
+near(dv.reduce((a, b) => a + b, 0), 1, 1e-9, 'devig somme à 1');
+ok(dv[0] > 1 / 1.9 / (1 / 1.9 + 1 / 3.6 + 1 / 4.2) - 0.02, 'devig power cohérent');
+// lignes asiatiques
+near(SP.settleLine(1, -0.5, 2), 2, 1e-9, 'AH -0.5 gagné');
+near(SP.settleLine(0, -0.5, 2), 0, 1e-9, 'AH -0.5 perdu');
+near(SP.settleLine(0, 0, 2), 1, 1e-9, 'AH 0 remboursé');
+near(SP.settleLine(0, -0.25, 2), 0.5, 1e-9, 'AH -0.25 demi-perdu');
+near(SP.settleLine(1, -0.75, 2), 1.5, 1e-9, 'AH -0.75 demi-gagné');
+near(SP.settleLine(3 - 2.5, 0, 1.9), 1.9, 1e-9, 'Over 2.5 avec 3 buts');
+
+// --- Poisson / DC
+const m = SP.scoreMatrix(1.5, 1.1, -0.05);
+const r = SP.matrix1x2(m);
+near(r[0] + r[1] + r[2], 1, 1e-9, 'matrice normalisée');
+const imp = SP.impliedLambdas(r, { line: 2.5, p: SP.matrixOver(m, 2.5) });
+near(imp.lh, 1.5, 0.05, 'lambdas implicites λh');
+near(imp.la, 1.1, 0.05, 'lambdas implicites λa');
+
+// génère une ligue synthétique avec forces connues
+const R = SP.rng(42);
+const teams = Array.from({ length: 20 }, (_, i) => 'T' + i);
+const trueAtt = Object.fromEntries(teams.map((t, i) => [t, (i - 9.5) / 30]));
+const trueDef = Object.fromEntries(teams.map((t, i) => [t, -(i - 9.5) / 40]));
+const matches = [];
+let t = Date.UTC(2025, 7, 1);
+for (let season = 0; season < 2; season++) for (const h of teams) for (const a of teams) {
+  if (h === a) continue;
+  const lh = Math.exp(Math.log(1.35) + 0.25 + trueAtt[h] + trueDef[a]);
+  const la = Math.exp(Math.log(1.35) + trueAtt[a] + trueDef[h]);
+  matches.push({ t: (t += 3600e3 * 11), h, a, hg: SP.poissonDraw(R, lh), ag: SP.poissonDraw(R, la) });
+}
+const dc = SP.fitDixonColes(matches, { xi: 0 });
+near(dc.home, 0.25, 0.08, 'DC avantage domicile');
+const corr = (() => {
+  const xs = teams.map((x) => trueAtt[x]), ys = teams.map((x) => dc.att[x]);
+  const mx = xs.reduce((a, b) => a + b) / 20, my = ys.reduce((a, b) => a + b) / 20;
+  let sxy = 0, sxx = 0, syy = 0;
+  xs.forEach((x, i) => { sxy += (x - mx) * (ys[i] - my); sxx += (x - mx) ** 2; syy += (ys[i] - my) ** 2; });
+  return sxy / Math.sqrt(sxx * syy);
+})();
+ok(corr > 0.8, 'DC retrouve les attaques (corr=' + corr.toFixed(2) + ')');
+const bt = SP.footballBacktest(matches);
+ok(bt && bt.n > 100, 'backtest football exécuté');
+ok(bt.ensemble.logLoss < bt.naive.logLoss, `ensemble bat le modèle naïf (${bt.ensemble.logLoss.toFixed(4)} < ${bt.naive.logLoss.toFixed(4)})`);
+near(Object.values(bt.weights).reduce((a, b) => a + b, 0), 1, 1e-6, 'poids somme à 1');
+
+// --- Monte-Carlo football vs analytique
+const key = (x, y) => x > y;
+const sim = SP.simulate({ kind: 'football', lh: 1.5, la: 1.1, rho: -0.05, sigma: 0.0001, seed: 7, minN: 400000, maxN: 400000, keyEvent: key });
+near(sim.key.p, r[0], 0.004, 'MC P(domicile) ≈ analytique');
+const evo = SP.evalFromSim(sim, SP.normalizeSel({ type: 'over', point: 2.5 }), 2.0);
+near(evo.pWin, SP.matrixOver(m, 2.5), 0.004, 'MC over 2.5 ≈ analytique');
+const ah = SP.evalFromSim(sim, SP.normalizeSel({ type: 'ahHome', point: 0 }), 2.0);
+near(ah.pPush, r[1], 0.004, 'AH 0 : remboursement = P(nul)');
+// performance : 1M simulations
+const t1 = Date.now();
+const big = SP.simulate({ kind: 'football', lh: 1.4, la: 1.2, rho: -0.05, sigma: 0.1, seed: 9, minN: 1000000, maxN: 1000000, keyEvent: key });
+console.log(`1 000 000 simulations football : ${Date.now() - t1} ms (scénarios: ${big.scenarios.map((s) => s.name + ' ' + (s.p * 100).toFixed(1) + '%').join(', ')})`);
+// arrêt adaptatif
+const ad = SP.simulate({ kind: 'football', lh: 1.4, la: 1.2, rho: 0, sigma: 0.1, seed: 3, minN: 100000, maxN: 2000000, tol: 0.002, keyEvent: key });
+ok(ad.n < 2000000 && ad.key.ci95 < 0.002, `arrêt adaptatif à n=${ad.n}, IC95=±${ad.key.ci95.toFixed(4)}`);
+
+// --- tennis
+near(SP.tennisMatchProb(0.64, 0.64, 3), 0.5, 1e-6, 'tennis symétrique');
+near(SP.holdProb(0.5), 0.5, 1e-9, 'hold 50%');
+const sv = SP.tennisSolveServe(0.7, 0.64, 3);
+near(SP.tennisMatchProb(sv.pa, sv.pb, 3), 0.7, 1e-4, 'résolution service');
+const ts = SP.simulate({ kind: 'tennis', pa: sv.pa, pb: sv.pb, sigmaD: 0.0001, bestOf: 3, seed: 5, minN: 200000, maxN: 200000, keyEvent: (a, b, w) => w === 1 });
+near(ts.key.p, 0.7, 0.01, 'MC tennis ≈ analytique (écart toléré : ordre de service)');
+const tot = SP.evalFromSim(ts, SP.normalizeSel({ type: 'tOver', point: 21.5 }), 1.9);
+ok(tot.pWin > 0.2 && tot.pWin < 0.8, 'total de jeux plausible ' + tot.pWin.toFixed(3));
+
+// --- NBA
+const nt = Array.from({ length: 30 }, (_, i) => 'N' + i);
+const str = Object.fromEntries(nt.map((x, i) => [x, (i - 14.5) / 2.5]));
+const games = []; let tt = Date.UTC(2025, 9, 21);
+for (let k = 0; k < 1100; k++) {
+  const h = nt[Math.floor(R() * 30)]; let a = h; while (a === h) a = nt[Math.floor(R() * 30)];
+  const [z1, z2] = SP.normalPair(R);
+  const mar = 2.5 + str[h] - str[a] + 12.5 * z1, totp = 228 + 18 * z2;
+  games.push({ t: (tt += 3600e3 * 5), h, a, hs: Math.round((totp + mar) / 2), as: Math.round((totp - mar) / 2) });
+}
+const nb = SP.fitNBA(games, { xi: 0 });
+near(nb.hca, 2.5, 1.2, 'NBA avantage terrain');
+near(nb.sdMargin, 12.5, 1.5, 'NBA écart-type marge');
+const nbt = SP.nbaBacktest(games);
+ok(nbt && nbt.ensemble.logLoss < Math.log(2), 'NBA ensemble bat pile-ou-face');
+const ns = SP.simulate({ kind: 'nba', ph: 115, pa: 110, sdM: 12.5, sdT: 18, corr: 0, sigmaM: 0.5, seed: 1, minN: 200000, maxN: 200000, keyEvent: (h, a) => h > a });
+near(ns.key.p, SP.normCdf(5 / 12.5), 0.015, 'MC NBA ≈ Φ(marge/σ)');
+
+// --- score qualité
+const q = SP.qualityScore({ edge: 0.04, uncert: 0.015, modelGap: 0.02, dataQuality: 0.8, calib: 0.5, mcSpread: 0.05, oddsAgeMin: 5, booksAtPrice: 2, riskPenalty: 0, odds: 1.85 });
+ok(q.total > 50 && q.total <= 100 && q.parts.length === 8, 'score qualité ' + q.total);
+
+console.log(`\n${passes} tests réussis, ${fails} échec(s)`);
+process.exit(fails ? 1 : 0);
