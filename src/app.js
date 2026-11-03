@@ -111,6 +111,7 @@
         <div><small>Score qualité</small><b>${p.score}/100</b><span>≠ probabilité</span></div>
         <div><small>Simulations</small><b>${int(p.sims)}</b><span>graine ${p.seed ?? '—'}</span></div>
       </div>
+      ${p.cat !== 'watch' ? adviceBox(p) : ''}
       ${big ? `<div class="why"><h4>Pourquoi cette sélection</h4><p>${esc(whyText(p))}</p></div>` : ''}
       ${p.warnings?.length ? `<div class="risks"><h4>Risques identifiés</h4><ul>${p.warnings.map((w) => `<li>${esc(w)}</li>`).join('')}</ul></div>` : `<div class="risks"><h4>Risques identifiés</h4><ul><li>Aucun signal spécifique dans les sources consultées. Le résultat reste aléatoire.</li></ul></div>`}
       <details ${big ? 'open' : ''}><summary>Détail du score de qualité</summary><div class="parts">${parts}</div></details>
@@ -119,6 +120,20 @@
       <details><summary>Informations et sources</summary><ul class="info">${info || '<li class="muted">Aucune information structurée disponible.</li>'}</ul>${news}</details>
       ${llm}
     </article>`;
+  }
+  // Consigne en clair : cote minimale à accepter et mise indicative (Kelly fractionné, plafonné).
+  function advice(p) {
+    const C = P.cfg();
+    const minOdds = Math.ceil(((1 + C.minEV - (p.pPush || 0)) / Math.max(1e-6, p.p)) * 100) / 100;
+    const k = Math.max(0, (p.p * p.odds + (p.pPush || 0) - 1) / (p.odds - 1));
+    const frac = Math.min(C.maxStakePct, C.kellyFrac * k);
+    const stake = Math.round(C.bankroll * frac * 100) / 100;
+    return { minOdds, stake, frac, bank: C.bankroll };
+  }
+  function adviceBox(p) {
+    const a = advice(p);
+    return `<div class="advice"><b>En clair :</b> sur ${esc(p.book)}, pariez « ${esc(p.label)} » pour ${esc(p.match)} seulement si la cote affichée est <b>au moins ${num(a.minOdds)}</b> (relevée : ${num(p.odds)}).
+      Mise indicative : <b>${num(a.stake)} €</b> (${(a.frac * 100).toFixed(1)} % d’une bankroll de ${int(a.bank)} €, quart de Kelly plafonné). Si la cote a baissé ou si le match a commencé, ne pariez pas.</div>`;
   }
   function list(t, a) { return a?.length ? `<h5>${esc(t)}</h5><ul>${a.map((x) => `<li>${esc(x)}</li>`).join('')}</ul>` : ''; }
   function whyText(p) {
@@ -147,7 +162,10 @@
           ${kpi('Simulations', int(A?.counts?.sims))}
           ${kpi('Dernière actualisation', A ? ago(A.finishedAt) : 'jamais', A ? dt(A.finishedAt) : '')}
         </div>
-        ${!C.oddsKey ? `<div class="notice">Pour lancer une analyse, ajoutez votre clé <b>The Odds API</b> dans <a href="#config">Réglages</a> (offre gratuite : 500 crédits/mois).</div>` : ''}
+        ${!C.oddsKey ? `<form id="quickkey" class="notice onb"><b>Première utilisation, deux étapes :</b>
+          <ol><li>Créez une clé gratuite sur <a href="https://the-odds-api.com/#get-access" target="_blank" rel="noopener">the-odds-api.com</a> (offre gratuite, 500 crédits/mois, envoyée par e-mail).</li><li>Collez-la ici :</li></ol>
+          <div class="row"><input id="qk" type="password" autocomplete="off" placeholder="clé The Odds API" aria-label="Clé The Odds API"><button class="btn-sec" type="submit">Enregistrer</button></div>
+          <small>La clé reste dans ce navigateur. Les autres réglages sont facultatifs.</small></form>` : ''}
         <div class="cta">
           <button id="go" class="btn-main" ${running ? 'disabled' : ''}>LANCER L’ANALYSE COMPLÈTE</button>
           <button id="re" class="btn-sec" ${running || !A ? 'disabled' : ''}>ACTUALISER ET RÉANALYSER</button>
@@ -262,6 +280,9 @@
         <section class="card"><h3>Compétitions</h3><div class="chks">${Object.entries(D.FOOTBALL).map(([k2, v]) => chk('L-' + k2, C.leagues[k2], v.name + (v.stats ? '' : ' <small>(marché seul)</small>'))).join('')}
           ${chk('c-nba', C.nba, 'NBA')}${chk('c-tennis', C.tennis, 'Tennis ATP/WTA (tournois actifs)')}</div>
           ${n('c-tt', C.maxTennisTournaments, 'Tournois de tennis max', 1)}</section>
+        <section class="card"><h3>Mise indicative</h3><div class="g3">
+          ${n('c-bank', C.bankroll, 'Bankroll (€)', 1)}${n('c-kf', C.kellyFrac, 'Fraction de Kelly (0.25 = quart)', 0.05)}${n('c-maxst', C.maxStakePct, 'Mise max (0.02 = 2 % de la bankroll)', 0.005)}</div>
+          <p class="muted">Ne misez que de l’argent que vous pouvez perdre. La mise indicative ne garantit rien.</p></section>
         <section class="card"><h3>Critères de sélection</h3><div class="g3">
           ${n('c-minodds', C.minOdds, 'Cote minimale (≥ 1.20)')}${n('c-maxodds', C.maxOdds, 'Cote maximale')}${n('c-minev', C.minEV, 'EV minimale (0.02 = 2 %)', 0.005)}
           ${n('c-age', C.maxOddsAgeMin, 'Âge max des cotes (min)', 1)}${n('c-gap', C.maxGap, 'Divergence max modèles/marché', 0.01)}${n('c-wm', C.wMarket, 'Poids du marché (0–1)', 0.05)}
@@ -287,6 +308,7 @@
   }
   function summaryBlock(A) {
     return `<section class="card summary"><h3>Résultat de la dernière analyse</h3>
+      ${A.best ? adviceBox(A.best) : ''}
       ${A.best ? `<p><span class="tag t-ok">meilleur pari</span> <b>${esc(A.best.match)}</b> — ${esc(A.best.label)} @ ${num(A.best.odds)} (${esc(A.best.book)}) · EV ${sgn(A.best.ev)} · score ${A.best.score}/100 · <a href="#best">voir le détail</a></p>` : '<p><b>AUCUN PARI VALIDÉ</b> : les opportunités disponibles ne répondent pas à nos critères statistiques.</p>'}
       <p>${A.values.length} autre(s) value(s) · ${A.watch.length} opportunité(s) à surveiller</p>
       ${A.errors?.length ? `<details><summary>${A.errors.length} incident(s) de collecte</summary><ul>${A.errors.map((e) => `<li>${esc(e)}</li>`).join('')}</ul></details>` : ''}</section>`;
@@ -347,6 +369,7 @@
   }
   function bind(page) {
     if (page === 'dashboard') {
+      $('#quickkey')?.addEventListener('submit', (e) => { e.preventDefault(); const v = $('#qk').value.trim(); if (!v) return; const C = P.cfg(); C.oddsKey = v; P.saveCfg(C); toast('Clé enregistrée : vous pouvez lancer l’analyse'); route(); });
       $('#go')?.addEventListener('click', () => launch());
       $('#re')?.addEventListener('click', () => {
         const A = S.lastAnalysis(); if (!A) return;
@@ -390,6 +413,7 @@
         C.minOdds = Math.max(1.2, +v('c-minodds')); C.maxOdds = +v('c-maxodds'); C.minEV = Math.max(0, +v('c-minev'));
         C.maxOddsAgeMin = +v('c-age'); C.maxGap = +v('c-gap'); C.wMarket = Math.min(1, Math.max(0, +v('c-wm'))); C.hours = +v('c-hours'); C.extendTo48 = c('c-48');
         C.minSims = Math.max(10000, +v('c-mins')); C.maxSims = Math.max(C.minSims, +v('c-maxs')); C.tol = Math.max(0.0005, +v('c-tol')); C.phase2Events = Math.max(1, +v('c-p2'));
+        C.bankroll = Math.max(0, +v('c-bank')); C.kellyFrac = Math.min(1, Math.max(0, +v('c-kf'))); C.maxStakePct = Math.min(0.1, Math.max(0, +v('c-maxst')));
         C.autoOn = c('c-auto'); C.autoTime = v('c-time'); C.preMatchRecheck = c('c-pre'); C.notif = c('c-notif');
         if (C.notif && 'Notification' in window && Notification.permission === 'default') Notification.requestPermission();
         P.saveCfg(C); toast('Réglages enregistrés');
