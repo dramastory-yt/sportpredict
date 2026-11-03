@@ -124,6 +124,13 @@ summary:hover { color: var(--fg); }
 .llm { margin-top: .8rem; background: var(--surface2); border-radius: 8px; padding: .7rem .9rem; }
 .advice { margin: .8rem 0 .2rem; padding: .75rem .9rem; border-radius: 8px; background: color-mix(in srgb, var(--accent) 10%, var(--surface2)); border: 1px solid color-mix(in srgb, var(--accent) 35%, var(--line)); max-width: 80ch; }
 .onb ol { margin: .4rem 0; padding-left: 1.2rem; } .onb input { flex: 1; min-width: 200px; }
+.headline { display: flex; gap: .5rem; align-items: center; flex-wrap: wrap; margin: .2rem 0 .5rem; }
+.pbar3 { display: flex; height: 8px; border-radius: 6px; overflow: hidden; background: var(--line); }
+.pbar3 i:nth-child(1) { background: var(--accent); } .pbar3 i:nth-child(2) { background: var(--muted); } .pbar3 i:nth-child(3) { background: var(--info); }
+.pl3 { display: flex; justify-content: space-between; font: 500 .8rem var(--f-mono); color: var(--muted); margin: .25rem 0 .5rem; }
+.formrow { display: grid; gap: .3rem; margin: .4rem 0; } .formrow > div { display: flex; flex-wrap: wrap; gap: .4rem; align-items: center; } .formrow small:first-child { min-width: 9ch; }
+.form { display: inline-flex; gap: 2px; } .form i { font: 600 .7rem var(--f-mono); width: 1.3em; text-align: center; border-radius: 3px; padding: .05rem 0; font-style: normal; }
+.r-V { background: color-mix(in srgb, var(--pos) 25%, transparent); color: var(--pos); } .r-N { background: var(--surface2); color: var(--muted); } .r-D { background: color-mix(in srgb, var(--neg) 22%, transparent); color: var(--neg); }
 .nobet { border-color: color-mix(in srgb, var(--muted) 40%, var(--line)); text-align: center; padding: 2.2rem 1rem; }
 .nobet h3 { font-size: 1.5rem; letter-spacing: .02em; }
 
@@ -177,7 +184,7 @@ label.chk { display: flex; align-items: center; gap: .4rem; color: var(--fg); fo
 <header class="top"><div class="in">
   <div class="brand"><i aria-hidden="true"></i>SportPredict <span>AI</span></div>
   <nav aria-label="Pages">
-    <a href="#dashboard">Accueil</a><a href="#best">Meilleur pari</a><a href="#values">Values</a><a href="#watch">À surveiller</a><a href="#check">Vérifier une cote</a>
+    <a href="#dashboard">Accueil</a><a href="#pronos">Pronostics</a><a href="#best">Meilleur pari</a><a href="#values">Values</a><a href="#watch">À surveiller</a><a href="#check">Vérifier une cote</a>
     <a href="#calendar">Calendrier</a><a href="#history">Historique</a><a href="#perf">Stats</a><a href="#config">Réglages</a>
   </nav>
 </div></header>

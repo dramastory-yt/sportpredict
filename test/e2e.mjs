@@ -108,9 +108,9 @@ const t0 = Date.now();
 await page.click('#go');
 await page.waitForFunction(() => !document.body.classList.contains('busy'), null, { timeout: 180000 });
 console.log('analyse terminée en', ((Date.now() - t0) / 1000).toFixed(1), 's ; appels odds :', oddsCalls);
-const A = await page.evaluate(() => { const a = JSON.parse(localStorage.getItem('sp:analyses')).pop(); return { counts: a.counts, errors: a.errors, best: a.best && { book: a.best.book, any: a.best.bestAny, m: a.best.match, l: a.best.label, o: a.best.odds, ev: a.best.ev, s: a.best.score, sims: a.best.sims }, values: a.values.length, watch: a.watch.map((w) => w.match + ' ' + w.label + ' | ' + w.need.join('; ')), backtests: Object.keys(a.backtests || {}), tennisNote: a.events.find((e) => e.sport === 'tennis')?.statsNote, eplNote: a.events.find((e) => e.sport === 'football')?.statsNote, skips: a.events.filter((e) => e.skip).map((e) => e.skip) }; });
+const A = await page.evaluate(() => { const a = JSON.parse(localStorage.getItem('sp:analyses')).pop(); return { counts: a.counts, errors: a.errors, best: a.best && { book: a.best.book, any: a.best.bestAny, m: a.best.match, l: a.best.label, o: a.best.odds, ev: a.best.ev, s: a.best.score, sims: a.best.sims }, values: a.values.length, watch: a.watch.map((w) => w.match + ' ' + w.label + ' | ' + w.need.join('; ')), backtests: Object.keys(a.backtests || {}), pronos: (a.forecasts || []).map((f) => f.match + ' | ' + f.headline + ' | ' + f.confidence + ' | ' + (f.pick && f.pick.label + ' @' + f.pick.odds + ' ' + (f.pick.p * 100).toFixed(0) + '%')), tennisNote: a.events.find((e) => e.sport === 'tennis')?.statsNote, eplNote: a.events.find((e) => e.sport === 'football')?.statsNote, skips: a.events.filter((e) => e.skip).map((e) => e.skip) }; });
 console.log(JSON.stringify(A, null, 1));
-for (const h of ['#best', '#values', '#watch', '#calendar', '#history', '#perf', '#config', '#dashboard']) {
+for (const h of ['#pronos', '#best', '#values', '#watch', '#calendar', '#history', '#perf', '#config', '#dashboard']) {
   await page.evaluate((x) => { location.hash = x; }, h);
   await page.waitForTimeout(150);
   if (h === '#calendar') { await page.click('.ev'); await page.waitForTimeout(100); await page.screenshot({ path: process.argv[2] + '/detail.png' }); await page.keyboard.press('Escape'); }

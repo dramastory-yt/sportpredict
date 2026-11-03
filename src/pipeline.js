@@ -681,6 +681,15 @@ onmessage = (e) => {
       }
     }
     A.counts.scored = scored.length;
+    // pronostics : pour chaque match, la lecture du moteur, même sans value
+    for (const E of events) {
+      if (E.skip) continue;
+      try { E.forecast = forecast(E, scored.filter((c) => c.E === E), E.sport === 'football' ? fbStats[E.sportKey] : E.sport === 'nba' ? nba : null); } catch (err) { E.forecast = null; }
+    }
+    const confRank = { forte: 3, moyenne: 2, faible: 1 };
+    A.forecasts = events.filter((E) => E.forecast && E.forecast.pick && E.t - Date.now() <= Math.max(C.hours, 24) * 3600e3)
+      .sort((a, b) => confRank[b.forecast.confidence] - confRank[a.forecast.confidence] || b.forecast.pick.p - a.forecast.pick.p)
+      .slice(0, 20).map((E) => ({ eventId: E.id, sport: E.sport, comp: E.comp, match: `${E.home} – ${E.away}`, t: E.t, day: E.day, ...E.forecast }));
     S.done(8, `${scored.length} sélections notées ; ${scored.filter((c) => c.check.ok).length} passent les filtres`);
 
     // ---------------- 10. validation finale
@@ -752,6 +761,65 @@ onmessage = (e) => {
     const p = useMkt ? C.wMarket * s.fairMkt + (1 - C.wMarket) * pm : pm;
     return { pWin: p, pPush: r.pPush, ev: p * s.best.price + r.pPush - 1, pMkt: s.fairMkt, pStats: s.mkey !== 'h2h' ? pm : null };
   }
+  // Forme récente à partir des résultats déjà chargés (V/N/D, buts ou points marqués/encaissés)
+  function recentForm(games, team, n, hk, ak) {
+    const gs = games.filter((g) => g.h === team || g.a === team).slice(-n);
+    if (!gs.length) return null;
+    let gf = 0, ga = 0, xf = 0, xa = 0, nx = 0;
+    const seq = gs.map((g) => {
+      const home = g.h === team, f = home ? g[hk] : g[ak], a = home ? g[ak] : g[hk];
+      gf += f; ga += a;
+      if (g.hxg != null) { xf += home ? g.hxg : g.axg; xa += home ? g.axg : g.hxg; nx++; }
+      return f > a ? 'V' : f === a ? 'N' : 'D';
+    }).join('');
+    return { seq, gf: gf / gs.length, ga: ga / gs.length, xgf: nx ? xf / nx : null, xga: nx ? xa / nx : null, n: gs.length };
+  }
+  function forecast(E, cands, stats) {
+    const f = { facts: [] };
+    if (E.sport === 'football') {
+      const { lh, la, rho } = E.model.final;
+      const mat = SP.scoreMatrix(lh, la, rho);
+      const [ph, pd, pa] = SP.matrix1x2(mat);
+      let best = [0, 0, 0];
+      mat.forEach((row, i) => row.forEach((v, j) => { if (v > best[2]) best = [i, j, v]; }));
+      let btts = 0; mat.forEach((row, i) => row.forEach((v, j) => { if (i > 0 && j > 0) btts += v; }));
+      f.probs = { home: ph, draw: pd, away: pa, over25: SP.matrixOver(mat, 2.5), btts };
+      f.expected = { home: lh, away: la };
+      f.score = { h: best[0], a: best[1], p: best[2] };
+      const top = Math.max(ph, pd, pa);
+      f.headline = top < 0.42 ? 'Match très ouvert' : ph === top ? `Victoire de ${E.home} probable` : pa === top ? `Victoire de ${E.away} probable` : 'Match nul probable';
+      if (stats?.ms && E.model.st?.match) {
+        const [mh, ma] = E.model.st.match.map((m) => m.name);
+        f.form = { home: recentForm(stats.ms, mh, 5, 'hg', 'ag'), away: recentForm(stats.ms, ma, 5, 'hg', 'ag') };
+      }
+    } else if (E.sport === 'nba') {
+      const sp = E.model.simSpec;
+      const pH = SP.normCdf((sp.ph - sp.pa) / Math.sqrt(sp.sdM ** 2 + sp.sigmaM ** 2));
+      f.probs = { home: pH, away: 1 - pH };
+      f.expected = { home: sp.ph, away: sp.pa, total: sp.ph + sp.pa };
+      f.headline = Math.abs(pH - 0.5) < 0.08 ? 'Match serré' : pH > 0.5 ? `Victoire de ${E.home} probable` : `Victoire de ${E.away} probable`;
+      if (E.model.b2b?.home) f.facts.push(`${E.home} joue en back-to-back`);
+      if (E.model.b2b?.away) f.facts.push(`${E.away} joue en back-to-back`);
+      if (stats?.gs && E.model.matched) f.form = { home: recentForm(stats.gs, E.model.matched[0], 10, 'hs', 'as'), away: recentForm(stats.gs, E.model.matched[1], 10, 'hs', 'as') };
+    } else {
+      const fin = E.model.models.find((m) => m.name.startsWith('Final'))?.pA ?? E.model.models[0].pA;
+      f.probs = { home: fin, away: 1 - fin };
+      f.headline = Math.abs(fin - 0.5) < 0.08 ? 'Match serré' : fin > 0.5 ? `Victoire de ${E.home} probable` : `Victoire de ${E.away} probable`;
+      if (E.model.pEloA != null) f.facts.push(`Elo surface : ${E.home} ${(E.model.pEloA * 100).toFixed(0)} % contre ${(fin * 100).toFixed(0)} % pour le pronostic final`);
+      f.facts.push(`Surface : ${E.model.ctx.surface}${E.model.ctx.surfaceVerified ? '' : ' (non vérifiée)'}`);
+    }
+    f.facts.push(...E.warnings);
+    // pari conseillé : le plus probable parmi ceux proposés par le bookmaker cible, avec une cote ≥ 1,30
+    const pool = cands.filter((c) => !c.s.noTarget && c.best.price >= 1.3 && c.best.price <= 3.5 && c.p != null);
+    pool.sort((a, b) => b.p - a.p);
+    const c = pool[0];
+    if (c) f.pick = { label: c.s.label, market: c.s.mkey, odds: c.best.price, book: c.best.title, p: c.p, pPush: c.pPush, ev: c.ev, value: c.check.ok, fair: c.fairMkt };
+    const dq = E.model.dataQuality ?? 0.4;
+    const gap = cands.find((x) => x === c)?.modelGap;
+    f.confidence = c && c.p >= 0.65 && dq >= 0.6 && (gap == null || gap <= 0.05) ? 'forte' : c && c.p >= 0.55 && dq >= 0.4 ? 'moyenne' : 'faible';
+    f.dataNote = E.model.statsNote;
+    return f;
+  }
   function tennisSel(E, s) {
     if (s.mkey === 'h2h') return { type: s.name === E.home ? 'tennisA' : 'tennisB' };
     if (s.mkey === 'totals') return { type: s.type === 'over' ? 'tOver' : 'tUnder', point: s.point };
@@ -790,7 +858,7 @@ onmessage = (e) => {
     return {
       id: E.id, sport: E.sport, sportKey: E.sportKey, comp: E.comp, home: E.home, away: E.away, t: E.t, day: E.day, skip: E.skip || null,
       statsNote: E.model?.statsNote || null, models: E.model?.models || null, ctx: E.model?.ctx || null, warnings: E.warnings, info: E.info, news: E.news || [],
-      sims: E.sim ? { n: E.sim.n, ms: E.sim.ms, scenarios: E.sim.scenarios, key: E.sim.key } : null, spec: E.model?.simSpec || null, wSource: E.model?.wSource || null,
+      sims: E.sim ? { n: E.sim.n, ms: E.sim.ms, scenarios: E.sim.scenarios, key: E.sim.key } : null, spec: E.model?.simSpec || null, wSource: E.model?.wSource || null, forecast: E.forecast || null,
       sels: E.mk.sels.map((s) => ({
         id: s.id, mkey: s.mkey, label: s.label, best: s.noTarget ? null : s.best.price, book: s.noTarget ? 'non proposé par le bookmaker cible' : s.best.title, anyBest: s.bestAny?.price ?? s.best.price, last: s.best.last, nBooks: s.nBooks, mean: s.mean, pin: s.pinnacle,
         fair: s.fairMkt, p: (s.p2 || s.p1)?.pWin ?? null, ev: (s.p2 || s.p1)?.ev ?? null, deep: !!s.p2,

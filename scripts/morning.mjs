@@ -50,6 +50,7 @@ try {
   if (A.best) parts.push('🎯 <b>Meilleur pari</b>\n' + line(A.best));
   else parts.push('<b>AUCUN PARI VALIDÉ</b> : les opportunités disponibles ne répondent pas aux critères statistiques.');
   if (A.values?.length) parts.push('<b>Autres values</b>\n' + A.values.map(line).join('\n\n'));
+  if (A.forecasts?.length) parts.push('<b>Pronostics les plus solides</b>\n' + A.forecasts.slice(0, 5).map((f) => `${esc(f.match)} : ${esc(f.headline)} (confiance ${esc(f.confidence)})${f.pick ? `\n  ${esc(f.pick.label)} @ ${f.pick.odds.toFixed(2)} · ${(f.pick.p * 100).toFixed(0)} %${f.pick.value ? ' · VALUE' : ''}` : ''}`).join('\n'));
   if (A.watch?.length) parts.push('<b>À surveiller</b>\n' + A.watch.slice(0, 3).map((w) => `${esc(w.match)} — ${esc(w.label)} : ${esc(w.need[0] || '')}`).join('\n'));
   if (A.errors?.length) parts.push('⚠️ ' + esc(A.errors.slice(0, 3).join(' ; ')));
   parts.push('Vérifiez la cote sur Winamax avant de parier. Aucun gain garanti. 18+');
