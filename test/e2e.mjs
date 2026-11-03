@@ -110,6 +110,10 @@ await page.waitForFunction(() => !document.body.classList.contains('busy'), null
 console.log('analyse terminée en', ((Date.now() - t0) / 1000).toFixed(1), 's ; appels odds :', oddsCalls);
 const A = await page.evaluate(() => { const a = JSON.parse(localStorage.getItem('sp:analyses')).pop(); return { counts: a.counts, errors: a.errors, best: a.best && { book: a.best.book, any: a.best.bestAny, m: a.best.match, l: a.best.label, o: a.best.odds, ev: a.best.ev, s: a.best.score, sims: a.best.sims }, values: a.values.length, watch: a.watch.map((w) => w.match + ' ' + w.label + ' | ' + w.need.join('; ')), backtests: Object.keys(a.backtests || {}), safe: (a.safe || []).map((s) => s.match + ' ' + s.label + ' @' + s.odds + ' ' + (s.p * 100).toFixed(0) + '% t' + s.tier), daily: a.daily && (a.daily.kind + ' | ' + a.daily.match + ' | ' + a.daily.pick.label + ' @' + a.daily.pick.odds + ' value=' + a.daily.pick.value + ' | ' + a.daily.why.join(' / ')), pronos: (a.forecasts || []).map((f) => f.match + ' | ' + f.headline + ' | ' + f.confidence + ' | ' + (f.pick && f.pick.label + ' @' + f.pick.odds + ' ' + (f.pick.p * 100).toFixed(0) + '%')), tennisNote: a.events.find((e) => e.sport === 'tennis')?.statsNote, eplNote: a.events.find((e) => e.sport === 'football')?.statsNote, skips: a.events.filter((e) => e.skip).map((e) => e.skip) }; });
 console.log(JSON.stringify(A, null, 1));
+await page.evaluate(() => { location.hash = '#pronos'; }); await page.waitForTimeout(150);
+await page.click('.prono details summary'); await page.waitForTimeout(100);
+console.log('marchés :', (await page.textContent('.prono details')).replace(/\s+/g, ' ').slice(0, 900));
+await page.screenshot({ path: process.argv[2] + '/markets.png', fullPage: true });
 for (const h of ['#bets', '#pronos', '#best', '#values', '#watch', '#calendar', '#history', '#perf', '#config', '#dashboard']) {
   await page.evaluate((x) => { location.hash = x; }, h);
   await page.waitForTimeout(150);

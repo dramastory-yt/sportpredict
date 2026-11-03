@@ -486,7 +486,7 @@ onmessage = (e) => {
     // ---------------- 2. statistiques
     S.start(1);
     const LD = await D.localData();
-    scorersData = LD.scorers || null;
+    scorersData = LD.scorers || null; localFootball = LD.football || null;
     A.sources.local = LD.meta ? { generatedAt: LD.meta.generatedAt, sources: LD.meta.sources } : null;
     const fbStats = {};
     const leaguesNeeded = [...new Set(raw.filter((e) => D.FOOTBALL[e.sport_key]?.stats).map((e) => e.sport_key))];
@@ -781,7 +781,7 @@ onmessage = (e) => {
         if (realSafe.some((s) => s.eventId === E.id && s.tier === 1)) continue;
         const gap = Math.abs((E.model.st.p1x2?.[0] ?? 0) - (E.model.models[0].p1x2?.[0] ?? 0));
         if (gap > 0.08) continue;
-        const m = E.forecast.markets.filter((x) => !x.real && x.p >= C.safeMinP && x.minSafe >= C.minOdds).sort((a, b) => b.p - a.p)[0];
+        const m = E.forecast.markets.filter((x) => !x.real && !x.risky && x.p >= C.safeMinP && x.minSafe >= C.minOdds).sort((a, b) => b.p - a.p)[0];
         if (!m) continue;
         derived.push({ tier: 1.5, eventId: E.id, sport: E.sport, sportKey: E.sportKey, comp: E.comp, match: `${E.home} – ${E.away}`, home: E.home, away: E.away, t: E.t,
           label: m.label, type: m.type, point: m.point, market: 'calculé', odds: null, book: 'Winamax', p: m.p, pPush: m.pPush, ev: null, value: false, fair: m.fair, minOdds: m.minSafe, toVerify: true });
@@ -847,10 +847,23 @@ onmessage = (e) => {
       ['O05', 'Plus de 0,5 but', 'over', 0.5], ['O15', 'Plus de 1,5 buts', 'over', 1.5], ['O25', 'Plus de 2,5 buts', 'over', 2.5, 'totals'], ['O35', 'Plus de 3,5 buts', 'over', 3.5],
       ['U15', 'Moins de 1,5 buts', 'under', 1.5], ['U25', 'Moins de 2,5 buts', 'under', 2.5, 'totals'], ['U35', 'Moins de 3,5 buts', 'under', 3.5], ['U45', 'Moins de 4,5 buts', 'under', 4.5],
       ['BTTSY', 'Les deux équipes marquent : oui', 'bttsYes', null], ['BTTSN', 'Les deux équipes marquent : non', 'bttsNo', null],
-      ['HS', `${E.home} marque`, 'homeTotalOver', null], ['AS', `${E.away} marque`, 'awayTotalOver', null],
+      ['HS', `${E.home} marque (plus de 0,5 but)`, 'homeTotalOver', null], ['AS', `${E.away} marque (plus de 0,5 but)`, 'awayTotalOver', null],
+      ['H15', `${E.home} plus de 1,5 buts`, 'homeOver15', null], ['A15', `${E.away} plus de 1,5 buts`, 'awayOver15', null],
+      ['HCS', `${E.home} ne prend pas de but`, 'homeCS', null], ['ACS', `${E.away} ne prend pas de but`, 'awayCS', null],
+      ['HWN', `${E.home} gagne sans encaisser`, 'homeWinToNil', null], ['AWN', `${E.away} gagne sans encaisser`, 'awayWinToNil', null],
+      ['HO15', `${E.home} gagne et plus de 1,5 buts`, 'homeAndOver15', null], ['AO15', `${E.away} gagne et plus de 1,5 buts`, 'awayAndOver15', null],
+      ['HBT', `${E.home} gagne et les deux équipes marquent`, 'homeAndBtts', null], ['ABT', `${E.away} gagne et les deux équipes marquent`, 'awayAndBtts', null],
+      ['1NU35', `${E.home} ou nul et moins de 3,5 buts`, 'dc1XAndUnder35', null], ['N2U35', `Nul ou ${E.away} et moins de 3,5 buts`, 'dcX2AndUnder35', null],
+      ['AH1-1', `Handicap ${E.home} -1 (remboursé si 1 but d’écart)`, 'ahHome', -1], ['AH2-1', `Handicap ${E.away} -1 (remboursé si 1 but d’écart)`, 'ahAway', -1],
+      ['AH1+1', `Handicap ${E.home} +1`, 'ahHome', 1], ['AH2+1', `Handicap ${E.away} +1`, 'ahAway', 1],
     ];
-    return defs.map(([key, label, type, point, mkey]) => {
-      const sel = SP.normalizeSel({ type, point });
+    // trois scores exacts les plus probables (jamais en pari sûr)
+    const sc = [];
+    mat.forEach((row, i) => row.forEach((v, j) => sc.push([i, j, v])));
+    sc.sort((a, b) => b[2] - a[2]);
+    for (const [i, j] of sc.slice(0, 3)) defs.push([`S${i}${j}`, `Score exact ${i}-${j}`, 'exact', null, null, { h: i, a: j, risky: true }]);
+    const out = defs.map(([key, label, type, point, mkey, extra]) => {
+      const sel = { ...SP.normalizeSel({ type, point }), ...(extra || {}) };
       const r = SP.evalFromSim(pseudo, sel, 2);
       const fair = (1 - r.pPush) / Math.max(1e-6, r.pWin);
       // cote Winamax réelle si l'API la fournit pour ce marché
@@ -859,9 +872,26 @@ onmessage = (e) => {
         const s = E.mk.sels.find((x) => !x.noTarget && x.mkey === mkey && x.type === type && (point == null || x.point === point));
         if (s) real = { odds: s.best.price, book: s.best.title, last: s.best.last };
       }
-      return { key, label, type, point, p: r.pWin, pPush: r.pPush, fair, minSafe: Math.ceil(fair * (1 + C.safeTolEV) * 100) / 100, minValue: Math.ceil(fair * (1 + C.minEV) * 100) / 100, real, ev: real ? r.pWin * real.odds + r.pPush - 1 : null };
+      return { key, label, type, point, h: extra?.h, a: extra?.a, risky: !!extra?.risky, p: r.pWin, pPush: r.pPush, fair, minSafe: Math.ceil(fair * (1 + C.safeTolEV) * 100) / 100, minValue: Math.ceil(fair * (1 + C.minEV) * 100) / 100, real, ev: real ? r.pWin * real.odds + r.pPush - 1 : null };
     });
+    // corners et cartons jaunes (modèle de comptage football-data) : non validés contre des cotes réelles
+    const rows = localFootball?.leagues?.[E.sportKey];
+    if (rows) {
+      const ms = rows.map(SP.fdRow);
+      for (const [kind, lines, lab] of [['corners', [7.5, 8.5, 9.5, 10.5, 11.5], 'corners'], ['cards', [2.5, 3.5, 4.5, 5.5], 'cartons jaunes']]) {
+        countFits[E.sportKey + kind] = countFits[E.sportKey + kind] || SP.fitCounts(ms, kind);
+        const fit = countFits[E.sportKey + kind]; if (!fit) continue;
+        const mh = D.bestMatch(E.home, fit.teams), ma = D.bestMatch(E.away, fit.teams); if (!mh.name || !ma.name) continue;
+        const l = SP.dcLambdas(fit, mh.name, ma.name), mu = l.lh + l.la;
+        for (const line of lines) for (const over of [true, false]) {
+          const po = SP.nbOver(mu, fit.phi, line), pw = over ? po : 1 - po, fair = 1 / Math.max(1e-6, pw);
+          out.push({ key: `${kind}${over ? 'O' : 'U'}${line}`, label: `${over ? 'Plus' : 'Moins'} de ${String(line).replace('.', ',')} ${lab} (attendu ${mu.toFixed(1)})`, type: kind, point: line, risky: true, counts: true, p: pw, pPush: 0, fair, minSafe: Math.ceil(fair * (1 + C.safeTolEV) * 100) / 100, minValue: Math.ceil(fair * Math.max(1.05, 1 + 2 * C.minEV) * 100) / 100, real: null, ev: null });
+        }
+      }
+    }
+    return out;
   }
+  const countFits = {};
   // Forme récente à partir des résultats déjà chargés (V/N/D, buts ou points marqués/encaissés)
   function recentForm(games, team, n, hk, ak) {
     const gs = games.filter((g) => g.h === team || g.a === team).slice(-n);
@@ -875,7 +905,7 @@ onmessage = (e) => {
     }).join('');
     return { seq, gf: gf / gs.length, ga: ga / gs.length, xgf: nx ? xf / nx : null, xga: nx ? xa / nx : null, n: gs.length };
   }
-  let scorersData = null;
+  let scorersData = null, localFootball = null;
   function forecast(E, cands, stats) {
     const f = { facts: [] };
     if (E.sport === 'football') {

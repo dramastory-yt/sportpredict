@@ -135,6 +135,8 @@ near(ns.key.p, SP.normCdf(5 / 12.5), 0.015, 'MC NBA ≈ Φ(marge/σ)');
   const pl = SP.fitPlatt(ps, ys);
   ok(pl.b < 0.85 && pl.b > 0.4, 'Platt détecte la surconfiance (b=' + pl.b.toFixed(2) + ')');
   const btts = SP.evalFromSim({ kind: 'football', M: 11, hist: SP.scoreMatrix(1.5, 1.1, 0).flat() }, SP.normalizeSel({ type: 'bttsYes' }), 2);
+  const ex = SP.evalFromSim({ kind: 'football', M: 11, hist: SP.scoreMatrix(1.5, 1.1, 0).flat() }, { ...SP.normalizeSel({ type: 'exact' }), h: 1, a: 0 }, 2);
+  near(ex.pWin, SP.pois(1, 1.5) * SP.pois(0, 1.1) / SP.scoreMatrix(1.5, 1.1, 0).flat().reduce((x, y) => x + y, 0) * SP.scoreMatrix(1.5,1.1,0).flat().reduce((x,y)=>x+y,0), 1e-3, 'score exact 1-0');
   near(btts.pWin, (1 - Math.exp(-1.5)) * (1 - Math.exp(-1.1)), 1e-6, 'BTTS analytique');
 }
 

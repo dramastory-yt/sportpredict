@@ -48,7 +48,7 @@ const SPStore = (() => {
   function settle(p, hs, as) {
     const SP = SPPipeline.SP;
     let sel;
-    if (p.sport === 'tennis') return null;
+    if (p.sport === 'tennis' || p.type === 'corners' || p.type === 'cards') return null; // pas de règlement automatique (score insuffisant)
     sel = SP.normalizeSel({ type: p.type, point: p.point });
     const sh = SP.settleShares(SP.selMargin(sel, hs, as), sel.line);
     const profit = sh.win * (p.odds - 1) - (1 - sh.win - sh.push);

@@ -825,6 +825,19 @@ function SPEngineFactory() {
       case 'dcX2': return y >= x ? 1 : -1;
       case 'dc12': return x !== y ? 1 : -1;
       case 'homeTotalOver': return x;
+      case 'homeOver15': return x >= 2 ? 1 : -1;
+      case 'awayOver15': return y >= 2 ? 1 : -1;
+      case 'homeCS': return y === 0 ? 1 : -1;
+      case 'awayCS': return x === 0 ? 1 : -1;
+      case 'homeWinToNil': return x > y && y === 0 ? 1 : -1;
+      case 'awayWinToNil': return y > x && x === 0 ? 1 : -1;
+      case 'homeAndOver15': return x > y && x + y >= 2 ? 1 : -1;
+      case 'awayAndOver15': return y > x && x + y >= 2 ? 1 : -1;
+      case 'homeAndBtts': return x > y && y > 0 ? 1 : -1;
+      case 'awayAndBtts': return y > x && x > 0 ? 1 : -1;
+      case 'dc1XAndUnder35': return x >= y && x + y <= 3 ? 1 : -1;
+      case 'dcX2AndUnder35': return y >= x && x + y <= 3 ? 1 : -1;
+      case 'exact': return x === sel.h && y === sel.a ? 1 : -1;
       case 'awayTotalOver': return y;
       default: return 0;
     }
