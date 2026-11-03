@@ -46,7 +46,24 @@ Chaque matin vers 6 h 40 (heure de Paris), `scripts/collect.py` récupère et pu
 | `data/clubelo.json` | clubelo.com | probabilités des prochains matchs : coupes d'Europe |
 | `data/tennis.json` | tennis-data.co.uk | Elo ATP/WTA global et par surface (calculé chronologiquement) et poids marché/Elo issu du backtest contre Pinnacle |
 
-**État réel au 3 novembre 2026 :** football-data.co.uk fonctionne (environ 5 000 matchs sur 9 championnats). understat.com (aucune réponse) et tennis-data.co.uk (403) refusent les serveurs GitHub : ils sont désactivés par défaut, et l'xG vient d'une **estimation par les tirs** calibrée sur football-data. ClubElo était en panne (erreur 502) lors du test. Le tennis reste donc fondé sur le marché.
+**Backtest réel (3 novembre 2026, environ 2 600 matchs prédits chronologiquement, log-loss : plus bas = meilleur) :**
+
+| Championnat | Naïf | Elo | Dixon-Coles | xG | Ensemble | Marché (clôture) | Poids marché retenu |
+|---|---|---|---|---|---|---|---|
+| Premier League | 1,118 | 1,085 | 1,066 | 1,040 | 1,040 | 1,039 | 0,55 |
+| Ligue 1 | 1,079 | 1,022 | 1,018 | 0,992 | 0,992 | 0,977 | 0,85 |
+| Liga | 1,047 | 1,012 | 0,995 | 0,999 | 0,990 | 0,953 | 1 |
+| Serie A | 1,076 | 0,971 | 0,967 | 0,999 | 0,965 | 0,945 | 1 |
+| Bundesliga | 1,071 | 0,995 | 0,982 | 0,980 | 0,974 | 0,964 | 0,80 |
+| Ligue 2 | 1,095 | 1,064 | 1,066 | 1,073 | 1,061 | 1,027 | 1 |
+| Championship | 1,080 | 1,047 | 1,066 | 1,045 | 1,041 | 1,026 | 1 |
+| Eredivisie | 1,113 | 1,044 | 1,041 | 1,029 | 1,027 | 1,019 | 0,75 |
+| Liga Portugal | 1,085 | 0,968 | 0,936 | 0,947 | 0,930 | 0,909 | 1 |
+
+Conclusion honnête : les modèles battent nettement le modèle naïf, mais **le marché de clôture reste meilleur partout**. Le moteur leur donne donc le poids mesuré : de 0 % (Liga, Serie A…) à 45 % (Premier League). Une value vient alors surtout d'une cote Winamax supérieure au prix juste du marché, et les modèles servent à détecter les divergences.
+Comparer aux cotes de clôture est volontairement sévère : elles sont plus précises que les cotes disponibles au moment de parier.
+
+**État des sources au 3 novembre 2026 :** football-data.co.uk fonctionne (environ 5 000 matchs sur 9 championnats ; vrai xG pour la saison 2026/27, cotes de clôture Pinnacle, Betfair Exchange ou moyenne du marché). understat.com (aucune réponse) et tennis-data.co.uk (403) refusent les serveurs GitHub : ils sont désactivés par défaut, et l'xG vient d'une **estimation par les tirs** calibrée sur football-data. ClubElo était en panne (erreur 502) lors du test. Le tennis reste donc fondé sur le marché.
 
 Si une source échoue, l'échec est consigné dans `data/meta.json` et l'application revient à ESPN ou au marché seul.
 Ouverte en fichier local, l'application n'a pas ces données : utilisez la version en ligne.
