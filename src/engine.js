@@ -200,9 +200,9 @@ function SPEngineFactory() {
       for (let i = 0; i < n; i++) { att[i] -= ma; def[i] -= md; }
       mu += ma + md;
     }
-    // rho par recherche 1D
+    // rho par recherche 1D (sans objet pour un ajustement sur xG non entiers)
     let bestRho = 0, bestLL = -Infinity;
-    for (let rho = -0.2; rho <= 0.1001; rho += 0.01) {
+    for (let rho = -0.2; rho <= 0.1001 && !opts.skipRho; rho += 0.01) {
       let ll = 0;
       for (const d of data) {
         if (d.hg > 1 || d.ag > 1) continue;
@@ -324,18 +324,24 @@ function SPEngineFactory() {
     const ys = ms.map((m) => (m.hg > m.ag ? 0 : m.hg === m.ag ? 1 : 2));
     // ordinal Elo ajusté sur la phase de chauffe seulement (pas de fuite)
     const ord = SP.fitOrdinal(elo.preDiff.slice(0, warm).map((d) => d / 100), ys.slice(0, warm));
-    const preds = { elo: [], dc: [] }, yy = [], base = [];
-    let dc = null, lastFit = -Infinity;
+    const hasXG = ms.filter((m) => m.hxg != null).length >= 0.7 * ms.length;
+    const preds = hasXG ? { elo: [], dc: [], xg: [] } : { elo: [], dc: [] }, yy = [], mkt = [];
+    let dc = null, dcx = null, lastFit = -Infinity;
     for (let i = warm; i < ms.length; i++) {
       const m = ms[i];
       if (m.t - lastFit > refit || !dc) {
         dc = SP.fitDixonColes(ms.slice(0, i), { asOf: m.t });
+        if (hasXG) dcx = SP.fitDixonColes(ms.slice(0, i).filter((x) => x.hxg != null).map((x) => ({ ...x, hg: x.hxg, ag: x.axg })), { asOf: m.t, skipRho: true });
         lastFit = m.t;
       }
       const lam = SP.dcLambdas(dc, m.h, m.a);
       if (!lam) continue;
+      let px = null;
+      if (hasXG) { const lx = SP.dcLambdas(dcx, m.h, m.a); if (!lx) continue; px = SP.matrix1x2(SP.scoreMatrix(lx.lh, lx.la, dc.rho, 10)); }
       preds.dc.push(SP.matrix1x2(SP.scoreMatrix(lam.lh, lam.la, dc.rho, 10)));
       preds.elo.push(SP.ordinalProbs(ord, elo.preDiff[i]));
+      if (hasXG) preds.xg.push(px);
+      mkt.push(m.pin ? SP.devig(m.pin) : null);
       yy.push(ys[i]);
     }
     if (yy.length < 30) return null;
@@ -358,6 +364,18 @@ function SPEngineFactory() {
       brier: mix.reduce((s, p, i) => s + SP.brier3(p, yy[i]), 0) / yy.length,
     };
     res.calibration = SP.calibrationBins(mix.map((p) => p[0]), yy.map((y) => (y === 0 ? 1 : 0)));
+    // comparaison au marché (cotes Pinnacle de clôture) et poids optimal marché/stats
+    const idx = mkt.map((p, i) => (p ? i : -1)).filter((i) => i >= 0);
+    if (idx.length >= 80) {
+      res.market = { n: idx.length, logLoss: idx.reduce((s, i) => s + SP.logLoss3(mkt[i], yy[i]), 0) / idx.length };
+      let best = null;
+      for (let w = 0; w <= 1.0001; w += 0.05) {
+        const ll = idx.reduce((s, i) => s + SP.logLoss3([0, 1, 2].map((c) => w * mkt[i][c] + (1 - w) * mix[i][c]), yy[i]), 0) / idx.length;
+        if (!best || ll < best.ll) best = { ll, w: Math.round(w * 100) / 100 };
+      }
+      res.wMarket = best.w; res.blend = { logLoss: best.ll };
+    }
+    res.hasXG = hasXG;
     // ordinal final ajusté sur tout l'historique pour la prédiction du jour
     res.ordinal = SP.fitOrdinal(elo.preDiff.map((d) => d / 100), ys);
     res.elo = elo;

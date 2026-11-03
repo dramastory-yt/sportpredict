@@ -85,6 +85,7 @@
     return `<div class="pills">
       ${pill('The Odds API', C.oddsKey ? st['The Odds API'] : { ok: false, msg: 'clé manquante' }, st['The Odds API']?.remaining != null ? ` · ${st['The Odds API'].remaining} crédits` : '')}
       ${pill('ESPN', st.ESPN)}
+      ${pill('Données quotidiennes', st['Données quotidiennes'], st['Données quotidiennes']?.at ? ` · ${ago(st['Données quotidiennes'].at)}` : '')}
       ${C.claudeKey ? pill('Claude', st.Claude) : '<span class="pill p-idle" title="facultatif">Claude : non configuré</span>'}
       <span class="pill ${running ? 'p-run' : 'p-ok'}">Moteur ${running ? 'en analyse' : 'prêt'} · ${esc(SP.version)}</span></div>`;
   }

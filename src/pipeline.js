@@ -156,7 +156,28 @@ onmessage = (e) => {
   }
 
   // ------------------------------------------------------------ données statistiques
-  async function footballStats(espnLeague, step) {
+  async function footballStats(espnLeague, step, oddsKey) {
+    const L = await D.localData();
+    const fd = L.football?.leagues?.[oddsKey];
+    if (fd && fd.length >= 120) {
+      const ms = fd.map((r) => ({ t: r[0], h: r[1], a: r[2], hg: r[3], ag: r[4], hst: r[7], ast: r[8], pin: r[13] && r[14] && r[15] ? [r[13], r[14], r[15]] : null }));
+      const xg = L.xg?.leagues?.[oddsKey];
+      let nx = 0;
+      if (xg) {
+        const byDay = new Map();
+        for (const r of xg) { const k = Math.floor(r[0] / 86400e3); for (const dd of [k - 1, k, k + 1]) { if (!byDay.has(dd)) byDay.set(dd, []); byDay.get(dd).push(r); } }
+        for (const m of ms) {
+          const c = (byDay.get(Math.floor(m.t / 86400e3)) || []).find((r) => r[3] === m.hg && r[4] === m.ag && D.sim(r[1], m.h) >= 0.5 && D.sim(r[2], m.a) >= 0.5);
+          if (c) { m.hxg = c[5]; m.axg = c[6]; nx++; }
+        }
+      }
+      await new Promise((res) => setTimeout(res, 0));
+      const bt = SP.footballBacktest(ms);
+      const dc = SP.fitDixonColes(ms);
+      const xms = ms.filter((m) => m.hxg != null);
+      const dcx = xms.length >= 100 ? SP.fitDixonColes(xms.map((m) => ({ ...m, hg: m.hxg, ag: m.axg })), { skipRho: true }) : null;
+      return { ok: true, n: ms.length, nXG: nx, ms, dc, dcx, bt, errors: [], source: `football-data.co.uk${nx ? ` + xG understat (${nx} matchs)` : ''}`, fetchedAt: L.football.fetchedAt };
+    }
     const seasonStart = Date.UTC(new Date().getUTCFullYear() - (new Date().getUTCMonth() < 6 ? 2 : 1), 6, 15);
     const r = await D.espnResults('soccer', espnLeague, seasonStart, Date.now(), 45);
     if (!r.games.length) return { ok: false, error: r.errors[0] || 'aucun résultat renvoyé par ESPN' };
@@ -165,7 +186,7 @@ onmessage = (e) => {
     const bt = ms.length >= 120 ? SP.footballBacktest(ms) : null;
     const dc = SP.fitDixonColes(ms);
     step && step.note(`${espnLeague}: ${ms.length} matchs`);
-    return { ok: true, n: ms.length, ms, dc, bt, errors: r.errors, meta: r.meta, last: ms[ms.length - 1]?.t };
+    return { ok: true, n: ms.length, ms, dc, bt, errors: r.errors, meta: r.meta, last: ms[ms.length - 1]?.t, source: 'ESPN' };
   }
   async function nbaStats() {
     const y = new Date().getUTCFullYear(), mo = new Date().getUTCMonth();
@@ -201,7 +222,7 @@ onmessage = (e) => {
     const pseudo = { kind: 'football', M: mat.length, hist: mat.flat() };
     return SP.evalFromSim(pseudo, SP.normalizeSel(sel), sel.best.price);
   }
-  function modelFootball(E, C, stats) {
+  function modelFootball(E, C, stats, clubelo) {
     const h2h = E.mk.sels.filter((s) => s.mkey === 'h2h');
     const get = (t) => h2h.find((s) => s.type === t)?.fairMkt;
     const p1x2 = [get('home'), get('draw'), get('away')];
@@ -224,26 +245,47 @@ onmessage = (e) => {
           const diff = (R.get(mh.name) ?? 1500) + stats.bt.elo.H - (R.get(ma.name) ?? 1500);
           const pel = SP.ordinalProbs(stats.bt.ordinal, diff);
           out.models.push({ name: 'Elo + régression logistique ordinale', p1x2: pel });
-          const w = stats.bt.weights;
-          pst = [0, 1, 2].map((i) => w.dc * pdc[i] + w.elo * pel[i]);
-          out.models.push({ name: `Ensemble stats (poids backtest DC ${w.dc.toFixed(2)} / Elo ${w.elo.toFixed(2)})`, p1x2: pst });
+          let pxg = null;
+          if (stats.dcx && stats.bt.weights.xg != null) {
+            const lx = SP.dcLambdas(stats.dcx, mh.name, ma.name);
+            if (lx) { pxg = SP.matrix1x2(SP.scoreMatrix(lx.lh, lx.la, stats.dc.rho)); out.models.push({ name: 'Dixon-Coles sur xG (understat)', p1x2: pxg, lh: lx.lh, la: lx.la }); }
+          }
+          const w = { ...stats.bt.weights };
+          if (!pxg && w.xg) { const k = 1 - w.xg; w.dc /= k || 1; w.elo /= k || 1; w.xg = 0; }
+          pst = [0, 1, 2].map((i) => w.dc * pdc[i] + w.elo * pel[i] + (pxg ? (w.xg || 0) * pxg[i] : 0));
+          out.models.push({ name: `Ensemble stats (poids backtest : ${Object.entries(w).filter(([, v]) => v > 0).map(([k2, v]) => `${k2} ${v.toFixed(2)}`).join(' / ')})`, p1x2: pst });
         }
         // λ stats : cohérents avec l'ensemble 1X2 et le total de Dixon-Coles
         const mDC = SP.scoreMatrix(lam.lh, lam.la, stats.dc.rho);
         ls = SP.impliedLambdas(pst, { line: 2.5, p: SP.matrixOver(mDC, 2.5) });
         out.st = { ...ls, p1x2: pst, match: [mh, ma], games: [stats.dc.games[mh.name], stats.dc.games[ma.name]] };
-        statsNote = `${stats.n} matchs ESPN, appariement ${(Math.min(mh.score, ma.score) * 100).toFixed(0)}%`;
+        statsNote = `${stats.n} matchs, appariement ${(Math.min(mh.score, ma.score) * 100).toFixed(0)}%`;
       } else statsNote = `équipe(s) non appariée(s) dans les données ESPN (${E.home} / ${E.away})`;
     }
-    out.statsNote = statsNote;
-    const w = C.wMarket;
+    // compétitions sans modèle propre (coupes d'Europe) : probabilités ClubElo publiées
+    if (!ls && clubelo) {
+      const names = clubelo.fixtures.flatMap((f) => [f.home, f.away]);
+      const mh = D.bestMatch(E.home, names), ma = D.bestMatch(E.away, names);
+      const fx = mh.name && ma.name && clubelo.fixtures.find((f) => f.home === mh.name && f.away === ma.name);
+      if (fx) {
+        out.models.push({ name: 'ClubElo (probabilités publiées)', p1x2: fx.p });
+        ls = SP.impliedLambdas(fx.p, over);
+        out.st = { ...ls, p1x2: fx.p, games: [30, 30] };
+        statsNote = `ClubElo (clubelo.com), appariement ${(Math.min(mh.score, ma.score) * 100).toFixed(0)}%`;
+        out.clubeloOnly = true;
+      }
+    }
+    out.statsNote = statsNote + (stats?.source ? ` · source ${stats.source}` : '');
+    const wBt = stats?.bt?.wMarket;
+    const w = wBt != null && !out.clubeloOnly ? wBt : C.wMarket;
+    out.wSource = wBt != null && !out.clubeloOnly ? `backtest vs clôture Pinnacle (${stats.bt.market.n} matchs)` : 'réglage';
     const lh = ls ? Math.exp(w * Math.log(lm.lh) + (1 - w) * Math.log(ls.lh)) : lm.lh;
     const la = ls ? Math.exp(w * Math.log(lm.la) + (1 - w) * Math.log(ls.la)) : lm.la;
     const gap = ls ? (Math.abs(Math.log(ls.lh / lm.lh)) + Math.abs(Math.log(ls.la / lm.la))) / 2 : 0;
     const sigma = Math.sqrt(0.06 ** 2 + (gap / 2) ** 2) + (ls ? 0 : 0.03);
     out.final = { lh, la, rho: stats?.dc?.rho ?? -0.05, sigma };
-    const matF = SP.scoreMatrix(lh, la, out.final.rho), matM = SP.scoreMatrix(lm.lh, lm.la, -0.05), matS = ls ? SP.scoreMatrix(ls.lh, ls.la, stats.dc.rho) : null;
-    out.models.push({ name: `Final (marché ${w} / stats ${(1 - w).toFixed(2)})`, p1x2: SP.matrix1x2(matF), lh, la });
+    const matF = SP.scoreMatrix(lh, la, out.final.rho), matM = SP.scoreMatrix(lm.lh, lm.la, -0.05), matS = ls ? SP.scoreMatrix(ls.lh, ls.la, stats?.dc?.rho ?? -0.05) : null;
+    out.models.push({ name: `Final (marché ${w} / stats ${(1 - w).toFixed(2)}, poids : ${out.wSource})`, p1x2: SP.matrix1x2(matF), lh, la });
     out.phase1 = (sel) => {
       const pf = selProbFromMatrix(matF, sel);
       const pm = sel.fairMkt != null && sel.mkey !== 'spreads' ? sel.fairMkt : selProbFromMatrix(matM, sel).pWin;
@@ -251,8 +293,8 @@ onmessage = (e) => {
       return { pWin: pf.pWin, pPush: pf.pPush, ev: pf.ev, pMkt: pm, pStats: ps };
     };
     out.simSpec = { kind: 'football', lh, la, rho: out.final.rho, sigma };
-    out.dataQuality = ls ? Math.min(1, 0.5 + Math.min(out.st.games[0], out.st.games[1]) / 40) : 0.35;
-    out.calib = stats?.bt ? Math.max(0, (stats.bt.naive.logLoss - stats.bt.ensemble.logLoss) / 0.08) : null;
+    out.dataQuality = ls ? Math.min(1, (out.clubeloOnly ? 0.45 : 0.5) + Math.min(out.st.games[0], out.st.games[1]) / 40 + (stats?.nXG ? 0.1 : 0)) : 0.35;
+    out.calib = stats?.bt && !out.clubeloOnly ? Math.max(0, (stats.bt.naive.logLoss - (stats.bt.blend?.logLoss ?? stats.bt.ensemble.logLoss)) / 0.08) : null;
     return out;
   }
   function modelNBA(E, C, stats) {
@@ -282,7 +324,7 @@ onmessage = (e) => {
           ms = w.ridge * pr.margin + w.elo * me;
           out.models.push({ name: `Ensemble stats (ridge ${w.ridge.toFixed(2)} / Elo ${w.elo.toFixed(2)})`, pHome: SP.normCdf(ms / sdM), margin: ms, total: ts });
         }
-        out.statsNote = `${stats.n} matchs ESPN, appariement ${(Math.min(mh.score, ma.score) * 100).toFixed(0)}%`;
+        out.statsNote = `${stats.n} matchs, appariement ${(Math.min(mh.score, ma.score) * 100).toFixed(0)}%`;
         out.matched = [mh.name, ma.name];
       } else out.statsNote = `équipe(s) non appariée(s) (${E.home} / ${E.away})`;
     }
@@ -315,18 +357,56 @@ onmessage = (e) => {
     out.calib = stats?.bt ? Math.max(0, (Math.log(2) - stats.bt.ensemble.logLoss) / 0.1) : null;
     return out;
   }
-  function modelTennis(E) {
+  // Index des joueurs tennis-data (« Sinner J. ») -> clé « nom|initiale »
+  let tIndex = null;
+  function tennisIndex(T) {
+    if (tIndex && tIndex.src === T) return tIndex;
+    const map = {};
+    for (const [tour, t] of Object.entries(T?.tours || {})) {
+      map[tour] = new Map();
+      for (const [name, v] of Object.entries(t.players)) {
+        const tok = D.norm(name).replace(/\./g, '').split(' ').filter(Boolean);
+        if (tok.length < 2) continue;
+        const ini = tok[tok.length - 1][0];
+        map[tour].set(tok.slice(0, -1).join(' ') + '|' + ini, { name, ...v });
+      }
+    }
+    tIndex = { src: T, map };
+    return tIndex;
+  }
+  function findPlayer(T, tour, oddsName) {
+    const m = tennisIndex(T).map[tour]; if (!m) return null;
+    const tok = D.norm(oddsName).split(' ').filter(Boolean);
+    for (let k = 1; k < tok.length; k++) { const hit = m.get(tok.slice(k).join(' ') + '|' + tok[0][0]); if (hit) return hit; }
+    return null;
+  }
+  function modelTennis(E, C, T) {
     const h2h = E.mk.sels.filter((s) => s.mkey === 'h2h');
     const sA = h2h.find((s) => s.name === E.home);
     if (!sA || sA.fairMkt == null) return { error: 'cotes vainqueur incomplètes' };
     const ctx = tennisContext(E.sportKey, E.comp);
-    const sv = SP.tennisSolveServe(sA.fairMkt, ctx.base, ctx.bestOf);
+    let pFinal = sA.fairMkt, pEloA = null, eloNote = null, wT = null, dq = ctx.surfaceVerified ? 0.4 : 0.3, calib = null;
+    if (T?.tours?.[ctx.tour]) {
+      const a = findPlayer(T, ctx.tour, E.home), b = findPlayer(T, ctx.tour, E.away);
+      if (a && b) {
+        const sk = { 'terre battue': 'clay', gazon: 'grass', 'dur indoor': 'hard_indoor', 'dur outdoor': 'hard' }[ctx.surface];
+        const r = (pl) => { const s = pl.surf?.[sk]; return s && s[1] >= 5 ? (pl.elo + s[0]) / 2 : pl.elo; };
+        pEloA = 1 / (1 + Math.pow(10, (r(b) - r(a)) / 400));
+        const bt = T.tours[ctx.tour].backtest;
+        wT = bt.n >= 300 ? bt.wMarket : C.wMarket;
+        pFinal = wT * sA.fairMkt + (1 - wT) * pEloA;
+        dq = Math.min(a.n, b.n) >= 20 ? 0.65 : 0.45;
+        calib = bt.n >= 300 ? Math.max(0, (Math.log(2) - bt.blendLogLoss) / 0.15) : null;
+        eloNote = `Elo ${ctx.tour} global+${ctx.surface} (tennis-data.co.uk) : ${a.name} ${r(a).toFixed(0)} (${a.n} matchs) vs ${b.name} ${r(b).toFixed(0)} (${b.n}) · poids marché ${wT}${bt.n >= 300 ? ` (backtest ${bt.n} matchs)` : ' (réglage)'}`;
+      } else eloNote = `joueur(s) introuvable(s) dans les données Elo (${a ? '' : E.home}${!a && !b ? ', ' : ''}${b ? '' : E.away})`;
+    }
+    const sv = SP.tennisSolveServe(pFinal, ctx.base, ctx.bestOf);
     const sigmaD = Math.max(0.004, (sA.fairSd || 0.01) / 9);
     const out = {
-      ctx, models: [{ name: 'Marché (marge retirée)', pA: sA.fairMkt }, { name: `Service implicite (${ctx.tour}, ${ctx.surface}, BO${ctx.bestOf})`, serveA: sv.pa, serveB: sv.pb }],
-      statsNote: 'modèle unique dérivé du marché : Elo surface et statistiques de service non disponibles via une source gratuite accessible',
+      ctx, pEloA, models: [{ name: 'Marché (marge retirée)', pA: sA.fairMkt }, ...(pEloA != null ? [{ name: 'Elo surface', pA: pEloA }, { name: `Final (marché ${wT})`, pA: pFinal }] : []), { name: `Service implicite (${ctx.tour}, ${ctx.surface}, BO${ctx.bestOf})`, serveA: sv.pa, serveB: sv.pb }],
+      statsNote: eloNote || 'modèle dérivé du marché : données Elo tennis indisponibles (version hors ligne)',
       simSpec: { kind: 'tennis', pa: sv.pa, pb: sv.pb, sigmaD, bestOf: ctx.bestOf },
-      dataQuality: ctx.surfaceVerified ? 0.4 : 0.3, calib: null,
+      dataQuality: dq, calib,
     };
     out.phase1 = null; // phase 1 tennis : simulation rapide
     return out;
@@ -397,12 +477,14 @@ onmessage = (e) => {
 
     // ---------------- 2. statistiques
     S.start(1);
+    const LD = await D.localData();
+    A.sources.local = LD.meta ? { generatedAt: LD.meta.generatedAt, sources: LD.meta.sources } : null;
     const fbStats = {};
     const leaguesNeeded = [...new Set(raw.filter((e) => D.FOOTBALL[e.sport_key]?.stats).map((e) => e.sport_key))];
     let k = 0;
     for (const lk of leaguesNeeded) {
       S.progress(1, k++, leaguesNeeded.length + (C.nba ? 1 : 0), D.FOOTBALL[lk].name);
-      try { fbStats[lk] = await footballStats(D.FOOTBALL[lk].espn); } catch (e) { fbStats[lk] = { ok: false, error: String(e) }; }
+      try { fbStats[lk] = await footballStats(D.FOOTBALL[lk].espn, null, lk); } catch (e) { fbStats[lk] = { ok: false, error: String(e) }; }
       if (!fbStats[lk].ok) A.errors.push(`Stats ${D.FOOTBALL[lk].name}: ${fbStats[lk].error}`);
     }
     let nba = null;
@@ -412,7 +494,8 @@ onmessage = (e) => {
       if (!nba.ok) A.errors.push('Stats NBA : ' + nba.error);
     }
     A.backtests = {
-      ...Object.fromEntries(Object.entries(fbStats).filter(([, v]) => v.ok && v.bt).map(([kk, v]) => [D.FOOTBALL[kk].name, { n: v.bt.n, models: v.bt.models, ensemble: v.bt.ensemble, naive: v.bt.naive, weights: v.bt.weights, calibration: v.bt.calibration }])),
+      ...Object.fromEntries(Object.entries(fbStats).filter(([, v]) => v.ok && v.bt).map(([kk, v]) => [D.FOOTBALL[kk].name + ` (${v.source})`, { n: v.bt.n, models: { ...v.bt.models, ...(v.bt.market ? { 'marché Pinnacle': v.bt.market } : {}) }, ensemble: v.bt.blend || v.bt.ensemble, naive: v.bt.naive, weights: { ...v.bt.weights, ...(v.bt.wMarket != null ? { 'poids marché': v.bt.wMarket } : {}) }, calibration: v.bt.calibration }])),
+      ...Object.fromEntries(Object.entries(LD.tennis?.tours || {}).map(([tour, t]) => [`Tennis ${tour} (Elo surface)`, { n: t.backtest.n, models: { elo: { logLoss: t.backtest.eloLogLoss }, 'marché Pinnacle': { logLoss: t.backtest.pinnacleLogLoss } }, ensemble: { logLoss: t.backtest.blendLogLoss }, weights: { 'poids marché': t.backtest.wMarket } }])),
       ...(nba?.bt ? { NBA: { n: nba.bt.n, models: nba.bt.models, ensemble: nba.bt.ensemble, weights: nba.bt.weights, calibration: nba.bt.calibration } } : {}),
     };
     const okStats = Object.values(fbStats).filter((v) => v.ok).length + (nba?.ok ? 1 : 0);
@@ -508,9 +591,9 @@ onmessage = (e) => {
     for (const E of events) {
       let M;
       try {
-        if (E.sport === 'football') M = modelFootball(E, C, fbStats[E.sportKey]);
+        if (E.sport === 'football') M = modelFootball(E, C, fbStats[E.sportKey], LD.clubelo);
         else if (E.sport === 'nba') M = modelNBA(E, C, nba);
-        else M = modelTennis(E);
+        else M = modelTennis(E, C, LD.tennis);
       } catch (err) { M = { error: String(err) }; }
       E.model = M;
       if (M.error) { E.skip = M.error; continue; }
@@ -532,7 +615,7 @@ onmessage = (e) => {
         for (const s of E.mk.sels) {
           const sel = tennisSel(E, s); if (!sel || s.noTarget) continue;
           const r = SP.evalFromSim(simr, SP.normalizeSel(sel), s.best.price);
-          s.p1 = tennisBlend(s, r, C);
+          s.p1 = tennisBlend(s, r, C, E);
         }
       });
     }
@@ -562,7 +645,7 @@ onmessage = (e) => {
         const sel = c.E.sport === 'tennis' ? tennisSel(c.E, s) : { type: s.type, point: s.point };
         if (!sel || !s.p1) continue;
         const e = SP.evalFromSim(r, SP.normalizeSel(sel), s.best.price);
-        s.p2 = c.E.sport === 'tennis' ? { ...tennisBlend(s, e, C), ci: e.ci95, n: r.n } : { pWin: e.pWin, pPush: e.pPush, ev: e.ev, ci: e.ci95, n: r.n };
+        s.p2 = c.E.sport === 'tennis' ? { ...tennisBlend(s, e, C, c.E), ci: e.ci95, n: r.n } : { pWin: e.pWin, pPush: e.pPush, ev: e.ev, ci: e.ci95, n: r.n };
       }
     });
     A.counts.sims = totalSims;
@@ -660,8 +743,12 @@ onmessage = (e) => {
 
   // Tennis : le modèle jeu par jeu repose sur une hypothèse de taux de service moyen du circuit.
   // Pour les totaux/handicaps, il est combiné au prix juste du marché et l'écart est soumis à la règle de divergence.
-  function tennisBlend(s, r, C) {
+  function tennisBlend(s, r, C, E) {
     const pm = r.pWin;
+    if (s.mkey === 'h2h') {
+      const pe = E?.model?.pEloA;
+      return { pWin: pm, pPush: r.pPush, ev: pm * s.best.price + r.pPush - 1, pMkt: s.fairMkt, pStats: pe == null ? null : (s.name === E.home ? pe : 1 - pe) };
+    }
     const useMkt = s.mkey !== 'h2h' && s.fairMkt != null;
     const p = useMkt ? C.wMarket * s.fairMkt + (1 - C.wMarket) * pm : pm;
     return { pWin: p, pPush: r.pPush, ev: p * s.best.price + r.pPush - 1, pMkt: s.fairMkt, pStats: s.mkey !== 'h2h' ? pm : null };

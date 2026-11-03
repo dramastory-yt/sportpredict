@@ -67,6 +67,10 @@ function oddsEvents(sport) {
   return [];
 }
 
+const http = require('http'), fs = require('fs');
+const html = fs.readFileSync(new URL('../dist/index.html', import.meta.url));
+const srv = http.createServer((q, s) => { s.writeHead(q.url.startsWith('/data/') ? 404 : 200, { 'content-type': 'text/html' }); s.end(q.url.startsWith('/data/') ? '' : html); }).listen(0);
+const BASE = `http://127.0.0.1:${srv.address().port}/index.html`;
 const browser = await chromium.launch();
 const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
 const errors = [];
@@ -87,10 +91,16 @@ await page.route('**/*', async (route) => {
   if (url.includes('/nba/injuries')) return json({ injuries: [{ displayName: 'Boston Celtics', injuries: [{ athlete: { displayName: 'Test Player' }, status: 'Questionable', shortComment: 'ankle' }] }] });
   if (url.includes('/news')) return json({ articles: [{ headline: 'Arsenal boss gives team news update', description: 'Press conference', published: new Date(now - 3600e3).toISOString(), links: { web: { href: 'https://www.espn.com/x' } } }] });
   if (url.includes('/summary?event=')) return json({ rosters: [] });
-  if (url.startsWith('file:')) return route.continue();
+  if (url.includes('/data/football.json')) {
+    const ev = espnScoreboard('sports/soccer/eng.1/scoreboard?dates=20250801-20261102').events;
+    return json({ fetchedAt: new Date().toISOString(), leagues: { soccer_epl: ev.map((e) => { const c = e.competitions[0].competitors; const hs = +c[0].score, as = +c[1].score; return [Date.parse(e.date), c[0].team.displayName, c[1].team.displayName, hs, as, 12, 10, 5, 4, 5, 4, 1, 2, 2.2, 3.4, 3.3, 1.9, 1.95]; }) } });
+  }
+  if (url.includes('/data/tennis.json')) return json({ tours: { ATP: { players: { 'One P.': { elo: 1900, n: 60, surf: { hard_indoor: [1880, 12] } }, 'Two P.': { elo: 1820, n: 55, surf: { hard_indoor: [1850, 9] } } }, backtest: { n: 1200, eloLogLoss: 0.62, pinnacleLogLoss: 0.6, wMarket: 0.75, blendLogLoss: 0.598 } } } });
+  if (url.includes('/data/meta.json')) return json({ generatedAt: new Date().toISOString(), sources: {} });
+  if (url.startsWith('http://127.0.0.1')) return route.continue();
   return route.fulfill({ status: 404, body: 'blocked in test' });
 });
-await page.goto('file://' + new URL('../dist/index.html', import.meta.url).pathname);
+await page.goto(BASE);
 await page.evaluate(() => localStorage.setItem('sp:cfg', JSON.stringify({ oddsKey: 'TEST', leagues: { soccer_epl: true, soccer_france_ligue_one: false, soccer_spain_la_liga: false, soccer_italy_serie_a: false, soccer_germany_bundesliga: false, soccer_uefa_champs_league: false, soccer_uefa_europa_league: false }, maxSims: 300000, minSims: 100000 })));
 await page.reload();
 await page.screenshot({ path: process.argv[2] + '/dash-empty.png' });
@@ -98,7 +108,7 @@ const t0 = Date.now();
 await page.click('#go');
 await page.waitForFunction(() => !document.body.classList.contains('busy'), null, { timeout: 180000 });
 console.log('analyse terminée en', ((Date.now() - t0) / 1000).toFixed(1), 's ; appels odds :', oddsCalls);
-const A = await page.evaluate(() => { const a = JSON.parse(localStorage.getItem('sp:analyses')).pop(); return { counts: a.counts, errors: a.errors, best: a.best && { book: a.best.book, any: a.best.bestAny, m: a.best.match, l: a.best.label, o: a.best.odds, ev: a.best.ev, s: a.best.score, sims: a.best.sims }, values: a.values.length, watch: a.watch.map((w) => w.match + ' ' + w.label + ' | ' + w.need.join('; ')), backtests: Object.keys(a.backtests || {}), skips: a.events.filter((e) => e.skip).map((e) => e.skip) }; });
+const A = await page.evaluate(() => { const a = JSON.parse(localStorage.getItem('sp:analyses')).pop(); return { counts: a.counts, errors: a.errors, best: a.best && { book: a.best.book, any: a.best.bestAny, m: a.best.match, l: a.best.label, o: a.best.odds, ev: a.best.ev, s: a.best.score, sims: a.best.sims }, values: a.values.length, watch: a.watch.map((w) => w.match + ' ' + w.label + ' | ' + w.need.join('; ')), backtests: Object.keys(a.backtests || {}), tennisNote: a.events.find((e) => e.sport === 'tennis')?.statsNote, eplNote: a.events.find((e) => e.sport === 'football')?.statsNote, skips: a.events.filter((e) => e.skip).map((e) => e.skip) }; });
 console.log(JSON.stringify(A, null, 1));
 for (const h of ['#best', '#values', '#watch', '#calendar', '#history', '#perf', '#config', '#dashboard']) {
   await page.evaluate((x) => { location.hash = x; }, h);
@@ -112,9 +122,10 @@ await page.waitForFunction(() => !document.body.classList.contains('busy'), null
 const re = await page.evaluate(() => { const a = JSON.parse(localStorage.getItem('sp:analyses')).pop(); return { kind: a.kind, parent: a.parentId, recheck: a.recheck?.length, picks: JSON.parse(localStorage.getItem('sp:picks')).length }; });
 console.log('réanalyse :', JSON.stringify(re));
 const mobile = await browser.newPage({ viewport: { width: 390, height: 844 } });
-await mobile.goto('file://' + new URL('../dist/index.html', import.meta.url).pathname);
+await mobile.goto(BASE);
 const ov = await mobile.evaluate(() => document.documentElement.scrollWidth > window.innerWidth);
 await mobile.screenshot({ path: process.argv[2] + '/mobile.png' });
 console.log('débordement horizontal mobile :', ov);
 console.log('erreurs JS :', errors.length ? errors : 'aucune');
 await browser.close();
+srv.close();

@@ -52,7 +52,11 @@ const corr = (() => {
   return sxy / Math.sqrt(sxx * syy);
 })();
 ok(corr > 0.8, 'DC retrouve les attaques (corr=' + corr.toFixed(2) + ')');
+// xG synthétique (bruité autour des λ) et cotes « marché » synthétiques pour tester les chemins xG/marché
+matches.forEach((m) => { m.hxg = Math.max(0.05, m.hg * 0.5 + 0.7 + (R() - 0.5) * 0.4); m.axg = Math.max(0.05, m.ag * 0.5 + 0.5 + (R() - 0.5) * 0.4); m.pin = [2.4, 3.4, 3.1]; });
 const bt = SP.footballBacktest(matches);
+ok(bt.hasXG && 'xg' in bt.weights, 'backtest inclut le modèle xG');
+ok(bt.wMarket != null && bt.market.n > 80, 'poids marché estimé par backtest (' + bt.wMarket + ')');
 ok(bt && bt.n > 100, 'backtest football exécuté');
 ok(bt.ensemble.logLoss < bt.naive.logLoss, `ensemble bat le modèle naïf (${bt.ensemble.logLoss.toFixed(4)} < ${bt.naive.logLoss.toFixed(4)})`);
 near(Object.values(bt.weights).reduce((a, b) => a + b, 0), 1, 1e-6, 'poids somme à 1');

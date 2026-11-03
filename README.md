@@ -35,6 +35,20 @@ Par défaut, la value et l'EV sont calculées **à la cote Winamax** (`winamax_f
 Le prix juste vient de tout le marché, Pinnacle en priorité, et la meilleure cote ailleurs est affichée pour information.
 Une sélection absente chez Winamax n'est jamais proposée. Si Winamax est plus de 7 % au-dessus du bookmaker suivant, un avertissement demande de vérifier la cote sur le site.
 
+## Données quotidiennes gratuites (GitHub Actions)
+
+Chaque matin vers 6 h 40 (heure de Paris), `scripts/collect.py` récupère et publie avec l'application :
+
+| Fichier | Source | Utilisation |
+|---|---|---|
+| `data/football.json` | football-data.co.uk | résultats, tirs, corners, cartons et cotes Pinnacle de clôture (deux saisons) : modèles, backtest contre le marché et **poids marché/stats estimé sur les données** |
+| `data/xg.json` | understat.com | xG par match (5 grands championnats) : modèle Dixon-Coles sur xG |
+| `data/clubelo.json` | clubelo.com | probabilités des prochains matchs : coupes d'Europe |
+| `data/tennis.json` | tennis-data.co.uk | Elo ATP/WTA global et par surface (calculé chronologiquement) et poids marché/Elo issu du backtest contre Pinnacle |
+
+Si une source échoue, l'échec est consigné dans `data/meta.json` et l'application revient à ESPN ou au marché seul.
+Ouverte en fichier local, l'application n'a pas ces données : utilisez la version en ligne.
+
 ## Modèles
 
 **Football**

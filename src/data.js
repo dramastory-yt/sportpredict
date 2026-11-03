@@ -161,6 +161,25 @@ const SPData = (() => {
     return { ok: true, byTeam, at: r.at, meta: meta('ESPN injuries', `${ESPN}/basketball/nba/injuries`) };
   }
 
+  // ------------------------------------------------------------------ données quotidiennes (GitHub Actions)
+  // Fichiers publiés à côté de l'application : data/football.json, xg.json, clubelo.json, tennis.json, meta.json
+  let local = null;
+  async function localData() {
+    if (local) return local;
+    local = {};
+    if (location.protocol === 'file:') { setStatus('Données quotidiennes', false, 'indisponibles en fichier local (ouvrez la version en ligne)'); return local; }
+    for (const f of ['meta', 'football', 'xg', 'clubelo', 'tennis']) {
+      try {
+        const r = await fetch(`./data/${f}.json`, { cache: 'no-cache' });
+        if (r.ok) local[f] = await r.json();
+      } catch { /* fichier local ouvert hors GitHub Pages : données indisponibles */ }
+    }
+    const m = local.meta;
+    if (m) setStatus('Données quotidiennes', true, `générées ${m.generatedAt}`, { at: Date.parse(m.generatedAt) });
+    else setStatus('Données quotidiennes', false, 'indisponibles (ouvrez la version en ligne)');
+    return local;
+  }
+
   // ------------------------------------------------------------------ appariement des noms
   const STOP = new Set(['fc', 'cf', 'afc', 'sc', 'ac', 'as', 'ssc', 'us', 'rc', 'cd', 'ud', 'sd', 'club', 'de', 'the', 'calcio', 'fk', 'sv', 'vfb', 'vfl', 'tsg', 'bv', 'sl', 'ogc', 'losc', 'stade', 'rcd', 'ca', 'sco', 'hsc', 'aj', 'if', '1', '04', '05', '1899', '1846', '1907', '1913', 'and', 'hove']);
   const ALIAS = {
@@ -170,6 +189,14 @@ const SPData = (() => {
     'bayern munchen': 'bayern munich', 'atletico madrid': 'atletico de madrid', 'celta vigo': 'celta',
     'sevilla fc': 'sevilla', 'as roma': 'roma', 'ac milan': 'milan', 'olympique lyonnais': 'lyon',
     'olympique de marseille': 'marseille', 'brest': 'stade brestois', 'rennes': 'stade rennais',
+    // noms courts de football-data.co.uk / ClubElo
+    'man united': 'manchester united', 'nott m forest': 'nottingham forest', 'newcastle': 'newcastle united',
+    'west ham': 'west ham united', 'tottenham': 'tottenham hotspur', 'brighton': 'brighton and hove albion', 'leeds': 'leeds united',
+    'paris sg': 'paris saint-germain', 'paris saint germain': 'paris saint-germain', 'st etienne': 'saint etienne',
+    'ath madrid': 'atletico de madrid', 'atletico madrid': 'atletico de madrid', 'ath bilbao': 'athletic club', 'bilbao': 'athletic club', 'sociedad': 'real sociedad', 'betis': 'real betis',
+    'vallecano': 'rayo vallecano', 'espanol': 'espanyol', 'celta': 'celta', 'ein frankfurt': 'eintracht frankfurt', 'frankfurt': 'eintracht frankfurt',
+    'm gladbach': 'borussia monchengladbach', 'gladbach': 'borussia monchengladbach', 'borussia m gladbach': 'borussia monchengladbach', 'leverkusen': 'bayer leverkusen', 'dortmund': 'borussia dortmund',
+    'fc koln': 'koln', 'inter': 'internazionale', 'verona': 'hellas verona', 'sheffield united': 'sheffield united', 'qpr': 'queens park rangers',
   };
   function norm(s) {
     let x = (s || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[&.'’-]/g, ' ').replace(/\s+/g, ' ').trim();
@@ -238,6 +265,6 @@ Règles :
     LS, log, apiStatus, setStatus, meta, purgeCache, FOOTBALL,
     oddsSports, oddsFor, oddsEvent, oddsScores,
     espnResults, espnScoreboard, espnSummary, espnNews, nbaInjuries,
-    norm, sim, bestMatch, claudeAnalyze,
+    norm, sim, bestMatch, claudeAnalyze, localData,
   };
 })();

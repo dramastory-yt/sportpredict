@@ -1,8 +1,11 @@
-# Teste le moteur, construit dist/index.html et le publie sur GitHub Pages à chaque push sur main.
+# Chaque matin (≈ 6 h 40 Paris) et à chaque push : collecte des données gratuites,
+# tests du moteur, construction de dist/index.html et publication sur GitHub Pages.
 name: Publier SportPredict
 on:
   push:
     branches: [main]
+  schedule:
+    - cron: '41 5 * * *'
   workflow_dispatch:
 permissions:
   contents: read
@@ -21,6 +24,12 @@ jobs:
           node-version: 22
       - run: node test/engine.test.mjs
       - run: node build.mjs
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: pip install requests openpyxl xlrd
+      - name: Collecte des données (une source en échec n'arrête pas la publication)
+        run: python scripts/collect.py dist/data
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
         with:
