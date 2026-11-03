@@ -384,6 +384,27 @@ function SPEngineFactory() {
     return res;
   };
 
+
+  // xG : vrai xG football-data quand présent, sinon estimation par les tirs (conversion estimée
+  // sur la phase de chauffe seulement, donc sans fuite dans le backtest).
+  SP.attachXG = function (ms) {
+    const warm = ms.slice(0, Math.max(60, Math.floor(ms.length * 0.35))).flatMap((m) => [[m.hst, m.hs, m.hg], [m.ast, m.as, m.ag]]).filter((x) => x[0] != null && x[1] != null);
+    let a = null, b = 0, nReal = 0, nProxy = 0;
+    if (warm.length >= 100) {
+      let s11 = 0, s12 = 0, s22 = 0, y1 = 0, y2 = 0;
+      for (const [on, tot, g] of warm) { const off = Math.max(0, tot - on); s11 += on * on; s12 += on * off; s22 += off * off; y1 += on * g; y2 += off * g; }
+      const det = s11 * s22 - s12 * s12;
+      a = (y1 * s22 - y2 * s12) / det; b = (y2 * s11 - y1 * s12) / det;
+      if (!(a > 0) || !(b >= 0)) { a = y1 / s11; b = 0; }
+    }
+    for (const m of ms) {
+      if (m.rxh != null && m.rxa != null) { m.hxg = m.rxh; m.axg = m.rxa; nReal++; }
+      else if (a != null && m.hst != null && m.hs != null && m.ast != null && m.as != null) { m.hxg = a * m.hst + b * Math.max(0, m.hs - m.hst); m.axg = a * m.ast + b * Math.max(0, m.as - m.ast); nProxy++; }
+    }
+    return { nReal, nProxy, a, b, label: [nReal ? `xG réel football-data (${nReal})` : '', nProxy ? `xG estimé par les tirs (${nProxy}, ${a.toFixed(3)} but/tir cadré)` : ''].filter(Boolean).join(' + ') };
+  };
+  SP.fdRow = (r) => ({ t: r[0], h: r[1], a: r[2], hg: r[3], ag: r[4], hs: r[5], as: r[6], hst: r[7], ast: r[8], pin: r[13] && r[14] && r[15] ? [r[13], r[14], r[15]] : null, rxh: r[18] ?? null, rxa: r[19] ?? null, refSrc: r[20] || null });
+
   SP.calibrationBins = function (ps, ys, nb = 10) {
     const bins = Array.from({ length: nb }, () => ({ n: 0, p: 0, y: 0 }));
     ps.forEach((p, i) => {

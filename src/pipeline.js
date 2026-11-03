@@ -89,7 +89,7 @@ onmessage = (e) => {
           mk[m.key].get(g).books.push({ book: b.key, title: b.title, last: Date.parse(m.last_update || b.last_update), outs });
         }
       }
-      if (b.key === 'pinnacle') sharp = 'pinnacle';
+      if (b.key === 'pinnacle' || (b.key === 'betfair_ex_eu' && !sharp)) sharp = b.key;
     }
     // sélections
     const sels = [];
@@ -118,7 +118,8 @@ onmessage = (e) => {
           }
           if (!offers.length) continue;
           offers.sort((x, y) => y.price - x.price);
-          const pin = fairByBook.find((f) => f.book === 'pinnacle');
+          // référence « sharp » : Pinnacle, sinon Betfair Exchange (marge très faible), sinon consensus
+          const pin = fairByBook.find((f) => f.book === 'pinnacle') || fairByBook.find((f) => f.book === 'betfair_ex_eu');
           const fps = fairByBook.map((f) => f.p[name]).filter((x) => x != null);
           const fair = pin ? pin.p[name] : (fps.length ? SP.median(fps) : null);
           const o0 = offers[0];
@@ -130,7 +131,7 @@ onmessage = (e) => {
             id: `${mkey}|${g}|${name}`, mkey, line: g, name, type, point: o0.point ?? null,
             label: label(mkey, { name, point: o0.point }, g), offers, best: o0, second: offers[1] || null,
             mean: offers.reduce((s, x) => s + x.price, 0) / offers.length,
-            fairMkt: fair, fairSource: pin ? 'Pinnacle (marge retirée)' : (fps.length ? `consensus de ${fps.length} bookmakers (médiane, marge retirée)` : 'indisponible'),
+            fairMkt: fair, fairSource: pin ? `${pin.book === 'pinnacle' ? 'Pinnacle' : 'Betfair Exchange'} (marge retirée)` : (fps.length ? `consensus de ${fps.length} bookmakers (médiane, marge retirée)` : 'indisponible'),
             fairSd: SP.sd(fps), nBooks: offers.length,
             pinnacle: offers.find((x) => x.book === 'pinnacle')?.price || null,
           });
@@ -160,40 +161,17 @@ onmessage = (e) => {
     const L = await D.localData();
     const fd = L.football?.leagues?.[oddsKey];
     if (fd && fd.length >= 120) {
-      const ms = fd.map((r) => ({ t: r[0], h: r[1], a: r[2], hg: r[3], ag: r[4], hs: r[5], as: r[6], hst: r[7], ast: r[8], pin: r[13] && r[14] && r[15] ? [r[13], r[14], r[15]] : null }));
-      const xg = L.xg?.leagues?.[oddsKey];
-      let nx = 0;
-      if (xg) {
-        const byDay = new Map();
-        for (const r of xg) { const k = Math.floor(r[0] / 86400e3); for (const dd of [k - 1, k, k + 1]) { if (!byDay.has(dd)) byDay.set(dd, []); byDay.get(dd).push(r); } }
-        for (const m of ms) {
-          const c = (byDay.get(Math.floor(m.t / 86400e3)) || []).find((r) => r[3] === m.hg && r[4] === m.ag && D.sim(r[1], m.h) >= 0.5 && D.sim(r[2], m.a) >= 0.5);
-          if (c) { m.hxg = c[5]; m.axg = c[6]; nx++; }
-        }
-      }
-      // Sans xG understat : xG estimé par les tirs. Taux de conversion (tir cadré / non cadré) estimés
-      // par moindres carrés sur la phase de chauffe uniquement, pour ne pas introduire de fuite dans le backtest.
-      let xgSource = nx ? 'understat' : null;
-      if (!nx) {
-        const warm = ms.slice(0, Math.max(60, Math.floor(ms.length * 0.35))).flatMap((m) => [[m.hst, m.hs, m.hg], [m.ast, m.as, m.ag]]).filter((x) => x[0] != null && x[1] != null);
-        if (warm.length >= 100) {
-          let s11 = 0, s12 = 0, s22 = 0, y1 = 0, y2 = 0;
-          for (const [on, tot, g] of warm) { const off = Math.max(0, tot - on); s11 += on * on; s12 += on * off; s22 += off * off; y1 += on * g; y2 += off * g; }
-          const det = s11 * s22 - s12 * s12;
-          let a = (y1 * s22 - y2 * s12) / det, b = (y2 * s11 - y1 * s12) / det;
-          if (!(a > 0) || !(b >= 0)) { a = y1 / s11; b = 0; }
-          for (const m of ms) if (m.hst != null && m.hs != null && m.ast != null && m.as != null) {
-            m.hxg = a * m.hst + b * Math.max(0, m.hs - m.hst); m.axg = a * m.ast + b * Math.max(0, m.as - m.ast); nx++;
-          }
-          xgSource = `xG estimé par les tirs (${a.toFixed(3)} but/tir cadré, ${b.toFixed(3)} but/tir non cadré)`;
-        }
-      }
+      const ms = fd.map(SP.fdRow);
+      const xgInfo = SP.attachXG(ms);
+      let nx = xgInfo.nReal + xgInfo.nProxy;
+      const xgSource = xgInfo.label || null;
+      const refs = [...new Set(ms.map((m) => m.refSrc).filter(Boolean))].join(' / ');
       await new Promise((res) => setTimeout(res, 0));
       const bt = SP.footballBacktest(ms);
       const dc = SP.fitDixonColes(ms);
       const xms = ms.filter((m) => m.hxg != null);
       const dcx = xms.length >= 100 ? SP.fitDixonColes(xms.map((m) => ({ ...m, hg: m.hxg, ag: m.axg })), { skipRho: true }) : null;
-      return { ok: true, n: ms.length, nXG: nx, xgSource, ms, dc, dcx, bt, errors: [], source: `football-data.co.uk${nx ? ` + ${xgSource} (${nx} matchs)` : ''}`, fetchedAt: L.football.fetchedAt };
+      return { ok: true, n: ms.length, nXG: nx, xgSource, refs, ms, dc, dcx, bt, errors: [], source: `football-data.co.uk${nx ? ` + ${xgSource} (${nx} matchs)` : ''}`, fetchedAt: L.football.fetchedAt };
     }
     const seasonStart = Date.UTC(new Date().getUTCFullYear() - (new Date().getUTCMonth() < 6 ? 2 : 1), 6, 15);
     const r = await D.espnResults('soccer', espnLeague, seasonStart, Date.now(), 45);
@@ -295,7 +273,7 @@ onmessage = (e) => {
     out.statsNote = statsNote + (stats?.source ? ` · source ${stats.source}` : '');
     const wBt = stats?.bt?.wMarket;
     const w = wBt != null && !out.clubeloOnly ? wBt : C.wMarket;
-    out.wSource = wBt != null && !out.clubeloOnly ? `backtest vs clôture Pinnacle (${stats.bt.market.n} matchs)` : 'réglage';
+    out.wSource = wBt != null && !out.clubeloOnly ? `backtest vs cotes de clôture ${stats.refs || ''} (${stats.bt.market.n} matchs)` : 'réglage';
     const lh = ls ? Math.exp(w * Math.log(lm.lh) + (1 - w) * Math.log(ls.lh)) : lm.lh;
     const la = ls ? Math.exp(w * Math.log(lm.la) + (1 - w) * Math.log(ls.la)) : lm.la;
     const gap = ls ? (Math.abs(Math.log(ls.lh / lm.lh)) + Math.abs(Math.log(ls.la / lm.la))) / 2 : 0;
@@ -511,7 +489,7 @@ onmessage = (e) => {
       if (!nba.ok) A.errors.push('Stats NBA : ' + nba.error);
     }
     A.backtests = {
-      ...Object.fromEntries(Object.entries(fbStats).filter(([, v]) => v.ok && v.bt).map(([kk, v]) => [D.FOOTBALL[kk].name + ` (${v.source})`, { n: v.bt.n, models: { ...v.bt.models, ...(v.bt.market ? { 'marché Pinnacle': v.bt.market } : {}) }, ensemble: v.bt.blend || v.bt.ensemble, naive: v.bt.naive, weights: { ...v.bt.weights, ...(v.bt.wMarket != null ? { 'poids marché': v.bt.wMarket } : {}) }, calibration: v.bt.calibration }])),
+      ...Object.fromEntries(Object.entries(fbStats).filter(([, v]) => v.ok && v.bt).map(([kk, v]) => [D.FOOTBALL[kk].name + ` (${v.source})`, { n: v.bt.n, models: { ...v.bt.models, ...(v.bt.market ? { [`marché (${v.refs || 'clôture'})`]: v.bt.market } : {}) }, ensemble: v.bt.blend || v.bt.ensemble, naive: v.bt.naive, weights: { ...v.bt.weights, ...(v.bt.wMarket != null ? { 'poids marché': v.bt.wMarket } : {}) }, calibration: v.bt.calibration }])),
       ...Object.fromEntries(Object.entries(LD.tennis?.tours || {}).map(([tour, t]) => [`Tennis ${tour} (Elo surface)`, { n: t.backtest.n, models: { elo: { logLoss: t.backtest.eloLogLoss }, 'marché Pinnacle': { logLoss: t.backtest.pinnacleLogLoss } }, ensemble: { logLoss: t.backtest.blendLogLoss }, weights: { 'poids marché': t.backtest.wMarket } }])),
       ...(nba?.bt ? { NBA: { n: nba.bt.n, models: nba.bt.models, ensemble: nba.bt.ensemble, weights: nba.bt.weights, calibration: nba.bt.calibration } } : {}),
     };

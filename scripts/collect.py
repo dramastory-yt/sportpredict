@@ -89,8 +89,6 @@ def football_data():
                 continue
             n0 = len(rows)
             reader = csv.DictReader(io.StringIO(txt))
-            if div == "E0":
-                print("colonnes football-data", sc, ":", ",".join(reader.fieldnames or []), flush=True)
             for r in reader:
                 d = pdate(r.get("Date", ""))
                 hg, ag = fnum(r.get("FTHG")), fnum(r.get("FTAG"))
@@ -103,20 +101,26 @@ def football_data():
                     hh, mm = 15, 0
                 ts = int(dt.datetime(d.year, d.month, d.day, hh, mm, tzinfo=dt.timezone.utc).timestamp() * 1000)
                 # cotes Pinnacle : clôture (PSC*) sinon ouverture (PS*) ; moyenne marché (Avg*) en secours
-                ph = fnum(r.get("PSCH")) or fnum(r.get("PSH"))
-                pd_ = fnum(r.get("PSCD")) or fnum(r.get("PSD"))
-                pa = fnum(r.get("PSCA")) or fnum(r.get("PSA"))
+                # cote de clôture de référence : Pinnacle, sinon Betfair Exchange, sinon moyenne du marché
+                ph = pd_ = pa = None; ref = None
+                for pre, lab in (("PSC", "Pinnacle"), ("BFEC", "Betfair Exchange"), ("AvgC", "moyenne marché")):
+                    h_, d_, a_ = fnum(r.get(pre + "H")), fnum(r.get(pre + "D")), fnum(r.get(pre + "A"))
+                    if h_ and d_ and a_:
+                        ph, pd_, pa, ref = h_, d_, a_, lab
+                        break
+                o25 = fnum(r.get("PC>2.5")) or fnum(r.get("BFEC>2.5")) or fnum(r.get("AvgC>2.5"))
+                u25 = fnum(r.get("PC<2.5")) or fnum(r.get("BFEC<2.5")) or fnum(r.get("AvgC<2.5"))
                 rows.append([ts, r["HomeTeam"], r["AwayTeam"], int(hg), int(ag),
                              fnum(r.get("HS")), fnum(r.get("AS")), fnum(r.get("HST")), fnum(r.get("AST")),
                              fnum(r.get("HC")), fnum(r.get("AC")), fnum(r.get("HY")), fnum(r.get("AY")),
-                             ph, pd_, pa, fnum(r.get("PC>2.5")) or fnum(r.get("P>2.5")), fnum(r.get("PC<2.5")) or fnum(r.get("P<2.5"))])
+                             ph, pd_, pa, o25, u25, fnum(r.get("HxG")), fnum(r.get("AxG")), ref])
             note(f"football-data {div} {sc}", True, f"{len(rows) - n0} matchs")
         if rows:
             rows.sort(key=lambda x: x[0])
             out[key] = rows
     save("football.json", {
         "source": "football-data.co.uk", "fetchedAt": META["generatedAt"],
-        "cols": ["t", "h", "a", "hg", "ag", "hs", "as", "hst", "ast", "hc", "ac", "hy", "ay", "pinH", "pinD", "pinA", "pinO25", "pinU25"],
+        "cols": ["t", "h", "a", "hg", "ag", "hs", "as", "hst", "ast", "hc", "ac", "hy", "ay", "refH", "refD", "refA", "refO25", "refU25", "hxg", "axg", "refSource"],
         "leagues": out,
     })
 
