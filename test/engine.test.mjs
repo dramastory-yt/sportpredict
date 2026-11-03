@@ -61,6 +61,23 @@ ok(bt && bt.n > 100, 'backtest football exécuté');
 ok(bt.ensemble.logLoss < bt.naive.logLoss, `ensemble bat le modèle naïf (${bt.ensemble.logLoss.toFixed(4)} < ${bt.naive.logLoss.toFixed(4)})`);
 near(Object.values(bt.weights).reduce((a, b) => a + b, 0), 1, 1e-6, 'poids somme à 1');
 
+// calendrier réaliste : 2 saisons, 3 équipes remplacées (promues) en saison 2, ordre aléatoire des matchs
+{
+  const R2 = SP.rng(77);
+  const T1 = Array.from({ length: 20 }, (_, i) => 'R' + i), T2 = [...T1.slice(0, 17), 'P1', 'P2', 'P3'];
+  const st = Object.fromEntries([...T1, 'P1', 'P2', 'P3'].map((x, i) => [x, { a: (R2() - 0.5) * 0.8, d: (R2() - 0.5) * 0.6 }]));
+  ['P1', 'P2', 'P3'].forEach((x) => { st[x] = { a: -0.3, d: 0.2 }; });
+  const games = []; let tt = Date.UTC(2025, 7, 10);
+  for (const T of [T1, T2]) {
+    const fx = []; for (const h of T) for (const a of T) if (h !== a) fx.push([h, a]);
+    fx.sort(() => R2() - 0.5);
+    for (const [h, a] of fx) { tt += 3600e3 * 18; games.push({ t: tt, h, a, hg: SP.poissonDraw(R2, Math.exp(0.3 + 0.25 + st[h].a + st[a].d)), ag: SP.poissonDraw(R2, Math.exp(0.3 + st[a].a + st[h].d)) }); }
+    tt += 60 * 86400e3;
+  }
+  const b2 = SP.footballBacktest(games.slice(0, 520));
+  ok(b2.models.dc.logLoss < b2.naive.logLoss, `DC bat le naïf sur calendrier réaliste (${b2.models.dc.logLoss.toFixed(4)} < ${b2.naive.logLoss.toFixed(4)})`);
+}
+
 // --- Monte-Carlo football vs analytique
 const key = (x, y) => x > y;
 const sim = SP.simulate({ kind: 'football', lh: 1.5, la: 1.1, rho: -0.05, sigma: 0.0001, seed: 7, minN: 400000, maxN: 400000, keyEvent: key });

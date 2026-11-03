@@ -177,25 +177,27 @@ function SPEngineFactory() {
     }));
     if (data.length < 20) return null;
     const W = data.reduce((s, d) => s + d.w, 0);
-    // Newton diagonal sur la vraisemblance de Poisson pondérée (rapide et stable).
-    for (let it = 0; it < 60; it++) {
-      const gA = new Float64Array(n), hA = new Float64Array(n), gD = new Float64Array(n), hD = new Float64Array(n);
+    // Descente par blocs (attaques, puis défenses, puis domicile/moyenne), pas de Newton diagonal.
+    // Mettre à jour tous les paramètres en même temps fait osciller l'ajustement, car ils absorbent
+    // le même résidu : c'est ce que le backtest sur données réelles a montré.
+    const pass = (block) => {
+      const g = new Float64Array(n), h = new Float64Array(n);
       let gH = 0, hH = 0, gM = 0, hM = 0;
       for (const d of data) {
         const lh = Math.exp(mu + home + att[d.h] + def[d.a]);
         const la = Math.exp(mu + att[d.a] + def[d.h]);
         const rh = d.w * (d.hg - lh), ra = d.w * (d.ag - la);
-        gA[d.h] += rh; hA[d.h] += d.w * lh; gD[d.a] += rh; hD[d.a] += d.w * lh;
-        gA[d.a] += ra; hA[d.a] += d.w * la; gD[d.h] += ra; hD[d.h] += d.w * la;
-        gH += rh; hH += d.w * lh; gM += rh + ra; hM += d.w * (lh + la);
+        if (block === 0) { g[d.h] += rh; h[d.h] += d.w * lh; g[d.a] += ra; h[d.a] += d.w * la; }
+        else if (block === 1) { g[d.a] += rh; h[d.a] += d.w * lh; g[d.h] += ra; h[d.h] += d.w * la; }
+        else { gH += rh; hH += d.w * lh; gM += rh + ra; hM += d.w * (lh + la); }
       }
-      for (let i = 0; i < n; i++) {
-        att[i] += (gA[i] - ridge * att[i]) / (hA[i] + ridge);
-        def[i] += (gD[i] - ridge * def[i]) / (hD[i] + ridge);
-      }
-      home += gH / (hH + 1e-9) * 0.5;
-      mu += gM / (hM + 1e-9) * 0.5;
-      // identifiabilité : moyennes nulles
+      if (block === 0) for (let i = 0; i < n; i++) att[i] += (g[i] - ridge * att[i]) / (h[i] + ridge);
+      else if (block === 1) for (let i = 0; i < n; i++) def[i] += (g[i] - ridge * def[i]) / (h[i] + ridge);
+      else { mu += gM / (hM + 1e-9); }
+      if (block === 3) home += gH / (hH + 1e-9);
+    };
+    for (let it = 0; it < 40; it++) {
+      pass(0); pass(1); pass(2); pass(3);
       const ma = att.reduce((s, x) => s + x, 0) / n, md = def.reduce((s, x) => s + x, 0) / n;
       for (let i = 0; i < n; i++) { att[i] -= ma; def[i] -= md; }
       mu += ma + md;

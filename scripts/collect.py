@@ -88,7 +88,10 @@ def football_data():
                 note(f"football-data {div} {sc}", False, str(e)[:160])
                 continue
             n0 = len(rows)
-            for r in csv.DictReader(io.StringIO(txt)):
+            reader = csv.DictReader(io.StringIO(txt))
+            if div == "E0":
+                print("colonnes football-data", sc, ":", ",".join(reader.fieldnames or []), flush=True)
+            for r in reader:
                 d = pdate(r.get("Date", ""))
                 hg, ag = fnum(r.get("FTHG")), fnum(r.get("FTAG"))
                 if not d or hg is None or ag is None or not r.get("HomeTeam"):
