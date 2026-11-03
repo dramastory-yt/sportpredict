@@ -316,7 +316,13 @@ def tennis():
 
 
 if __name__ == "__main__":
-    for fn in (football_data, understat, clubelo, tennis):
+    # understat.com et tennis-data.co.uk refusent les serveurs GitHub (délai dépassé / 403) :
+    # désactivés par défaut, réactivables avec ENABLE_BLOCKED_SOURCES=1 (par ex. sur un ordinateur personnel).
+    fns = [football_data, clubelo] + ([understat, tennis] if os.environ.get("ENABLE_BLOCKED_SOURCES") == "1" else [])
+    for k in ("understat", "tennis-data"):
+        if os.environ.get("ENABLE_BLOCKED_SOURCES") != "1":
+            note(k, False, "désactivé : la source refuse les serveurs GitHub Actions")
+    for fn in fns:
         try:
             fn()
         except Exception as e:  # noqa: BLE001

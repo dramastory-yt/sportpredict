@@ -46,6 +46,8 @@ Chaque matin vers 6 h 40 (heure de Paris), `scripts/collect.py` récupère et pu
 | `data/clubelo.json` | clubelo.com | probabilités des prochains matchs : coupes d'Europe |
 | `data/tennis.json` | tennis-data.co.uk | Elo ATP/WTA global et par surface (calculé chronologiquement) et poids marché/Elo issu du backtest contre Pinnacle |
 
+**État réel au 3 novembre 2026 :** football-data.co.uk fonctionne (environ 5 000 matchs sur 9 championnats). understat.com (aucune réponse) et tennis-data.co.uk (403) refusent les serveurs GitHub : ils sont désactivés par défaut, et l'xG vient d'une **estimation par les tirs** calibrée sur football-data. ClubElo était en panne (erreur 502) lors du test. Le tennis reste donc fondé sur le marché.
+
 Si une source échoue, l'échec est consigné dans `data/meta.json` et l'application revient à ESPN ou au marché seul.
 Ouverte en fichier local, l'application n'a pas ces données : utilisez la version en ligne.
 
