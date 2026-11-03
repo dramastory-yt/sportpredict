@@ -160,7 +160,7 @@ onmessage = (e) => {
     const L = await D.localData();
     const fd = L.football?.leagues?.[oddsKey];
     if (fd && fd.length >= 120) {
-      const ms = fd.map((r) => ({ t: r[0], h: r[1], a: r[2], hg: r[3], ag: r[4], hst: r[7], ast: r[8], pin: r[13] && r[14] && r[15] ? [r[13], r[14], r[15]] : null }));
+      const ms = fd.map((r) => ({ t: r[0], h: r[1], a: r[2], hg: r[3], ag: r[4], hs: r[5], as: r[6], hst: r[7], ast: r[8], pin: r[13] && r[14] && r[15] ? [r[13], r[14], r[15]] : null }));
       const xg = L.xg?.leagues?.[oddsKey];
       let nx = 0;
       if (xg) {
@@ -171,12 +171,29 @@ onmessage = (e) => {
           if (c) { m.hxg = c[5]; m.axg = c[6]; nx++; }
         }
       }
+      // Sans xG understat : xG estimé par les tirs. Taux de conversion (tir cadré / non cadré) estimés
+      // par moindres carrés sur la phase de chauffe uniquement, pour ne pas introduire de fuite dans le backtest.
+      let xgSource = nx ? 'understat' : null;
+      if (!nx) {
+        const warm = ms.slice(0, Math.max(60, Math.floor(ms.length * 0.35))).flatMap((m) => [[m.hst, m.hs, m.hg], [m.ast, m.as, m.ag]]).filter((x) => x[0] != null && x[1] != null);
+        if (warm.length >= 100) {
+          let s11 = 0, s12 = 0, s22 = 0, y1 = 0, y2 = 0;
+          for (const [on, tot, g] of warm) { const off = Math.max(0, tot - on); s11 += on * on; s12 += on * off; s22 += off * off; y1 += on * g; y2 += off * g; }
+          const det = s11 * s22 - s12 * s12;
+          let a = (y1 * s22 - y2 * s12) / det, b = (y2 * s11 - y1 * s12) / det;
+          if (!(a > 0) || !(b >= 0)) { a = y1 / s11; b = 0; }
+          for (const m of ms) if (m.hst != null && m.hs != null && m.ast != null && m.as != null) {
+            m.hxg = a * m.hst + b * Math.max(0, m.hs - m.hst); m.axg = a * m.ast + b * Math.max(0, m.as - m.ast); nx++;
+          }
+          xgSource = `xG estimé par les tirs (${a.toFixed(3)} but/tir cadré, ${b.toFixed(3)} but/tir non cadré)`;
+        }
+      }
       await new Promise((res) => setTimeout(res, 0));
       const bt = SP.footballBacktest(ms);
       const dc = SP.fitDixonColes(ms);
       const xms = ms.filter((m) => m.hxg != null);
       const dcx = xms.length >= 100 ? SP.fitDixonColes(xms.map((m) => ({ ...m, hg: m.hxg, ag: m.axg })), { skipRho: true }) : null;
-      return { ok: true, n: ms.length, nXG: nx, ms, dc, dcx, bt, errors: [], source: `football-data.co.uk${nx ? ` + xG understat (${nx} matchs)` : ''}`, fetchedAt: L.football.fetchedAt };
+      return { ok: true, n: ms.length, nXG: nx, xgSource, ms, dc, dcx, bt, errors: [], source: `football-data.co.uk${nx ? ` + ${xgSource} (${nx} matchs)` : ''}`, fetchedAt: L.football.fetchedAt };
     }
     const seasonStart = Date.UTC(new Date().getUTCFullYear() - (new Date().getUTCMonth() < 6 ? 2 : 1), 6, 15);
     const r = await D.espnResults('soccer', espnLeague, seasonStart, Date.now(), 45);
@@ -248,7 +265,7 @@ onmessage = (e) => {
           let pxg = null;
           if (stats.dcx && stats.bt.weights.xg != null) {
             const lx = SP.dcLambdas(stats.dcx, mh.name, ma.name);
-            if (lx) { pxg = SP.matrix1x2(SP.scoreMatrix(lx.lh, lx.la, stats.dc.rho)); out.models.push({ name: 'Dixon-Coles sur xG (understat)', p1x2: pxg, lh: lx.lh, la: lx.la }); }
+            if (lx) { pxg = SP.matrix1x2(SP.scoreMatrix(lx.lh, lx.la, stats.dc.rho)); out.models.push({ name: `Dixon-Coles sur xG (${stats.xgSource || 'xG'})`, p1x2: pxg, lh: lx.lh, la: lx.la }); }
           }
           const w = { ...stats.bt.weights };
           if (!pxg && w.xg) { const k = 1 - w.xg; w.dc /= k || 1; w.elo /= k || 1; w.xg = 0; }

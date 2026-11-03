@@ -20,10 +20,12 @@ TODAY = dt.date.today()
 META = {"generatedAt": dt.datetime.utcnow().isoformat() + "Z", "sources": {}}
 
 
-def get(url, **kw):
-    for attempt in range(3):
+def get(url, tries=2, **kw):
+    hdr = kw.pop("headers", {})
+    last = None
+    for attempt in range(tries):
         try:
-            r = requests.get(url, headers={**UA, **kw.pop("headers", {})}, timeout=40, **kw)
+            r = requests.get(url, headers={**UA, **hdr}, timeout=20, **kw)
             r.raise_for_status()
             return r
         except Exception as e:  # noqa: BLE001
@@ -205,11 +207,16 @@ def clubelo():
 # ---------------------------------------------------------------- tennis-data.co.uk + Elo surface
 def tennis_rows(year, wta):
     import openpyxl  # noqa: PLC0415
-    base = f"http://www.tennis-data.co.uk/{year}{'w' if wta else ''}/{year}"
-    for ext in (".xlsx", ".xls"):
+    errs = []
+    for base in (f"https://www.tennis-data.co.uk/{year}{'w' if wta else ''}/{year}", f"http://www.tennis-data.co.uk/{year}{'w' if wta else ''}/{year}"):
+      for ext in (".xlsx", ".xls"):
         try:
-            content = get(base + ext).content
-        except Exception:  # noqa: BLE001
+            content = get(base + ext, tries=1).content
+            if content[:2] not in (b"PK", b"\xd0\xcf"):
+                errs.append(f"{base}{ext}: contenu inattendu {content[:40]!r}")
+                continue
+        except Exception as e:  # noqa: BLE001
+            errs.append(f"{base}{ext}: {str(e)[:80]}")
             continue
         if ext == ".xls":
             import xlrd  # noqa: PLC0415
@@ -228,7 +235,7 @@ def tennis_rows(year, wta):
         it = ws.iter_rows(values_only=True)
         hdr = [str(h).strip() if h is not None else "" for h in next(it)]
         return [dict(zip(hdr, r)) for r in it]
-    raise RuntimeError("fichier introuvable")
+    raise RuntimeError(" | ".join(errs)[:400])
 
 
 def k_factor(n):

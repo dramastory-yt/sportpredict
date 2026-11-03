@@ -93,7 +93,7 @@ await page.route('**/*', async (route) => {
   if (url.includes('/summary?event=')) return json({ rosters: [] });
   if (url.includes('/data/football.json')) {
     const ev = espnScoreboard('sports/soccer/eng.1/scoreboard?dates=20250801-20261102').events;
-    return json({ fetchedAt: new Date().toISOString(), leagues: { soccer_epl: ev.map((e) => { const c = e.competitions[0].competitors; const hs = +c[0].score, as = +c[1].score; return [Date.parse(e.date), c[0].team.displayName, c[1].team.displayName, hs, as, 12, 10, 5, 4, 5, 4, 1, 2, 2.2, 3.4, 3.3, 1.9, 1.95]; }) } });
+    return json({ fetchedAt: new Date().toISOString(), leagues: { soccer_epl: ev.map((e) => { const c = e.competitions[0].competitors; const hs = +c[0].score, as = +c[1].score; return [Date.parse(e.date), c[0].team.displayName, c[1].team.displayName, hs, as, 8 + hs * 2, 7 + as * 2, 3 + hs, 2 + as, 5, 4, 1, 2, 2.2, 3.4, 3.3, 1.9, 1.95]; }) } });
   }
   if (url.includes('/data/tennis.json')) return json({ tours: { ATP: { players: { 'One P.': { elo: 1900, n: 60, surf: { hard_indoor: [1880, 12] } }, 'Two P.': { elo: 1820, n: 55, surf: { hard_indoor: [1850, 9] } } }, backtest: { n: 1200, eloLogLoss: 0.62, pinnacleLogLoss: 0.6, wMarket: 0.75, blendLogLoss: 0.598 } } } });
   if (url.includes('/data/meta.json')) return json({ generatedAt: new Date().toISOString(), sources: {} });
