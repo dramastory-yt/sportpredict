@@ -397,6 +397,7 @@ def espn_tennis():
             key = " ".join(tok[1:]) + " " + tok[0][0] + "."  # format « Nom P. » attendu par l'application
             players[key] = {"elo": round(e, 1), "n": N[pl], "last": last[pl], "full": pl,
                             "surf": {s: [round(Es[(pl, s)], 1), Ns[(pl, s)]] for s in ("hard", "hard_indoor", "clay", "grass") if (pl, s) in Es}}
+        note(f"Elo tennis {tour}", True, f"{len(players)} joueurs ; backtest chronologique log-loss {ll_elo / max(1, ll_n):.4f} sur {ll_n} matchs (pile ou face = 0.6931)")
         out["tours"][tour] = {"players": players, "backtest": {"n": 0, "eloLogLoss": round(ll_elo / max(1, ll_n), 4), "nElo": ll_n, "pinnacleLogLoss": None, "wMarket": None, "blendLogLoss": None}}
     save("tennis.json", out)
 
