@@ -1190,25 +1190,44 @@ const SPData = (() => {
     return out;
   }
   // Résultats d'une période, découpée en tranches (ESPN limite le volume par requête).
-  async function espnResults(sport, league, fromMs, toMs, chunkDays) {
+  // Résultats d'une période. Certaines ligues ESPN (NBA) refusent les plages de dates (« HTTP 400 ») :
+  // perDay interroge alors jour par jour (dates=AAAAMMJJ), 6 requêtes en parallèle, avec cache long pour le passé.
+  async function espnResults(sport, league, fromMs, toMs, chunkDays, perDay = false) {
     const all = []; const errors = [];
-    for (let s = fromMs; s < toMs; s += chunkDays * 86400e3) {
-      const e = Math.min(toMs, s + (chunkDays - 1) * 86400e3);
-      const past = e < Date.now() - 2 * 86400e3;
-      const r = await cachedJSON(`espn:${sport}:${league}:${ymd(s)}-${ymd(e)}`,
-        `${ESPN}/${sport}/${league}/scoreboard?dates=${ymd(s)}-${ymd(e)}&limit=1000`,
-        past ? 30 * 86400e3 : 6 * 3600e3, 'ESPN');
-      if (!r.ok) { errors.push(r.error); continue; }
-      all.push(...parseEspnEvents(r.data));
+    if (perDay) {
+      const days = [];
+      for (let s = fromMs; s <= toMs; s += 86400e3) days.push(s);
+      for (let i = 0; i < days.length; i += 6) {
+        const rs = await Promise.all(days.slice(i, i + 6).map((s) => cachedJSON(`espn:${sport}:${league}:d${ymd(s)}`,
+          `${ESPN}/${sport}/${league}/scoreboard?dates=${ymd(s)}`, s < Date.now() - 2 * 86400e3 ? 60 * 86400e3 : 3 * 3600e3, 'ESPN')));
+        for (const r of rs) { if (!r.ok) errors.push(r.error); else all.push(...parseEspnEvents(r.data)); }
+      }
+    } else {
+      for (let s = fromMs; s < toMs; s += chunkDays * 86400e3) {
+        const e = Math.min(toMs, s + (chunkDays - 1) * 86400e3);
+        const past = e < Date.now() - 2 * 86400e3;
+        const r = await cachedJSON(`espn:${sport}:${league}:${ymd(s)}-${ymd(e)}`,
+          `${ESPN}/${sport}/${league}/scoreboard?dates=${ymd(s)}-${ymd(e)}&limit=1000`,
+          past ? 30 * 86400e3 : 6 * 3600e3, 'ESPN');
+        if (!r.ok) { errors.push(r.error); continue; }
+        all.push(...parseEspnEvents(r.data));
+      }
     }
     const seen = new Set();
     const games = all.filter((g) => g.completed && g.hs != null && !seen.has(g.id) && seen.add(g.id));
     return { games, errors, meta: meta('ESPN scoreboard', `${ESPN}/${sport}/${league}/scoreboard`) };
   }
+  // Tableau des matchs autour d'une date : jour par jour (compatible avec toutes les ligues ESPN).
   async function espnScoreboard(sport, league, fromMs, toMs) {
-    const r = await cachedJSON(`espn:sb:${sport}:${league}:${ymd(fromMs)}-${ymd(toMs)}`,
-      `${ESPN}/${sport}/${league}/scoreboard?dates=${ymd(fromMs)}-${ymd(toMs)}&limit=500`, 15 * 60e3, 'ESPN');
-    return r.ok ? { ok: true, events: parseEspnEvents(r.data), at: r.at } : r;
+    const evs = [], errs = [];
+    let at = Date.now();
+    for (let s = fromMs; s <= toMs + 1; s += 86400e3) {
+      const r = await cachedJSON(`espn:sb:${sport}:${league}:d${ymd(s)}`, `${ESPN}/${sport}/${league}/scoreboard?dates=${ymd(s)}`, 15 * 60e3, 'ESPN');
+      if (r.ok) { evs.push(...parseEspnEvents(r.data)); at = Math.min(at, r.at); } else errs.push(r.error);
+    }
+    if (!evs.length && errs.length) return { ok: false, error: errs[0] };
+    const seen = new Set();
+    return { ok: true, events: evs.filter((e) => !seen.has(e.id) && seen.add(e.id)), at };
   }
   async function espnSummary(sport, league, eventId) {
     return cachedJSON(`espn:sum:${league}:${eventId}`, `${ESPN}/${sport}/${league}/summary?event=${eventId}`, 10 * 60e3, 'ESPN');
@@ -1246,7 +1265,7 @@ const SPData = (() => {
     if (local) return local;
     local = {};
     if (location.protocol === 'file:') { setStatus('Données quotidiennes', false, 'indisponibles en fichier local (ouvrez la version en ligne)'); return local; }
-    for (const f of ['meta', 'football', 'xg', 'clubelo', 'tennis']) {
+    for (const f of ['meta', 'football', 'xg', 'clubelo', 'tennis', 'nba']) {
       try {
         const r = await fetch(`./data/${f}.json`, { cache: 'no-cache' });
         if (r.ok) local[f] = await r.json();
@@ -1681,14 +1700,24 @@ onmessage = (e) => {
   async function nbaStats() {
     const y = new Date().getUTCFullYear(), mo = new Date().getUTCMonth();
     const seasonStart = Date.UTC(mo >= 9 ? y - 1 : y - 2, 9, 15); // saison précédente + saison en cours
-    const r = await D.espnResults('basketball', 'nba', seasonStart, Date.now(), 12);
-    if (!r.games.length) return { ok: false, error: r.errors[0] || 'aucun résultat renvoyé par ESPN' };
-    const gs = r.games.map((g) => ({ t: g.t, h: g.h, a: g.a, hs: g.hs, as: g.as })).sort((a, b) => a.t - b.t);
+    // 1) résultats publiés chaque matin par le robot GitHub ; 2) secours : ESPN jour par jour sur 150 jours
+    const L = await D.localData();
+    let gs, source;
+    if (L.nba?.games?.length >= 300) {
+      gs = L.nba.games.map((r) => ({ t: r[0], h: r[1], a: r[2], hs: r[3], as: r[4] }));
+      source = `ESPN via collecte quotidienne (${gs.length} matchs)`;
+    } else {
+      const r = await D.espnResults('basketball', 'nba', Math.max(seasonStart, Date.now() - 150 * 86400e3), Date.now(), 1, true);
+      if (!r.games.length) return { ok: false, error: r.errors[0] || 'aucun résultat renvoyé par ESPN' };
+      gs = r.games.map((g) => ({ t: g.t, h: g.h, a: g.a, hs: g.hs, as: g.as }));
+      source = `ESPN jour par jour (${gs.length} matchs)`;
+    }
+    gs.sort((a, b) => a.t - b.t);
     await new Promise((res) => setTimeout(res, 0));
     const bt = gs.length >= 300 ? SP.nbaBacktest(gs) : null;
     const m = SP.fitNBA(gs);
     const elo = bt ? bt.elo : SP.eloRun(gs.map((g) => ({ h: g.h, a: g.a, hg: g.hs, ag: g.as })), { K: 20, home: 70 });
-    return { ok: true, n: gs.length, gs, model: m, bt, elo, errors: r.errors, meta: r.meta };
+    return { ok: true, n: gs.length, gs, model: m, bt, elo, errors: [], source };
   }
 
   // ------------------------------------------------------------ tennis

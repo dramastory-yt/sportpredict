@@ -118,25 +118,44 @@ const SPData = (() => {
     return out;
   }
   // Résultats d'une période, découpée en tranches (ESPN limite le volume par requête).
-  async function espnResults(sport, league, fromMs, toMs, chunkDays) {
+  // Résultats d'une période. Certaines ligues ESPN (NBA) refusent les plages de dates (« HTTP 400 ») :
+  // perDay interroge alors jour par jour (dates=AAAAMMJJ), 6 requêtes en parallèle, avec cache long pour le passé.
+  async function espnResults(sport, league, fromMs, toMs, chunkDays, perDay = false) {
     const all = []; const errors = [];
-    for (let s = fromMs; s < toMs; s += chunkDays * 86400e3) {
-      const e = Math.min(toMs, s + (chunkDays - 1) * 86400e3);
-      const past = e < Date.now() - 2 * 86400e3;
-      const r = await cachedJSON(`espn:${sport}:${league}:${ymd(s)}-${ymd(e)}`,
-        `${ESPN}/${sport}/${league}/scoreboard?dates=${ymd(s)}-${ymd(e)}&limit=1000`,
-        past ? 30 * 86400e3 : 6 * 3600e3, 'ESPN');
-      if (!r.ok) { errors.push(r.error); continue; }
-      all.push(...parseEspnEvents(r.data));
+    if (perDay) {
+      const days = [];
+      for (let s = fromMs; s <= toMs; s += 86400e3) days.push(s);
+      for (let i = 0; i < days.length; i += 6) {
+        const rs = await Promise.all(days.slice(i, i + 6).map((s) => cachedJSON(`espn:${sport}:${league}:d${ymd(s)}`,
+          `${ESPN}/${sport}/${league}/scoreboard?dates=${ymd(s)}`, s < Date.now() - 2 * 86400e3 ? 60 * 86400e3 : 3 * 3600e3, 'ESPN')));
+        for (const r of rs) { if (!r.ok) errors.push(r.error); else all.push(...parseEspnEvents(r.data)); }
+      }
+    } else {
+      for (let s = fromMs; s < toMs; s += chunkDays * 86400e3) {
+        const e = Math.min(toMs, s + (chunkDays - 1) * 86400e3);
+        const past = e < Date.now() - 2 * 86400e3;
+        const r = await cachedJSON(`espn:${sport}:${league}:${ymd(s)}-${ymd(e)}`,
+          `${ESPN}/${sport}/${league}/scoreboard?dates=${ymd(s)}-${ymd(e)}&limit=1000`,
+          past ? 30 * 86400e3 : 6 * 3600e3, 'ESPN');
+        if (!r.ok) { errors.push(r.error); continue; }
+        all.push(...parseEspnEvents(r.data));
+      }
     }
     const seen = new Set();
     const games = all.filter((g) => g.completed && g.hs != null && !seen.has(g.id) && seen.add(g.id));
     return { games, errors, meta: meta('ESPN scoreboard', `${ESPN}/${sport}/${league}/scoreboard`) };
   }
+  // Tableau des matchs autour d'une date : jour par jour (compatible avec toutes les ligues ESPN).
   async function espnScoreboard(sport, league, fromMs, toMs) {
-    const r = await cachedJSON(`espn:sb:${sport}:${league}:${ymd(fromMs)}-${ymd(toMs)}`,
-      `${ESPN}/${sport}/${league}/scoreboard?dates=${ymd(fromMs)}-${ymd(toMs)}&limit=500`, 15 * 60e3, 'ESPN');
-    return r.ok ? { ok: true, events: parseEspnEvents(r.data), at: r.at } : r;
+    const evs = [], errs = [];
+    let at = Date.now();
+    for (let s = fromMs; s <= toMs + 1; s += 86400e3) {
+      const r = await cachedJSON(`espn:sb:${sport}:${league}:d${ymd(s)}`, `${ESPN}/${sport}/${league}/scoreboard?dates=${ymd(s)}`, 15 * 60e3, 'ESPN');
+      if (r.ok) { evs.push(...parseEspnEvents(r.data)); at = Math.min(at, r.at); } else errs.push(r.error);
+    }
+    if (!evs.length && errs.length) return { ok: false, error: errs[0] };
+    const seen = new Set();
+    return { ok: true, events: evs.filter((e) => !seen.has(e.id) && seen.add(e.id)), at };
   }
   async function espnSummary(sport, league, eventId) {
     return cachedJSON(`espn:sum:${league}:${eventId}`, `${ESPN}/${sport}/${league}/summary?event=${eventId}`, 10 * 60e3, 'ESPN');
@@ -174,7 +193,7 @@ const SPData = (() => {
     if (local) return local;
     local = {};
     if (location.protocol === 'file:') { setStatus('Données quotidiennes', false, 'indisponibles en fichier local (ouvrez la version en ligne)'); return local; }
-    for (const f of ['meta', 'football', 'xg', 'clubelo', 'tennis']) {
+    for (const f of ['meta', 'football', 'xg', 'clubelo', 'tennis', 'nba']) {
       try {
         const r = await fetch(`./data/${f}.json`, { cache: 'no-cache' });
         if (r.ok) local[f] = await r.json();

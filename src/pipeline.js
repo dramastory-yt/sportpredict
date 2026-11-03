@@ -186,14 +186,24 @@ onmessage = (e) => {
   async function nbaStats() {
     const y = new Date().getUTCFullYear(), mo = new Date().getUTCMonth();
     const seasonStart = Date.UTC(mo >= 9 ? y - 1 : y - 2, 9, 15); // saison précédente + saison en cours
-    const r = await D.espnResults('basketball', 'nba', seasonStart, Date.now(), 12);
-    if (!r.games.length) return { ok: false, error: r.errors[0] || 'aucun résultat renvoyé par ESPN' };
-    const gs = r.games.map((g) => ({ t: g.t, h: g.h, a: g.a, hs: g.hs, as: g.as })).sort((a, b) => a.t - b.t);
+    // 1) résultats publiés chaque matin par le robot GitHub ; 2) secours : ESPN jour par jour sur 150 jours
+    const L = await D.localData();
+    let gs, source;
+    if (L.nba?.games?.length >= 300) {
+      gs = L.nba.games.map((r) => ({ t: r[0], h: r[1], a: r[2], hs: r[3], as: r[4] }));
+      source = `ESPN via collecte quotidienne (${gs.length} matchs)`;
+    } else {
+      const r = await D.espnResults('basketball', 'nba', Math.max(seasonStart, Date.now() - 150 * 86400e3), Date.now(), 1, true);
+      if (!r.games.length) return { ok: false, error: r.errors[0] || 'aucun résultat renvoyé par ESPN' };
+      gs = r.games.map((g) => ({ t: g.t, h: g.h, a: g.a, hs: g.hs, as: g.as }));
+      source = `ESPN jour par jour (${gs.length} matchs)`;
+    }
+    gs.sort((a, b) => a.t - b.t);
     await new Promise((res) => setTimeout(res, 0));
     const bt = gs.length >= 300 ? SP.nbaBacktest(gs) : null;
     const m = SP.fitNBA(gs);
     const elo = bt ? bt.elo : SP.eloRun(gs.map((g) => ({ h: g.h, a: g.a, hg: g.hs, ag: g.as })), { K: 20, home: 70 });
-    return { ok: true, n: gs.length, gs, model: m, bt, elo, errors: r.errors, meta: r.meta };
+    return { ok: true, n: gs.length, gs, model: m, bt, elo, errors: [], source };
   }
 
   // ------------------------------------------------------------ tennis

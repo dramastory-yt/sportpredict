@@ -15,8 +15,8 @@ const NBA = ['Boston Celtics', 'New York Knicks', 'Los Angeles Lakers', 'LA Clip
 const oddsName = (n) => n.replace('LA Clippers', 'Los Angeles Clippers');
 
 function espnScoreboard(url) {
-  const m = url.match(/sports\/(\w+)\/([\w.]+)\/scoreboard\?dates=(\d{8})-(\d{8})/);
-  const [, sport, , a, b] = m;
+  const m = url.match(/sports\/(\w+)\/([\w.]+)\/scoreboard\?dates=(\d{8})(?:-(\d{8}))?/);
+  const [, sport, , a, b0] = m; const b = b0 || a;
   const p = (s) => Date.UTC(+s.slice(0, 4), +s.slice(4, 6) - 1, +s.slice(6, 8));
   const from = p(a), to = p(b) + 86400e3;
   const teams = sport === 'soccer' ? EPL : NBA;
@@ -87,7 +87,7 @@ await page.route('**/*', async (route) => {
     { key: 'tennis_atp_paris_masters', group: 'Tennis', title: 'ATP Paris Masters', active: true, has_outrights: false }]);
   const m = url.match(/v4\/sports\/(\w+)\/odds/);
   if (m) { oddsCalls++; return json(oddsEvents(m[1]), { 'x-requests-remaining': '480', 'access-control-expose-headers': 'x-requests-remaining' }); }
-  if (url.includes('/scoreboard?dates=')) return json(espnScoreboard(url));
+  if (url.includes('/scoreboard?dates=')) { if (url.includes('basketball') && /dates=\d{8}-/.test(url)) return route.fulfill({ status: 400, contentType: 'application/json', headers: { 'access-control-allow-origin': '*' }, body: '{"code":400,"message":"Failed to get events endpoint."}' }); return json(espnScoreboard(url)); }
   if (url.includes('/nba/injuries')) return json({ injuries: [{ displayName: 'Boston Celtics', injuries: [{ athlete: { displayName: 'Test Player' }, status: 'Questionable', shortComment: 'ankle' }] }] });
   if (url.includes('/news')) return json({ articles: [{ headline: 'Arsenal boss gives team news update', description: 'Press conference', published: new Date(now - 3600e3).toISOString(), links: { web: { href: 'https://www.espn.com/x' } } }] });
   if (url.includes('/summary?event=')) return json({ rosters: [] });
