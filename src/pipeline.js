@@ -486,6 +486,7 @@ onmessage = (e) => {
     // ---------------- 2. statistiques
     S.start(1);
     const LD = await D.localData();
+    scorersData = LD.scorers || null;
     A.sources.local = LD.meta ? { generatedAt: LD.meta.generatedAt, sources: LD.meta.sources } : null;
     const fbStats = {};
     const leaguesNeeded = [...new Set(raw.filter((e) => D.FOOTBALL[e.sport_key]?.stats).map((e) => e.sport_key))];
@@ -767,10 +768,25 @@ onmessage = (e) => {
         const cur = byEv.get(E.id);
         if (!cur || tier < cur.tier || (tier === cur.tier && c.p > cur.c.p)) byEv.set(E.id, { c, tier });
       }
-      A.safe = [...byEv.values()].sort((x, y) => x.tier - y.tier || y.c.p - x.c.p).slice(0, 6).map(({ c, tier }) => ({
+      const realSafe = [...byEv.values()].map(({ c, tier }) => ({
         tier, eventId: c.E.id, sport: c.E.sport, sportKey: c.E.sportKey, comp: c.E.comp, match: `${c.E.home} – ${c.E.away}`, home: c.E.home, away: c.E.away, t: c.E.t,
-        label: c.s.label, type: c.s.type, point: c.s.point, market: c.s.mkey, odds: c.best.price, book: c.best.title, p: c.p, pPush: c.pPush, ev: c.ev, value: c.check.ok, fair: c.fairMkt,
+        label: c.s.label, type: c.s.type, point: c.s.point, market: c.s.mkey, odds: c.best.price, book: c.best.title, p: c.p, pPush: c.pPush, ev: c.ev, value: c.check.ok, fair: 1 / c.p,
       }));
+      // marchés football calculés (sans cote API) : pari sûr « à vérifier » si la probabilité est haute,
+      // la cote juste ≥ cote minimale, les données du match fiables (équipes appariées) et sans risque majeur.
+      const derived = [];
+      for (const E of events) {
+        if (E.sport !== 'football' || !E.forecast?.markets || !E.model?.st || E.risk >= 3 || E.staleOdds) continue;
+        if (E.t <= Date.now() + 15 * 60e3 || E.t - Date.now() > Math.max(C.hours, 24) * 3600e3) continue;
+        if (realSafe.some((s) => s.eventId === E.id && s.tier === 1)) continue;
+        const gap = Math.abs((E.model.st.p1x2?.[0] ?? 0) - (E.model.models[0].p1x2?.[0] ?? 0));
+        if (gap > 0.08) continue;
+        const m = E.forecast.markets.filter((x) => !x.real && x.p >= C.safeMinP && x.minSafe >= C.minOdds).sort((a, b) => b.p - a.p)[0];
+        if (!m) continue;
+        derived.push({ tier: 1.5, eventId: E.id, sport: E.sport, sportKey: E.sportKey, comp: E.comp, match: `${E.home} – ${E.away}`, home: E.home, away: E.away, t: E.t,
+          label: m.label, type: m.type, point: m.point, market: 'calculé', odds: null, book: 'Winamax', p: m.p, pPush: m.pPush, ev: null, value: false, fair: m.fair, minOdds: m.minSafe, toVerify: true });
+      }
+      A.safe = [...realSafe, ...derived].sort((x, y) => x.tier - y.tier || y.p - x.p).slice(0, 8);
     }
     // PRONOSTIC DU JOUR : toujours un seul choix.
     //  - mode « sûr » (défaut) : le meilleur pari sûr ; à défaut, le meilleur pari value ;
@@ -781,7 +797,7 @@ onmessage = (e) => {
       let E = null, pick = null, kind = null;
       const s0 = A.safe[0];
       const fromBest = () => { E = events.find((x) => x.id === A.best.eventId); pick = { label: A.best.label, type: A.best.type, point: A.best.point, market: A.best.market, odds: A.best.odds, book: A.best.book, p: A.best.p, pPush: A.best.pPush, ev: A.best.ev, value: true, fair: A.best.pMkt }; kind = 'value'; };
-      if (C.mode !== 'value' && s0) { E = events.find((x) => x.id === s0.eventId); pick = s0; kind = s0.tier === 1 ? 'sûr' : 'sûr-bas'; }
+      if (C.mode !== 'value' && s0) { E = events.find((x) => x.id === s0.eventId); pick = s0; kind = s0.tier === 1 ? 'sûr' : s0.toVerify ? 'sûr-verif' : 'sûr-bas'; }
       else if (A.best) fromBest();
       else { E = pool.sort((a, b) => rank[b.forecast.confidence] - rank[a.forecast.confidence] || b.forecast.pick.p - a.forecast.pick.p)[0] || null; pick = E?.forecast.pick; kind = 'probable'; }
       if (E && pick && E.forecast) {
@@ -793,7 +809,8 @@ onmessage = (e) => {
         if (f.form?.home && f.form?.away) why.push(`Forme récente : ${E.home} ${f.form.home.seq}, ${E.away} ${f.form.away.seq} (du plus ancien au plus récent).`);
         const sc = scored.find((c) => c.E === E && c.s.label === pick.label);
         if (sc?.pStats != null && sc?.pMkt != null) why.push(`Modèles statistiques ${(sc.pStats * 100).toFixed(0)} % contre ${(sc.pMkt * 100).toFixed(0)} % pour le marché sans marge : ${Math.abs(sc.pStats - sc.pMkt) < 0.05 ? 'ils sont d’accord' : 'léger désaccord, prudence'}.`);
-        why.push(kind === 'sûr' ? `Pari sûr : ${(pick.p * 100).toFixed(0)} % de chances selon l’analyse, et la cote ${pick.odds.toFixed(2)} est au moins égale à sa vraie valeur (${(1 / pick.p).toFixed(2)}).`
+        if (kind === 'sûr-verif') why.push(`Pari sûr calculé : ${(pick.p * 100).toFixed(0)} % de chances selon l’analyse, cote juste ${pick.fair.toFixed(2)}. L’API gratuite ne fournit pas la cote Winamax de ce marché : jouez-le seulement si Winamax propose au moins ${pick.minOdds.toFixed(2)}.`);
+        else why.push(kind === 'sûr' ? `Pari sûr : ${(pick.p * 100).toFixed(0)} % de chances selon l’analyse, et la cote ${pick.odds.toFixed(2)} est au moins égale à sa vraie valeur (${(1 / pick.p).toFixed(2)}).`
           : kind === 'sûr-bas' ? `Pari sûr : ${(pick.p * 100).toFixed(0)} % de chances, mais la cote ${pick.odds.toFixed(2)} est un peu sous sa vraie valeur (${(1 / pick.p).toFixed(2)}) : mise réduite.`
           : kind === 'value' ? `La cote ${pick.odds.toFixed(2)} est supérieure à la cote juste (${(1 / pick.p).toFixed(2)}) : pari rentable sur la durée selon le modèle.`
           : `La cote ${pick.odds.toFixed(2)} est sous la cote juste (${(1 / pick.p).toFixed(2)}) : pronostic probable mais sans value, mise réduite conseillée.`);
@@ -818,6 +835,33 @@ onmessage = (e) => {
     const p = useMkt ? C.wMarket * s.fairMkt + (1 - C.wMarket) * pm : pm;
     return { pWin: p, pPush: r.pPush, ev: p * s.best.price + r.pPush - 1, pMkt: s.fairMkt, pStats: s.mkey !== 'h2h' ? pm : null };
   }
+  // Tous les marchés football dérivés de la matrice de scores finale (probabilité exacte, cote juste,
+  // cote minimale conseillée) ; la cote Winamax réelle est jointe quand l'API la fournit.
+  function footballMarkets(mat, E) {
+    const C = cfg();
+    const pseudo = { kind: 'football', M: mat.length, hist: mat.flat() };
+    const defs = [
+      ['1', `${E.home} gagne`, 'home', null, 'h2h'], ['N', 'Match nul', 'draw', null, 'h2h'], ['2', `${E.away} gagne`, 'away', null, 'h2h'],
+      ['1N', `Double chance ${E.home} ou nul`, 'dc1X', null], ['N2', `Double chance nul ou ${E.away}`, 'dcX2', null], ['12', 'Double chance : pas de nul', 'dc12', null],
+      ['DNB1', `Remboursé si nul : ${E.home}`, 'ahHome', 0], ['DNB2', `Remboursé si nul : ${E.away}`, 'ahAway', 0],
+      ['O05', 'Plus de 0,5 but', 'over', 0.5], ['O15', 'Plus de 1,5 buts', 'over', 1.5], ['O25', 'Plus de 2,5 buts', 'over', 2.5, 'totals'], ['O35', 'Plus de 3,5 buts', 'over', 3.5],
+      ['U15', 'Moins de 1,5 buts', 'under', 1.5], ['U25', 'Moins de 2,5 buts', 'under', 2.5, 'totals'], ['U35', 'Moins de 3,5 buts', 'under', 3.5], ['U45', 'Moins de 4,5 buts', 'under', 4.5],
+      ['BTTSY', 'Les deux équipes marquent : oui', 'bttsYes', null], ['BTTSN', 'Les deux équipes marquent : non', 'bttsNo', null],
+      ['HS', `${E.home} marque`, 'homeTotalOver', null], ['AS', `${E.away} marque`, 'awayTotalOver', null],
+    ];
+    return defs.map(([key, label, type, point, mkey]) => {
+      const sel = SP.normalizeSel({ type, point });
+      const r = SP.evalFromSim(pseudo, sel, 2);
+      const fair = (1 - r.pPush) / Math.max(1e-6, r.pWin);
+      // cote Winamax réelle si l'API la fournit pour ce marché
+      let real = null;
+      if (mkey) {
+        const s = E.mk.sels.find((x) => !x.noTarget && x.mkey === mkey && x.type === type && (point == null || x.point === point));
+        if (s) real = { odds: s.best.price, book: s.best.title, last: s.best.last };
+      }
+      return { key, label, type, point, p: r.pWin, pPush: r.pPush, fair, minSafe: Math.ceil(fair * (1 + C.safeTolEV) * 100) / 100, minValue: Math.ceil(fair * (1 + C.minEV) * 100) / 100, real, ev: real ? r.pWin * real.odds + r.pPush - 1 : null };
+    });
+  }
   // Forme récente à partir des résultats déjà chargés (V/N/D, buts ou points marqués/encaissés)
   function recentForm(games, team, n, hk, ak) {
     const gs = games.filter((g) => g.h === team || g.a === team).slice(-n);
@@ -831,6 +875,7 @@ onmessage = (e) => {
     }).join('');
     return { seq, gf: gf / gs.length, ga: ga / gs.length, xgf: nx ? xf / nx : null, xga: nx ? xa / nx : null, n: gs.length };
   }
+  let scorersData = null;
   function forecast(E, cands, stats) {
     const f = { facts: [] };
     if (E.sport === 'football') {
@@ -843,6 +888,21 @@ onmessage = (e) => {
       f.probs = { home: ph, draw: pd, away: pa, over25: SP.matrixOver(mat, 2.5), btts };
       f.expected = { home: lh, away: la };
       f.score = { h: best[0], a: best[1], p: best[2] };
+      f.markets = footballMarkets(mat, E);
+      // buteurs : part des buts de l'équipe cette saison × buts attendus de l'équipe dans ce match (si titulaire)
+      const SC = scorersData?.leagues?.[E.sportKey]?.teams;
+      if (SC) {
+        const names = Object.keys(SC), out = [];
+        for (const [side, lam] of [[E.home, lh], [E.away, la]]) {
+          const m = D.bestMatch(side, names); if (!m.name) continue;
+          const T = SC[m.name];
+          for (const pl of T.players.filter((x) => x.goals >= 2)) {
+            const share = pl.goals / (T.goals + 2);
+            out.push({ name: pl.name, team: m.name, goals: pl.goals, pens: pl.pens, p: 1 - Math.exp(-lam * share * 1.1) });
+          }
+        }
+        f.scorers = out.sort((a, b) => b.p - a.p).slice(0, 6);
+      }
       const top = Math.max(ph, pd, pa);
       f.headline = top < 0.42 ? 'Match très ouvert' : ph === top ? `Victoire de ${E.home} probable` : pa === top ? `Victoire de ${E.away} probable` : 'Match nul probable';
       if (stats?.ms && E.model.st?.match) {

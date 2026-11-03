@@ -49,12 +49,12 @@ try {
   parts.push(`${A.counts?.available ?? 0} matchs, ${(A.counts?.sims ?? 0).toLocaleString('fr-FR')} simulations`);
   if (A.daily) {
     const d = A.daily, pk = d.pick;
-    parts.push(`🎯 <b>PRONOSTIC DU JOUR</b>${{ 'sûr': ' (PARI SÛR)', 'sûr-bas': ' (PARI SÛR, cote un peu basse)', value: ' (VALUE)' }[d.kind] || ' (sans value)'} · confiance ${esc(d.confidence)}\n<b>${esc(d.match)}</b>\n${esc(pk.label)} @ <b>${pk.odds.toFixed(2)}</b> ${esc(pk.book)} · ${(pk.p * 100).toFixed(0)} %\n${d.why.map((w) => '• ' + esc(w)).join('\n')}`);
+    parts.push(`🎯 <b>PRONOSTIC DU JOUR</b>${{ 'sûr-verif': ' (PARI SÛR, cote à vérifier)', 'sûr': ' (PARI SÛR)', 'sûr-bas': ' (PARI SÛR, cote un peu basse)', value: ' (VALUE)' }[d.kind] || ' (sans value)'} · confiance ${esc(d.confidence)}\n<b>${esc(d.match)}</b>\n${esc(pk.label)} @ <b>${pk.odds != null ? pk.odds.toFixed(2) : '≥ ' + pk.minOdds.toFixed(2) + ' (à vérifier)'}</b> ${esc(pk.book)} · ${(pk.p * 100).toFixed(0)} %\n${d.why.map((w) => '• ' + esc(w)).join('\n')}`);
   }
   if (A.best && (!A.daily || A.daily.eventId !== A.best.eventId)) parts.push('<b>Meilleur pari value</b>\n' + line(A.best));
   if (!A.best) parts.push('Aucune value validée aujourd’hui.');
   if (A.values?.length) parts.push('<b>Autres values</b>\n' + A.values.map(line).join('\n\n'));
-  if (A.safe?.length > 1) parts.push('<b>Autres paris sûrs</b>\n' + A.safe.filter((s) => s.eventId !== A.daily?.eventId).map((s) => `${esc(s.match)} : ${esc(s.label)} @ ${s.odds.toFixed(2)} · ${(s.p * 100).toFixed(0)} %`).join('\n'));
+  if (A.safe?.length > 1) parts.push('<b>Autres paris sûrs</b>\n' + A.safe.filter((s) => s.eventId !== A.daily?.eventId).map((s) => `${esc(s.match)} : ${esc(s.label)} @ ${s.odds != null ? s.odds.toFixed(2) : '≥ ' + s.minOdds.toFixed(2) + ' (à vérifier)'} · ${(s.p * 100).toFixed(0)} %`).join('\n'));
   if (A.forecasts?.length) parts.push('<b>Pronostics les plus solides</b>\n' + A.forecasts.slice(0, 5).map((f) => `${esc(f.match)} : ${esc(f.headline)} (confiance ${esc(f.confidence)})${f.pick ? `\n  ${esc(f.pick.label)} @ ${f.pick.odds.toFixed(2)} · ${(f.pick.p * 100).toFixed(0)} %${f.pick.value ? ' · VALUE' : ''}` : ''}`).join('\n'));
   if (A.watch?.length) parts.push('<b>À surveiller</b>\n' + A.watch.slice(0, 3).map((w) => `${esc(w.match)} — ${esc(w.label)} : ${esc(w.need[0] || '')}`).join('\n'));
   if (A.errors?.length) parts.push('⚠️ ' + esc(A.errors.slice(0, 3).join(' ; ')));

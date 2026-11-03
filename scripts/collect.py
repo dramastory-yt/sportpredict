@@ -432,10 +432,77 @@ def espn_nba():
     save("nba.json", {"source": "ESPN", "fetchedAt": META["generatedAt"], "cols": ["t", "h", "a", "hs", "as"], "games": rows})
 
 
+# ---------------------------------------------------------------- ESPN football : buteurs de la saison
+ESPN_SOCCER = {"soccer_epl": "eng.1", "soccer_france_ligue_one": "fra.1", "soccer_spain_la_liga": "esp.1", "soccer_italy_serie_a": "ita.1",
+               "soccer_germany_bundesliga": "ger.1", "soccer_france_ligue_two": "fra.2", "soccer_efl_champ": "eng.2",
+               "soccer_netherlands_eredivisie": "ned.1", "soccer_portugal_primeira_liga": "por.1"}
+
+
+def espn_scorers():
+    _, y = season_codes()
+    start = dt.date(y, 7, 15)
+    out = {"source": "ESPN (feuilles de match)", "fetchedAt": META["generatedAt"], "leagues": {}}
+    for key, lg in ESPN_SOCCER.items():
+        teams, seen, calls, errs = {}, set(), 0, 0
+        day = start
+        while day <= TODAY:
+            end = min(TODAY, day + dt.timedelta(days=13))
+            urls = [f"https://site.api.espn.com/apis/site/v2/sports/soccer/{lg}/scoreboard?dates={day.strftime('%Y%m%d')}-{end.strftime('%Y%m%d')}&limit=500"]
+            evs = None
+            try:
+                evs = get(urls[0], tries=1).json().get("events", []); calls += 1
+            except Exception:  # noqa: BLE001  plage refusée : jour par jour
+                evs = []
+                d2 = day
+                while d2 <= end:
+                    try:
+                        evs += get(f"https://site.api.espn.com/apis/site/v2/sports/soccer/{lg}/scoreboard?dates={d2.strftime('%Y%m%d')}", tries=1).json().get("events", []); calls += 1
+                    except Exception:  # noqa: BLE001
+                        errs += 1
+                    d2 += dt.timedelta(days=1)
+            for ev in evs:
+                c = (ev.get("competitions") or [{}])[0]
+                if ev.get("id") in seen or not (((c.get("status") or {}).get("type") or {}).get("completed")):
+                    continue
+                seen.add(ev.get("id"))
+                tid = {}
+                for comp in c.get("competitors", []):
+                    nm = (comp.get("team") or {}).get("displayName")
+                    if not nm:
+                        continue
+                    tid[str((comp.get("team") or {}).get("id"))] = nm
+                    t = teams.setdefault(nm, {"matches": 0, "goals": 0, "players": {}})
+                    t["matches"] += 1
+                    try:
+                        t["goals"] += int(comp.get("score") or 0)
+                    except ValueError:
+                        pass
+                for det in c.get("details", []) or []:
+                    if not det.get("scoringPlay") or det.get("ownGoal"):
+                        continue
+                    team = tid.get(str((det.get("team") or {}).get("id")))
+                    ath = (det.get("athletesInvolved") or [{}])[0].get("displayName")
+                    if not team or not ath:
+                        continue
+                    pl = teams[team]["players"].setdefault(ath, {"goals": 0, "pens": 0})
+                    pl["goals"] += 1
+                    if det.get("penaltyKick"):
+                        pl["pens"] += 1
+            day = end + dt.timedelta(days=1)
+            time.sleep(0.2)
+        for t in teams.values():
+            t["players"] = sorted([{"name": n, **v} for n, v in t["players"].items()], key=lambda p: -p["goals"])[:8]
+        nplayers = sum(len(t["players"]) for t in teams.values())
+        note(f"ESPN buteurs {lg}", nplayers > 0, f"{len(seen)} matchs, {len(teams)} équipes, {nplayers} buteurs ({calls} requêtes, {errs} échecs)")
+        if teams:
+            out["leagues"][key] = {"teams": teams}
+    save("scorers.json", out)
+
+
 if __name__ == "__main__":
     # understat.com et tennis-data.co.uk refusent les serveurs GitHub (délai dépassé / 403) :
     # désactivés par défaut, réactivables avec ENABLE_BLOCKED_SOURCES=1 (par ex. sur un ordinateur personnel).
-    fns = [football_data, clubelo, espn_nba] + ([understat, tennis] if os.environ.get("ENABLE_BLOCKED_SOURCES") == "1" else [espn_tennis])
+    fns = [football_data, clubelo, espn_nba, espn_scorers] + ([understat, tennis] if os.environ.get("ENABLE_BLOCKED_SOURCES") == "1" else [espn_tennis])
     for k in ("understat", "tennis-data"):
         if os.environ.get("ENABLE_BLOCKED_SOURCES") != "1":
             note(k, False, "désactivé : la source refuse les serveurs GitHub Actions")

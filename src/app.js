@@ -142,7 +142,8 @@
     const L = (A.safe || []).filter((s) => !A.daily || s.eventId !== A.daily.eventId);
     if (!L.length) return '';
     return `<section class="card"><h3>Autres paris sûrs du jour</h3><p class="muted">Très probables (≥ ${(P.cfg().safeMinP * 100).toFixed(0)} %) et cote Winamax pas en dessous de leur vraie valeur. Ne les combinez pas : jouez-les séparément, avec une petite mise chacun.</p>
-      <div class="tw"><table class="t"><tbody>${L.map((s) => `<tr><td><b>${esc(s.match)}</b><br><small class="muted">${dt(s.t)} · ${esc(s.comp)}</small></td><td>${esc(s.label)}</td><td class="n">${num(s.odds)}</td><td class="n">${pct(s.p, 0)}</td><td>${s.tier === 1 ? '<span class="tag t-ok">cote correcte</span>' : '<span class="tag t-warn">cote un peu basse</span>'}</td><td class="n">${num(safeStake(s.tier === 1 ? 'sûr' : 'sûr-bas', s.p, s.odds, s.pPush))} €</td><td>${betBtn({ source: 'safe', ...s, suggested: safeStake(s.tier === 1 ? 'sûr' : 'sûr-bas', s.p, s.odds, s.pPush) })}</td></tr>`).join('')}</tbody></table></div></section>`;
+      <div class="tw"><table class="t"><tbody>${L.map((s) => { const kind = s.tier === 1 ? 'sûr' : s.toVerify ? 'sûr-verif' : 'sûr-bas'; const st = safeStake(kind, s.p, s.odds, s.pPush);
+        return `<tr><td><b>${esc(s.match)}</b><br><small class="muted">${dt(s.t)} · ${esc(s.comp)}</small></td><td>${esc(s.label)}</td><td class="n">${s.odds != null ? num(s.odds) : `≥ ${num(s.minOdds)}`}</td><td class="n">${pct(s.p, 0)}</td><td>${s.tier === 1 ? '<span class="tag t-ok">cote correcte</span>' : s.toVerify ? '<span class="tag t-warn">cote à vérifier sur Winamax</span>' : '<span class="tag t-warn">cote un peu basse</span>'}</td><td class="n">${num(st)} €</td><td>${betBtn({ source: 'safe', ...s, suggested: st })}</td></tr>`; }).join('')}</tbody></table></div></section>`;
   }
   function dailyCard(A) {
     const d = A.daily;
@@ -150,17 +151,17 @@
     const C = P.cfg(), pk = d.pick;
     const minOdds = Math.ceil(((1 + C.minEV - (pk.pPush || 0)) / pk.p) * 100) / 100;
     const stake = safeStake(d.kind, pk.p, pk.odds, pk.pPush);
-    const kindTag = { 'sûr': '<span class="tag t-ok">PARI SÛR · cote correcte</span>', 'sûr-bas': '<span class="tag t-warn">PARI SÛR · cote un peu basse</span>', value: '<span class="tag t-ok">VALUE</span>', probable: '<span class="tag t-na">probable, sans value</span>' }[d.kind] || '';
-    const stakeNote = { 'sûr': `${(C.safeStakePct * 100).toFixed(0)} % de votre bankroll (${eur0(curBank())})`, 'sûr-bas': `${(C.safeStakePct * 50).toFixed(0)} % de la bankroll : cote un peu basse`, value: 'quart de Kelly plafonné', probable: '1 % de la bankroll : pas de value' }[d.kind];
+    const kindTag = { 'sûr-verif': '<span class="tag t-ok">PARI SÛR · cote à vérifier</span>', 'sûr': '<span class="tag t-ok">PARI SÛR · cote correcte</span>', 'sûr-bas': '<span class="tag t-warn">PARI SÛR · cote un peu basse</span>', value: '<span class="tag t-ok">VALUE</span>', probable: '<span class="tag t-na">probable, sans value</span>' }[d.kind] || '';
+    const stakeNote = { 'sûr-verif': `${(C.safeStakePct * 100).toFixed(0)} % de la bankroll, si la cote Winamax est ≥ ${num(pk.minOdds)}`, 'sûr': `${(C.safeStakePct * 100).toFixed(0)} % de votre bankroll (${eur0(curBank())})`, 'sûr-bas': `${(C.safeStakePct * 50).toFixed(0)} % de la bankroll : cote un peu basse`, value: 'quart de Kelly plafonné', probable: '1 % de la bankroll : pas de value' }[d.kind];
     return `<section class="card pick big daily">
       <div class="eyebrow">PRONOSTIC DU JOUR${d.kind && d.kind.startsWith('sûr') ? ' · MODE PARIS SÛRS' : ''}</div>
       <header><div><span class="sport s-${d.sport}">${SPORT[d.sport]}</span> <span class="muted">${esc(d.comp)}</span></div><div class="when">${dt(d.t)}</div></header>
       <h3>${esc(d.match)}</h3>
       <div class="sel"><span class="mk">${MKT[pk.market] || ''}</span><b>${esc(pk.label)}</b> ${kindTag} <span class="tag t-${d.confidence === 'forte' ? 'ok' : d.confidence === 'moyenne' ? 'warn' : 'na'}">confiance ${esc(d.confidence)}</span></div>
       <div class="kpis">
-        <div><small>Cote ${esc(pk.book)}</small><b class="odds">${num(pk.odds)}</b><span>minimum pour une value : ${num(minOdds)}</span></div>
-        <div><small>Probabilité</small><b>${pct(pk.p)}</b><span>cote juste ${num(1 / pk.p)}</span></div>
-        <div><small>EV</small><b class="${pk.ev > 0 ? 'pos' : 'neg'}">${sgn(pk.ev)}</b><span>par unité misée</span></div>
+        ${pk.odds == null ? `<div><small>Cote Winamax</small><b class="odds">≥ ${num(pk.minOdds)}</b><span>à vérifier sur Winamax avant de jouer</span></div>` : `<div><small>Cote ${esc(pk.book)}</small><b class="odds">${num(pk.odds)}</b><span>minimum pour une value : ${num(minOdds)}</span></div>`}
+        <div><small>Probabilité</small><b>${pct(pk.p)}</b><span>cote juste ${num((1 - (pk.pPush || 0)) / pk.p)}</span></div>
+        ${pk.odds == null ? '<div><small>EV</small><b>—</b><span>dépend de la cote Winamax</span></div>' : `<div><small>EV</small><b class="${pk.ev > 0 ? 'pos' : 'neg'}">${sgn(pk.ev)}</b><span>par unité misée</span></div>`}
         <div><small>Mise conseillée</small><b>${num(stake)} €</b><span>${esc(stakeNote)}</span></div>
       </div>
       <h4>L’analyse</h4><ul>${d.why.map((w) => `<li>${esc(w)}</li>`).join('')}</ul>
@@ -172,7 +173,7 @@
   const curBank = () => { try { return SPData.LS.get('sp:bank', null) ? SPMyBets.stats().bankroll : P.cfg().bankroll; } catch { return P.cfg().bankroll; } };
   function safeStake(kind, p, odds, pPush) {
     const C = P.cfg(), B = curBank();
-    if (kind === 'sûr') return Math.round(B * C.safeStakePct * 100) / 100;
+    if (kind === 'sûr' || kind === 'sûr-verif') return Math.round(B * C.safeStakePct * 100) / 100;
     if (kind === 'sûr-bas') return Math.round(B * C.safeStakePct * 0.5 * 100) / 100;
     if (kind === 'value') return Math.round(B * Math.min(C.maxStakePct, C.kellyFrac * Math.max(0, (p * odds + (pPush || 0) - 1) / (odds - 1))) * 100) / 100;
     return Math.round(B * 0.01 * 100) / 100;
@@ -208,6 +209,10 @@
       ${f.form ? `<div class="formrow"><div><small>${esc(hn)}</small>${formChips(f.form.home)}</div><div><small>${esc(an)}</small>${formChips(f.form.away)}</div></div>` : ''}
       ${f.pick ? `<div class="advice"><b>Pari le plus probable :</b> ${esc(f.pick.label)} @ <b>${num(f.pick.odds)}</b> (${esc(f.pick.book)}) — probabilité ${pct(f.pick.p)}, EV ${sgn(f.pick.ev)} ${f.pick.value ? '<span class="tag t-ok">VALUE</span>' : '<span class="tag t-na">pas de value</span>'}</div>${betBtn({ source: 'prono', eventId: f.eventId, sport: f.sport, sportKey: f.sportKey, comp: f.comp, match: f.match, home: f.home, away: f.away, t: f.t, label: f.pick.label, type: f.pick.type, point: f.pick.point, market: f.pick.market, odds: f.pick.odds, book: f.pick.book, p: f.pick.p, value: f.pick.value, suggested: f.pick.value ? stakeFor(f.pick.p, f.pick.odds, f.pick.pPush) : null })}` : ''}
       ${f.facts?.length ? `<ul class="muted">${f.facts.map((x) => `<li>${esc(x)}</li>`).join('')}</ul>` : ''}
+      ${f.markets ? `<details><summary>Tous les marchés (${f.markets.length})</summary><div class="tw"><table class="t"><thead><tr><th>Pari</th><th>Prob.</th><th>Cote juste</th><th>Jouer si ≥</th><th>Winamax</th></tr></thead><tbody>
+        ${f.markets.map((m) => `<tr><td>${esc(m.label)}${m.p >= P.cfg().safeMinP && m.minSafe >= P.cfg().minOdds ? ' <span class="tag t-ok">sûr</span>' : ''}</td><td class="n">${pct(m.p, 0)}${m.pPush ? ` <small class="muted">(remb. ${pct(m.pPush, 0)})</small>` : ''}</td><td class="n">${num(m.fair)}</td><td class="n">${num(m.p >= P.cfg().safeMinP ? m.minSafe : m.minValue)}</td><td class="n">${m.real ? `${num(m.real.odds)} <span class="${m.ev >= 0 ? 'pos' : 'neg'}">${sgn(m.ev)}</span>` : '<small class="muted">à vérifier</small>'}</td></tr>`).join('')}
+        </tbody></table></div><p class="muted"><small>« Jouer si ≥ » : cote minimale à accepter sur Winamax (paris sûrs : jusqu’à ${Math.abs(P.cfg().safeTolEV * 100).toFixed(0)} % sous la cote juste ; autres : ${(P.cfg().minEV * 100).toFixed(0)} % au-dessus). Pour une cote précise, utilisez « Vérifier une cote ».</small></p></details>` : ''}
+      ${f.scorers?.length ? `<details><summary>Buteurs (risqué)</summary><div class="tw"><table class="t"><thead><tr><th>Joueur</th><th>Buts saison</th><th>Prob. de marquer</th><th>Cote juste</th></tr></thead><tbody>${f.scorers.map((s) => `<tr><td>${esc(s.name)} <small class="muted">${esc(s.team)}</small></td><td class="n">${s.goals}</td><td class="n">${pct(s.p, 0)}</td><td class="n">${num(1 / s.p)}</td></tr>`).join('')}</tbody></table></div><p class="muted"><small>Estimation à partir des buts de la saison (ESPN) et des buts attendus du match, en supposant que le joueur est titulaire. Jamais proposé en pari sûr : un buteur reste très aléatoire.</small></p></details>` : ''}
       <p class="muted"><small>${esc(f.dataNote || '')}</small></p>
     </article>`;
   }
