@@ -10,7 +10,7 @@ const SPPipeline = (() => {
     leagues: Object.fromEntries(Object.entries(D.FOOTBALL).map(([k, v]) => [k, v.on])),
     tennis: true, nba: true, maxTennisTournaments: 4,
     wMarket: 0.65, minEV: 0.02, minOdds: 1.20, maxOdds: 3.5, prefLo: 1.40, prefHi: 2.20,
-    bankroll: 100, kellyFrac: 0.25, maxStakePct: 0.02, maxOddsAgeMin: 45, maxGap: 0.10, maxSims: 1000000, minSims: 100000, tol: 0.0015, phase2Events: 14,
+    bankroll: 100, kellyFrac: 0.25, maxStakePct: 0.02, mode: 'sûr', safeMinP: 0.70, safeMaxOdds: 1.70, safeTolEV: -0.03, safeStakePct: 0.02, maxOddsAgeMin: 45, maxGap: 0.10, maxSims: 1000000, minSims: 100000, tol: 0.0015, phase2Events: 14,
     hours: 24, extendTo48: true, autoOn: false, autoTime: '09:00', notif: false, preMatchRecheck: false,
   };
   function cfg() {
@@ -689,7 +689,7 @@ onmessage = (e) => {
     const confRank = { forte: 3, moyenne: 2, faible: 1 };
     A.forecasts = events.filter((E) => E.forecast && E.forecast.pick && E.t - Date.now() <= Math.max(C.hours, 24) * 3600e3)
       .sort((a, b) => confRank[b.forecast.confidence] - confRank[a.forecast.confidence] || b.forecast.pick.p - a.forecast.pick.p)
-      .slice(0, 20).map((E) => ({ eventId: E.id, sport: E.sport, comp: E.comp, match: `${E.home} – ${E.away}`, t: E.t, day: E.day, ...E.forecast }));
+      .slice(0, 20).map((E) => ({ eventId: E.id, sport: E.sport, sportKey: E.sportKey, home: E.home, away: E.away, comp: E.comp, match: `${E.home} – ${E.away}`, t: E.t, day: E.day, ...E.forecast }));
     S.done(8, `${scored.length} sélections notées ; ${scored.filter((c) => c.check.ok).length} passent les filtres`);
 
     // ---------------- 10. validation finale
@@ -743,18 +743,39 @@ onmessage = (e) => {
       if (rj > rs && pj >= 0.3 && a.E.id !== b.E.id) A.combo = { legs: [pack(a), pack(b)], p: pj, odds: oj, ev: evj, ratio: rj, ratioSingles: rs, note: 'Événements distincts supposés indépendants (matchs différents). Retenu car son EV rapportée au risque dépasse celle des paris simples.' };
       else A.comboRejected = `combiné étudié (${a.E.home}/${b.E.home}) : EV ${(evj * 100).toFixed(1)} % mais rapport EV/risque ${rj.toFixed(3)} ≤ ${rs.toFixed(3)} pour le meilleur simple — non retenu`;
     }
-    // PRONOSTIC DU JOUR : toujours un seul choix. Le meilleur pari « value » s'il existe, sinon le pari
-    // le plus sûr des prochaines 24 h (confiance puis probabilité), en écartant les cotes trop défavorables.
+    // PARIS SÛRS : très probables (≥ safeMinP), cote modérée, et cote Winamax pas en dessous de sa vraie valeur
+    // (EV ≥ 0 = « cote correcte » ; légèrement négative jusqu'à safeTolEV = « cote un peu basse »).
+    {
+      const byEv = new Map();
+      for (const c of scored) {
+        const E = c.E;
+        if (c.s.noTarget || c.p == null || c.p < C.safeMinP) continue;
+        if (c.best.price < C.minOdds || c.best.price > C.safeMaxOdds) continue;
+        if (E.t <= Date.now() + 15 * 60e3 || E.t - Date.now() > Math.max(C.hours, 24) * 3600e3) continue;
+        if (c.ev < C.safeTolEV || (c.modelGap != null && c.modelGap > 0.08) || E.risk >= 3 || E.staleOdds) continue;
+        const tier = c.ev >= 0 ? 1 : 2;
+        const cur = byEv.get(E.id);
+        if (!cur || tier < cur.tier || (tier === cur.tier && c.p > cur.c.p)) byEv.set(E.id, { c, tier });
+      }
+      A.safe = [...byEv.values()].sort((x, y) => x.tier - y.tier || y.c.p - x.c.p).slice(0, 6).map(({ c, tier }) => ({
+        tier, eventId: c.E.id, sport: c.E.sport, sportKey: c.E.sportKey, comp: c.E.comp, match: `${c.E.home} – ${c.E.away}`, home: c.E.home, away: c.E.away, t: c.E.t,
+        label: c.s.label, type: c.s.type, point: c.s.point, market: c.s.mkey, odds: c.best.price, book: c.best.title, p: c.p, pPush: c.pPush, ev: c.ev, value: c.check.ok, fair: c.fairMkt,
+      }));
+    }
+    // PRONOSTIC DU JOUR : toujours un seul choix.
+    //  - mode « sûr » (défaut) : le meilleur pari sûr ; à défaut, le meilleur pari value ;
+    //  - mode « value » : le meilleur pari value ; à défaut, le pari le plus probable.
     {
       const rank = { forte: 3, moyenne: 2, faible: 1 };
       const pool = events.filter((E) => E.forecast?.pick && E.t - Date.now() <= Math.max(C.hours, 24) * 3600e3 && E.t > Date.now() + 15 * 60e3 && E.forecast.pick.ev >= -0.06);
-      let E = A.best ? events.find((x) => x.id === A.best.eventId) : null;
-      if (!E) E = pool.sort((a, b) => rank[b.forecast.confidence] - rank[a.forecast.confidence] || b.forecast.pick.p - a.forecast.pick.p)[0] || null;
-      if (E) {
+      let E = null, pick = null, kind = null;
+      const s0 = A.safe[0];
+      const fromBest = () => { E = events.find((x) => x.id === A.best.eventId); pick = { label: A.best.label, type: A.best.type, point: A.best.point, market: A.best.market, odds: A.best.odds, book: A.best.book, p: A.best.p, pPush: A.best.pPush, ev: A.best.ev, value: true, fair: A.best.pMkt }; kind = 'value'; };
+      if (C.mode !== 'value' && s0) { E = events.find((x) => x.id === s0.eventId); pick = s0; kind = s0.tier === 1 ? 'sûr' : 'sûr-bas'; }
+      else if (A.best) fromBest();
+      else { E = pool.sort((a, b) => rank[b.forecast.confidence] - rank[a.forecast.confidence] || b.forecast.pick.p - a.forecast.pick.p)[0] || null; pick = E?.forecast.pick; kind = 'probable'; }
+      if (E && pick && E.forecast) {
         const f = E.forecast;
-        const pick = A.best && A.best.eventId === E.id
-          ? { label: A.best.label, market: A.best.market, odds: A.best.odds, book: A.best.book, p: A.best.p, pPush: A.best.pPush, ev: A.best.ev, value: true, fair: A.best.pMkt }
-          : f.pick;
         const why = [];
         why.push(`${f.headline} : ${E.sport === 'football' ? `1 ${(f.probs.home * 100).toFixed(0)} % · N ${(f.probs.draw * 100).toFixed(0)} % · 2 ${(f.probs.away * 100).toFixed(0)} %` : `${E.home} ${(f.probs.home * 100).toFixed(0)} % · ${E.away} ${(f.probs.away * 100).toFixed(0)} %`}.`);
         if (E.sport === 'football') why.push(`Buts attendus ${f.expected.home.toFixed(2)} – ${f.expected.away.toFixed(2)}, score le plus probable ${f.score.h}-${f.score.a}.`);
@@ -762,8 +783,11 @@ onmessage = (e) => {
         if (f.form?.home && f.form?.away) why.push(`Forme récente : ${E.home} ${f.form.home.seq}, ${E.away} ${f.form.away.seq} (du plus ancien au plus récent).`);
         const sc = scored.find((c) => c.E === E && c.s.label === pick.label);
         if (sc?.pStats != null && sc?.pMkt != null) why.push(`Modèles statistiques ${(sc.pStats * 100).toFixed(0)} % contre ${(sc.pMkt * 100).toFixed(0)} % pour le marché sans marge : ${Math.abs(sc.pStats - sc.pMkt) < 0.05 ? 'ils sont d’accord' : 'léger désaccord, prudence'}.`);
-        why.push(pick.value ? `La cote ${pick.odds.toFixed(2)} est supérieure à la cote juste (${(1 / pick.p).toFixed(2)}) : pari rentable sur la durée selon le modèle.` : `La cote ${pick.odds.toFixed(2)} est un peu sous la cote juste (${(1 / pick.p).toFixed(2)}) : pronostic probable mais sans value, mise réduite conseillée.`);
-        A.daily = { eventId: E.id, sport: E.sport, comp: E.comp, match: `${E.home} – ${E.away}`, home: E.home, away: E.away, t: E.t, day: E.day, confidence: f.confidence, headline: f.headline, pick, why, warnings: E.warnings, dataNote: f.dataNote };
+        why.push(kind === 'sûr' ? `Pari sûr : ${(pick.p * 100).toFixed(0)} % de chances selon l’analyse, et la cote ${pick.odds.toFixed(2)} est au moins égale à sa vraie valeur (${(1 / pick.p).toFixed(2)}).`
+          : kind === 'sûr-bas' ? `Pari sûr : ${(pick.p * 100).toFixed(0)} % de chances, mais la cote ${pick.odds.toFixed(2)} est un peu sous sa vraie valeur (${(1 / pick.p).toFixed(2)}) : mise réduite.`
+          : kind === 'value' ? `La cote ${pick.odds.toFixed(2)} est supérieure à la cote juste (${(1 / pick.p).toFixed(2)}) : pari rentable sur la durée selon le modèle.`
+          : `La cote ${pick.odds.toFixed(2)} est sous la cote juste (${(1 / pick.p).toFixed(2)}) : pronostic probable mais sans value, mise réduite conseillée.`);
+        A.daily = { kind, eventId: E.id, sport: E.sport, sportKey: E.sportKey, comp: E.comp, match: `${E.home} – ${E.away}`, home: E.home, away: E.away, t: E.t, day: E.day, confidence: f.confidence, headline: f.headline, pick, why, warnings: E.warnings, dataNote: f.dataNote };
       } else A.daily = null;
     }
     A.events = events.map(slimEvent);
@@ -833,10 +857,10 @@ onmessage = (e) => {
     }
     f.facts.push(...E.warnings);
     // pari conseillé : le plus probable parmi ceux proposés par le bookmaker cible, avec une cote ≥ 1,30
-    const pool = cands.filter((c) => !c.s.noTarget && c.best.price >= 1.3 && c.best.price <= 3.5 && c.p != null);
+    const pool = cands.filter((c) => !c.s.noTarget && c.best.price >= 1.2 && c.best.price <= 3.5 && c.p != null);
     pool.sort((a, b) => b.p - a.p);
     const c = pool[0];
-    if (c) f.pick = { label: c.s.label, market: c.s.mkey, odds: c.best.price, book: c.best.title, p: c.p, pPush: c.pPush, ev: c.ev, value: c.check.ok, fair: c.fairMkt };
+    if (c) f.pick = { label: c.s.label, type: c.s.type, point: c.s.point, market: c.s.mkey, odds: c.best.price, book: c.best.title, p: c.p, pPush: c.pPush, ev: c.ev, value: c.check.ok, fair: c.fairMkt };
     const dq = E.model.dataQuality ?? 0.4;
     const gap = cands.find((x) => x === c)?.modelGap;
     f.confidence = c && c.p >= 0.65 && dq >= 0.6 && (gap == null || gap <= 0.05) ? 'forte' : c && c.p >= 0.55 && dq >= 0.4 ? 'moyenne' : 'faible';

@@ -48,6 +48,20 @@ Les marchés jamais comparés à des cotes réelles exigent une EV doublée (5 %
 
 Une analyse consomme environ 20 à 30 crédits The Odds API. Avec l'offre gratuite (500 par mois), l'alerte quotidienne utilise presque tout le quota : lancez alors peu d'analyses manuelles. L'application ignore déjà gratuitement les compétitions sans match.
 
+## Mode « Paris sûrs » (par défaut)
+
+Le pronostic du jour est le pari **le plus probable** des prochaines 24 h qui remplit trois conditions :
+* probabilité d'au moins 70 % ;
+* cote Winamax entre 1,20 et 1,70 ;
+* cote pas plus de 3 % sous sa vraie valeur.
+
+Les modèles ne doivent pas contredire le marché, et le match ne doit pas présenter de risque important. Mise conseillée : 2 % de la bankroll actuelle (1 % si la cote est un peu basse).
+Le mode « Value » (Réglages) revient à la recherche de rentabilité maximale.
+
+## Mes paris
+
+Bouton « J'ai parié » sous chaque pronostic, ou « + Ajouter un pari ». Les résultats football et NBA se règlent automatiquement (ESPN). Le tableau de bord suit votre bankroll jour par jour et semaine par semaine : profit, ROI, réussite, série, perte maximale, et le bilan par sport, par marché, par type de pari et avec ou sans value. Les dépôts et retraits sont pris en compte.
+
 ## Recalibrage
 
 Après 100 paris réglés, l'onglet Stats propose un recalibrage de Platt, qui corrige une éventuelle surconfiance du moteur. Il ne s'applique qu'après votre clic.

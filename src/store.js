@@ -122,7 +122,7 @@ const SPStore = (() => {
   }
 
   function exportAll() {
-    return JSON.stringify({ format: 'sportpredict-v1', exportedAt: new Date().toISOString(), analyses: analyses(), picks: picks(), results: results(), clv: clv() });
+    return JSON.stringify({ format: 'sportpredict-v1', exportedAt: new Date().toISOString(), analyses: analyses(), picks: picks(), results: results(), clv: clv(), mybets: D.LS.get('sp:mybets', []), bank: D.LS.get('sp:bank', null) });
   }
   function importAll(txt) {
     const d = JSON.parse(txt);
@@ -132,6 +132,8 @@ const SPStore = (() => {
     D.LS.set(K.picks, [...picks(), ...d.picks.filter((p) => !have.has(p.pid))]);
     D.LS.set(K.results, { ...d.results, ...results() });
     D.LS.set(K.clv, { ...d.clv, ...clv() });
+    if (d.mybets) { const mine = D.LS.get('sp:mybets', []); const ids = new Set(mine.map((b) => b.id)); D.LS.set('sp:mybets', [...mine, ...d.mybets.filter((b) => !ids.has(b.id))]); }
+    if (d.bank && !D.LS.get('sp:bank', null)) D.LS.set('sp:bank', d.bank);
     const ha = new Set(analyses().map((a) => a.id));
     D.LS.set(K.analyses, [...d.analyses.filter((a) => !ha.has(a.id)).map((a) => ({ ...a, events: [] })), ...analyses()].slice(-30));
   }

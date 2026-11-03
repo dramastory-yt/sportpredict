@@ -35,9 +35,9 @@ function espnScoreboard(url) {
 function book(key, title, outs, mk = 'h2h') { return { key, title, last_update: iso(now - 4 * 60e3), markets: [{ key: mk, last_update: iso(now - 4 * 60e3), outcomes: outs }] }; }
 function oddsEvents(sport) {
   if (sport === 'soccer_epl') {
-    return [[0, 1], [2, 3], [4, 5]].map(([i, j], k) => {
+    return [[0, 1], [2, 3], [4, 5], [6, 19]].map(([i, j], k) => {
       const h = EPL[i], a = EPL[j];
-      const base = [[2.10, 3.40, 3.60], [1.75, 3.90, 4.60], [2.60, 3.30, 2.80]][k];
+      const base = [[2.10, 3.40, 3.60], [1.75, 3.90, 4.60], [2.60, 3.30, 2.80], [1.30, 5.80, 10.5]][k];
       const bk = (key, title, f) => ({ key, title, last_update: iso(now - 3 * 60e3), markets: [
         { key: 'h2h', last_update: iso(now - 3 * 60e3), outcomes: [{ name: h, price: +(base[0] * f[0]).toFixed(2) }, { name: 'Draw', price: +(base[1] * f[1]).toFixed(2) }, { name: a, price: +(base[2] * f[2]).toFixed(2) }] },
         { key: 'totals', last_update: iso(now - 3 * 60e3), outcomes: [{ name: 'Over', price: +(1.95 * f[0]).toFixed(2), point: 2.5 }, { name: 'Under', price: +(1.87 * f[2]).toFixed(2), point: 2.5 }] },
@@ -101,20 +101,31 @@ await page.route('**/*', async (route) => {
   return route.fulfill({ status: 404, body: 'blocked in test' });
 });
 await page.goto(BASE);
-await page.evaluate(() => localStorage.setItem('sp:cfg', JSON.stringify({ oddsKey: 'TEST', leagues: { soccer_epl: true, soccer_france_ligue_one: false, soccer_spain_la_liga: false, soccer_italy_serie_a: false, soccer_germany_bundesliga: false, soccer_uefa_champs_league: false, soccer_uefa_europa_league: false }, maxSims: 300000, minSims: 100000 })));
+await page.evaluate(() => localStorage.setItem('sp:cfg', JSON.stringify({ oddsKey: 'TEST', leagues: { soccer_epl: true, soccer_france_ligue_one: false, soccer_spain_la_liga: false, soccer_italy_serie_a: false, soccer_germany_bundesliga: false, soccer_uefa_champs_league: false, soccer_uefa_europa_league: false }, maxSims: 300000, minSims: 100000, safeMinP: 0.6, safeMaxOdds: 1.8 })));
 await page.reload();
 await page.screenshot({ path: process.argv[2] + '/dash-empty.png' });
 const t0 = Date.now();
 await page.click('#go');
 await page.waitForFunction(() => !document.body.classList.contains('busy'), null, { timeout: 180000 });
 console.log('analyse terminée en', ((Date.now() - t0) / 1000).toFixed(1), 's ; appels odds :', oddsCalls);
-const A = await page.evaluate(() => { const a = JSON.parse(localStorage.getItem('sp:analyses')).pop(); return { counts: a.counts, errors: a.errors, best: a.best && { book: a.best.book, any: a.best.bestAny, m: a.best.match, l: a.best.label, o: a.best.odds, ev: a.best.ev, s: a.best.score, sims: a.best.sims }, values: a.values.length, watch: a.watch.map((w) => w.match + ' ' + w.label + ' | ' + w.need.join('; ')), backtests: Object.keys(a.backtests || {}), daily: a.daily && (a.daily.match + ' | ' + a.daily.pick.label + ' @' + a.daily.pick.odds + ' value=' + a.daily.pick.value + ' | ' + a.daily.why.join(' / ')), pronos: (a.forecasts || []).map((f) => f.match + ' | ' + f.headline + ' | ' + f.confidence + ' | ' + (f.pick && f.pick.label + ' @' + f.pick.odds + ' ' + (f.pick.p * 100).toFixed(0) + '%')), tennisNote: a.events.find((e) => e.sport === 'tennis')?.statsNote, eplNote: a.events.find((e) => e.sport === 'football')?.statsNote, skips: a.events.filter((e) => e.skip).map((e) => e.skip) }; });
+const A = await page.evaluate(() => { const a = JSON.parse(localStorage.getItem('sp:analyses')).pop(); return { counts: a.counts, errors: a.errors, best: a.best && { book: a.best.book, any: a.best.bestAny, m: a.best.match, l: a.best.label, o: a.best.odds, ev: a.best.ev, s: a.best.score, sims: a.best.sims }, values: a.values.length, watch: a.watch.map((w) => w.match + ' ' + w.label + ' | ' + w.need.join('; ')), backtests: Object.keys(a.backtests || {}), safe: (a.safe || []).map((s) => s.match + ' ' + s.label + ' @' + s.odds + ' ' + (s.p * 100).toFixed(0) + '% t' + s.tier), daily: a.daily && (a.daily.kind + ' | ' + a.daily.match + ' | ' + a.daily.pick.label + ' @' + a.daily.pick.odds + ' value=' + a.daily.pick.value + ' | ' + a.daily.why.join(' / ')), pronos: (a.forecasts || []).map((f) => f.match + ' | ' + f.headline + ' | ' + f.confidence + ' | ' + (f.pick && f.pick.label + ' @' + f.pick.odds + ' ' + (f.pick.p * 100).toFixed(0) + '%')), tennisNote: a.events.find((e) => e.sport === 'tennis')?.statsNote, eplNote: a.events.find((e) => e.sport === 'football')?.statsNote, skips: a.events.filter((e) => e.skip).map((e) => e.skip) }; });
 console.log(JSON.stringify(A, null, 1));
-for (const h of ['#pronos', '#best', '#values', '#watch', '#calendar', '#history', '#perf', '#config', '#dashboard']) {
+for (const h of ['#bets', '#pronos', '#best', '#values', '#watch', '#calendar', '#history', '#perf', '#config', '#dashboard']) {
   await page.evaluate((x) => { location.hash = x; }, h);
   await page.waitForTimeout(150);
   if (h === '#calendar') { await page.click('.ev'); await page.waitForTimeout(100); await page.screenshot({ path: process.argv[2] + '/detail.png' }); await page.keyboard.press('Escape'); }
   await page.screenshot({ path: process.argv[2] + '/' + h.slice(1) + '.png', fullPage: h === '#best' });
+}
+// « J'ai parié » depuis la carte du jour, puis suivi
+await page.evaluate(() => { location.hash = '#bets'; }); await page.waitForTimeout(100);
+await page.fill('#bk-start', '200'); await page.click('#bankf button');
+await page.evaluate(() => { location.hash = '#dashboard'; }); await page.waitForTimeout(100);
+if (await page.$('[data-bet]')) {
+  await page.click('[data-bet]'); await page.fill('#b-stake', '4'); await page.click('#addbet button[type=submit]');
+  await page.evaluate(() => { location.hash = '#bets'; }); await page.waitForTimeout(150);
+  await page.click('.manual[data-bid] button[data-r="gagné"]'); await page.waitForTimeout(100);
+  console.log('mes paris :', (await page.textContent('.kpirow')).replace(/\s+/g, ' ').slice(0, 200));
+  await page.screenshot({ path: process.argv[2] + '/bets.png', fullPage: true });
 }
 // vérificateur de cote : double chance, corners et BTTS
 await page.evaluate(() => { location.hash = '#check'; });

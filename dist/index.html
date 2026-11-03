@@ -133,6 +133,8 @@ summary:hover { color: var(--fg); }
 .r-V { background: color-mix(in srgb, var(--pos) 25%, transparent); color: var(--pos); } .r-N { background: var(--surface2); color: var(--muted); } .r-D { background: color-mix(in srgb, var(--neg) 22%, transparent); color: var(--neg); }
 .eyebrow { font: 800 .78rem var(--f-display); letter-spacing: .14em; color: var(--accent); margin-bottom: .4rem; }
 .daily h3 { font-size: clamp(1.5rem, 4vw, 2.2rem); }
+.betbtn { margin-top: .6rem; } .linkbtn { background: none; border: 0; color: var(--muted); text-decoration: underline; cursor: pointer; font: inherit; font-size: .8rem; }
+.chart .barp { fill: var(--pos); } .chart .barn { fill: var(--neg); }
 .nobet { border-color: color-mix(in srgb, var(--muted) 40%, var(--line)); text-align: center; padding: 2.2rem 1rem; }
 .nobet h3 { font-size: 1.5rem; letter-spacing: .02em; }
 
@@ -187,7 +189,7 @@ label.chk { display: flex; align-items: center; gap: .4rem; color: var(--fg); fo
   <div class="brand"><i aria-hidden="true"></i>SportPredict <span>AI</span></div>
   <nav aria-label="Pages">
     <a href="#dashboard">Accueil</a><a href="#pronos">Pronostics</a><a href="#best">Meilleur pari</a><a href="#values">Values</a><a href="#watch">À surveiller</a><a href="#check">Vérifier une cote</a>
-    <a href="#calendar">Calendrier</a><a href="#history">Historique</a><a href="#perf">Stats</a><a href="#config">Réglages</a>
+    <a href="#calendar">Calendrier</a><a href="#bets">Mes paris</a><a href="#history">Historique</a><a href="#perf">Stats</a><a href="#config">Réglages</a>
   </nav>
 </div></header>
 <main id="main"></main>
@@ -1471,7 +1473,7 @@ const SPStore = (() => {
   }
 
   function exportAll() {
-    return JSON.stringify({ format: 'sportpredict-v1', exportedAt: new Date().toISOString(), analyses: analyses(), picks: picks(), results: results(), clv: clv() });
+    return JSON.stringify({ format: 'sportpredict-v1', exportedAt: new Date().toISOString(), analyses: analyses(), picks: picks(), results: results(), clv: clv(), mybets: D.LS.get('sp:mybets', []), bank: D.LS.get('sp:bank', null) });
   }
   function importAll(txt) {
     const d = JSON.parse(txt);
@@ -1481,6 +1483,8 @@ const SPStore = (() => {
     D.LS.set(K.picks, [...picks(), ...d.picks.filter((p) => !have.has(p.pid))]);
     D.LS.set(K.results, { ...d.results, ...results() });
     D.LS.set(K.clv, { ...d.clv, ...clv() });
+    if (d.mybets) { const mine = D.LS.get('sp:mybets', []); const ids = new Set(mine.map((b) => b.id)); D.LS.set('sp:mybets', [...mine, ...d.mybets.filter((b) => !ids.has(b.id))]); }
+    if (d.bank && !D.LS.get('sp:bank', null)) D.LS.set('sp:bank', d.bank);
     const ha = new Set(analyses().map((a) => a.id));
     D.LS.set(K.analyses, [...d.analyses.filter((a) => !ha.has(a.id)).map((a) => ({ ...a, events: [] })), ...analyses()].slice(-30));
   }
@@ -1501,7 +1505,7 @@ const SPPipeline = (() => {
     leagues: Object.fromEntries(Object.entries(D.FOOTBALL).map(([k, v]) => [k, v.on])),
     tennis: true, nba: true, maxTennisTournaments: 4,
     wMarket: 0.65, minEV: 0.02, minOdds: 1.20, maxOdds: 3.5, prefLo: 1.40, prefHi: 2.20,
-    bankroll: 100, kellyFrac: 0.25, maxStakePct: 0.02, maxOddsAgeMin: 45, maxGap: 0.10, maxSims: 1000000, minSims: 100000, tol: 0.0015, phase2Events: 14,
+    bankroll: 100, kellyFrac: 0.25, maxStakePct: 0.02, mode: 'sûr', safeMinP: 0.70, safeMaxOdds: 1.70, safeTolEV: -0.03, safeStakePct: 0.02, maxOddsAgeMin: 45, maxGap: 0.10, maxSims: 1000000, minSims: 100000, tol: 0.0015, phase2Events: 14,
     hours: 24, extendTo48: true, autoOn: false, autoTime: '09:00', notif: false, preMatchRecheck: false,
   };
   function cfg() {
@@ -2180,7 +2184,7 @@ onmessage = (e) => {
     const confRank = { forte: 3, moyenne: 2, faible: 1 };
     A.forecasts = events.filter((E) => E.forecast && E.forecast.pick && E.t - Date.now() <= Math.max(C.hours, 24) * 3600e3)
       .sort((a, b) => confRank[b.forecast.confidence] - confRank[a.forecast.confidence] || b.forecast.pick.p - a.forecast.pick.p)
-      .slice(0, 20).map((E) => ({ eventId: E.id, sport: E.sport, comp: E.comp, match: `${E.home} – ${E.away}`, t: E.t, day: E.day, ...E.forecast }));
+      .slice(0, 20).map((E) => ({ eventId: E.id, sport: E.sport, sportKey: E.sportKey, home: E.home, away: E.away, comp: E.comp, match: `${E.home} – ${E.away}`, t: E.t, day: E.day, ...E.forecast }));
     S.done(8, `${scored.length} sélections notées ; ${scored.filter((c) => c.check.ok).length} passent les filtres`);
 
     // ---------------- 10. validation finale
@@ -2234,18 +2238,39 @@ onmessage = (e) => {
       if (rj > rs && pj >= 0.3 && a.E.id !== b.E.id) A.combo = { legs: [pack(a), pack(b)], p: pj, odds: oj, ev: evj, ratio: rj, ratioSingles: rs, note: 'Événements distincts supposés indépendants (matchs différents). Retenu car son EV rapportée au risque dépasse celle des paris simples.' };
       else A.comboRejected = `combiné étudié (${a.E.home}/${b.E.home}) : EV ${(evj * 100).toFixed(1)} % mais rapport EV/risque ${rj.toFixed(3)} ≤ ${rs.toFixed(3)} pour le meilleur simple — non retenu`;
     }
-    // PRONOSTIC DU JOUR : toujours un seul choix. Le meilleur pari « value » s'il existe, sinon le pari
-    // le plus sûr des prochaines 24 h (confiance puis probabilité), en écartant les cotes trop défavorables.
+    // PARIS SÛRS : très probables (≥ safeMinP), cote modérée, et cote Winamax pas en dessous de sa vraie valeur
+    // (EV ≥ 0 = « cote correcte » ; légèrement négative jusqu'à safeTolEV = « cote un peu basse »).
+    {
+      const byEv = new Map();
+      for (const c of scored) {
+        const E = c.E;
+        if (c.s.noTarget || c.p == null || c.p < C.safeMinP) continue;
+        if (c.best.price < C.minOdds || c.best.price > C.safeMaxOdds) continue;
+        if (E.t <= Date.now() + 15 * 60e3 || E.t - Date.now() > Math.max(C.hours, 24) * 3600e3) continue;
+        if (c.ev < C.safeTolEV || (c.modelGap != null && c.modelGap > 0.08) || E.risk >= 3 || E.staleOdds) continue;
+        const tier = c.ev >= 0 ? 1 : 2;
+        const cur = byEv.get(E.id);
+        if (!cur || tier < cur.tier || (tier === cur.tier && c.p > cur.c.p)) byEv.set(E.id, { c, tier });
+      }
+      A.safe = [...byEv.values()].sort((x, y) => x.tier - y.tier || y.c.p - x.c.p).slice(0, 6).map(({ c, tier }) => ({
+        tier, eventId: c.E.id, sport: c.E.sport, sportKey: c.E.sportKey, comp: c.E.comp, match: `${c.E.home} – ${c.E.away}`, home: c.E.home, away: c.E.away, t: c.E.t,
+        label: c.s.label, type: c.s.type, point: c.s.point, market: c.s.mkey, odds: c.best.price, book: c.best.title, p: c.p, pPush: c.pPush, ev: c.ev, value: c.check.ok, fair: c.fairMkt,
+      }));
+    }
+    // PRONOSTIC DU JOUR : toujours un seul choix.
+    //  - mode « sûr » (défaut) : le meilleur pari sûr ; à défaut, le meilleur pari value ;
+    //  - mode « value » : le meilleur pari value ; à défaut, le pari le plus probable.
     {
       const rank = { forte: 3, moyenne: 2, faible: 1 };
       const pool = events.filter((E) => E.forecast?.pick && E.t - Date.now() <= Math.max(C.hours, 24) * 3600e3 && E.t > Date.now() + 15 * 60e3 && E.forecast.pick.ev >= -0.06);
-      let E = A.best ? events.find((x) => x.id === A.best.eventId) : null;
-      if (!E) E = pool.sort((a, b) => rank[b.forecast.confidence] - rank[a.forecast.confidence] || b.forecast.pick.p - a.forecast.pick.p)[0] || null;
-      if (E) {
+      let E = null, pick = null, kind = null;
+      const s0 = A.safe[0];
+      const fromBest = () => { E = events.find((x) => x.id === A.best.eventId); pick = { label: A.best.label, type: A.best.type, point: A.best.point, market: A.best.market, odds: A.best.odds, book: A.best.book, p: A.best.p, pPush: A.best.pPush, ev: A.best.ev, value: true, fair: A.best.pMkt }; kind = 'value'; };
+      if (C.mode !== 'value' && s0) { E = events.find((x) => x.id === s0.eventId); pick = s0; kind = s0.tier === 1 ? 'sûr' : 'sûr-bas'; }
+      else if (A.best) fromBest();
+      else { E = pool.sort((a, b) => rank[b.forecast.confidence] - rank[a.forecast.confidence] || b.forecast.pick.p - a.forecast.pick.p)[0] || null; pick = E?.forecast.pick; kind = 'probable'; }
+      if (E && pick && E.forecast) {
         const f = E.forecast;
-        const pick = A.best && A.best.eventId === E.id
-          ? { label: A.best.label, market: A.best.market, odds: A.best.odds, book: A.best.book, p: A.best.p, pPush: A.best.pPush, ev: A.best.ev, value: true, fair: A.best.pMkt }
-          : f.pick;
         const why = [];
         why.push(`${f.headline} : ${E.sport === 'football' ? `1 ${(f.probs.home * 100).toFixed(0)} % · N ${(f.probs.draw * 100).toFixed(0)} % · 2 ${(f.probs.away * 100).toFixed(0)} %` : `${E.home} ${(f.probs.home * 100).toFixed(0)} % · ${E.away} ${(f.probs.away * 100).toFixed(0)} %`}.`);
         if (E.sport === 'football') why.push(`Buts attendus ${f.expected.home.toFixed(2)} – ${f.expected.away.toFixed(2)}, score le plus probable ${f.score.h}-${f.score.a}.`);
@@ -2253,8 +2278,11 @@ onmessage = (e) => {
         if (f.form?.home && f.form?.away) why.push(`Forme récente : ${E.home} ${f.form.home.seq}, ${E.away} ${f.form.away.seq} (du plus ancien au plus récent).`);
         const sc = scored.find((c) => c.E === E && c.s.label === pick.label);
         if (sc?.pStats != null && sc?.pMkt != null) why.push(`Modèles statistiques ${(sc.pStats * 100).toFixed(0)} % contre ${(sc.pMkt * 100).toFixed(0)} % pour le marché sans marge : ${Math.abs(sc.pStats - sc.pMkt) < 0.05 ? 'ils sont d’accord' : 'léger désaccord, prudence'}.`);
-        why.push(pick.value ? `La cote ${pick.odds.toFixed(2)} est supérieure à la cote juste (${(1 / pick.p).toFixed(2)}) : pari rentable sur la durée selon le modèle.` : `La cote ${pick.odds.toFixed(2)} est un peu sous la cote juste (${(1 / pick.p).toFixed(2)}) : pronostic probable mais sans value, mise réduite conseillée.`);
-        A.daily = { eventId: E.id, sport: E.sport, comp: E.comp, match: `${E.home} – ${E.away}`, home: E.home, away: E.away, t: E.t, day: E.day, confidence: f.confidence, headline: f.headline, pick, why, warnings: E.warnings, dataNote: f.dataNote };
+        why.push(kind === 'sûr' ? `Pari sûr : ${(pick.p * 100).toFixed(0)} % de chances selon l’analyse, et la cote ${pick.odds.toFixed(2)} est au moins égale à sa vraie valeur (${(1 / pick.p).toFixed(2)}).`
+          : kind === 'sûr-bas' ? `Pari sûr : ${(pick.p * 100).toFixed(0)} % de chances, mais la cote ${pick.odds.toFixed(2)} est un peu sous sa vraie valeur (${(1 / pick.p).toFixed(2)}) : mise réduite.`
+          : kind === 'value' ? `La cote ${pick.odds.toFixed(2)} est supérieure à la cote juste (${(1 / pick.p).toFixed(2)}) : pari rentable sur la durée selon le modèle.`
+          : `La cote ${pick.odds.toFixed(2)} est sous la cote juste (${(1 / pick.p).toFixed(2)}) : pronostic probable mais sans value, mise réduite conseillée.`);
+        A.daily = { kind, eventId: E.id, sport: E.sport, sportKey: E.sportKey, comp: E.comp, match: `${E.home} – ${E.away}`, home: E.home, away: E.away, t: E.t, day: E.day, confidence: f.confidence, headline: f.headline, pick, why, warnings: E.warnings, dataNote: f.dataNote };
       } else A.daily = null;
     }
     A.events = events.map(slimEvent);
@@ -2324,10 +2352,10 @@ onmessage = (e) => {
     }
     f.facts.push(...E.warnings);
     // pari conseillé : le plus probable parmi ceux proposés par le bookmaker cible, avec une cote ≥ 1,30
-    const pool = cands.filter((c) => !c.s.noTarget && c.best.price >= 1.3 && c.best.price <= 3.5 && c.p != null);
+    const pool = cands.filter((c) => !c.s.noTarget && c.best.price >= 1.2 && c.best.price <= 3.5 && c.p != null);
     pool.sort((a, b) => b.p - a.p);
     const c = pool[0];
-    if (c) f.pick = { label: c.s.label, market: c.s.mkey, odds: c.best.price, book: c.best.title, p: c.p, pPush: c.pPush, ev: c.ev, value: c.check.ok, fair: c.fairMkt };
+    if (c) f.pick = { label: c.s.label, type: c.s.type, point: c.s.point, market: c.s.mkey, odds: c.best.price, book: c.best.title, p: c.p, pPush: c.pPush, ev: c.ev, value: c.check.ok, fair: c.fairMkt };
     const dq = E.model.dataQuality ?? 0.4;
     const gap = cands.find((x) => x === c)?.modelGap;
     f.confidence = c && c.p >= 0.65 && dq >= 0.6 && (gap == null || gap <= 0.05) ? 'forte' : c && c.p >= 0.55 && dq >= 0.4 ? 'moyenne' : 'faible';
@@ -2441,8 +2469,8 @@ const SPChecker = (() => {
         <label>Match <select id="k-ev">${evs.map((e) => `<option value="${esc(e.id)}" ${e.id === cur ? 'selected' : ''}>${esc(dt(e.t))} · ${esc(e.home)} – ${esc(e.away)} (${esc(e.comp)})</option>`).join('')}</select></label>
         <div class="g3">
           <label>Pari <select id="k-mk">${MARKETS[ev.sport].map((m) => `<option value="${m[0]}" ${lastResult?.mk === m[0] ? 'selected' : ''}>${esc(m[1].replace('joueur 1', ev.home).replace('joueur 2', ev.away))}</option>`).join('')}</select></label>
-          <label>Ligne (si demandée) <input id="k-line" type="number" step="0.25" inputmode="decimal" placeholder="ex. 2.5" value="${lastResult?.line ?? ''}"></label>
-          <label>Cote Winamax <input id="k-odds" type="number" step="0.01" min="1.01" inputmode="decimal" placeholder="ex. 2.10" value="${lastResult?.odds ?? ''}" required></label>
+          <label>Ligne (si demandée) <input id="k-line" type="number" step="any" inputmode="decimal" placeholder="ex. 2.5" value="${lastResult?.line ?? ''}"></label>
+          <label>Cote Winamax <input id="k-odds" type="number" step="any" min="1.01" inputmode="decimal" placeholder="ex. 2.10" value="${lastResult?.odds ?? ''}" required></label>
         </div>
         <label class="chk"><input type="checkbox" id="k-boost" ${lastResult?.boost ? 'checked' : ''}> C’est une cote boostée (mise souvent plafonnée par Winamax)</label>
         <div class="row"><button class="btn-main sm" type="submit">Calculer</button><span id="k-wait" class="muted" hidden>Simulation en cours…</span></div>
@@ -2529,6 +2557,258 @@ const SPChecker = (() => {
     });
   }
   return { render, bind };
+})();
+
+</script>
+<script>
+/* SportPredict AI — « Mes paris » : paris réellement joués, bankroll et tableau de bord dans le temps. */
+const SPMyBets = (() => {
+  const D = SPData, P = SPPipeline, S = SPStore;
+  const KEY = 'sp:mybets', BKEY = 'sp:bank';
+  const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  const eur = (x) => (x == null || isNaN(x) ? '—' : (x >= 0 ? '' : '−') + Math.abs(x).toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' €');
+  const eurS = (x) => (x == null || isNaN(x) ? '—' : (x > 0 ? '+' : '') + eur(x));
+  const pct = (x, d = 1) => (x == null || isNaN(x) ? '—' : (x * 100).toFixed(d) + ' %');
+  const sgn = (x) => (x == null || isNaN(x) ? '—' : (x >= 0 ? '+' : '') + (x * 100).toFixed(1) + ' %');
+  const TZ = 'Europe/Paris';
+  const dt = (t) => new Date(t).toLocaleString('fr-FR', { timeZone: TZ, day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' });
+  const dayKey = (t) => new Date(t).toLocaleDateString('fr-CA', { timeZone: TZ }); // AAAA-MM-JJ
+  const SPORT = { football: 'Football', tennis: 'Tennis', nba: 'NBA', autre: 'Autre' };
+  const SRC = { daily: 'Pronostic du jour', best: 'Meilleur pari', value: 'Value', prono: 'Pronostic', check: 'Vérificateur', manuel: 'Pari perso' };
+
+  const bets = () => D.LS.get(KEY, []);
+  const saveBets = (b) => D.LS.set(KEY, b);
+  const bank = () => D.LS.get(BKEY, null); // { start, since, moves: [{t, amount, note}] }
+  let period = 'tout', draft = null;
+
+  // ISO semaine « 2026-S45 »
+  function weekKey(t) {
+    const d = new Date(new Date(t).toLocaleDateString('fr-CA', { timeZone: TZ }) + 'T12:00:00Z');
+    const day = (d.getUTCDay() + 6) % 7; d.setUTCDate(d.getUTCDate() - day + 3);
+    const y = d.getUTCFullYear(), first = new Date(Date.UTC(y, 0, 4));
+    const w = 1 + Math.round(((d - first) / 86400e3 - 3 + ((first.getUTCDay() + 6) % 7)) / 7);
+    return `${y}-S${String(w).padStart(2, '0')}`;
+  }
+
+  // ------------------------------------------------------------------ ajout depuis un pronostic
+  function openAdd(pre) {
+    const C = P.cfg(), b = bank();
+    const cur = b ? stats().bankroll : C.bankroll;
+    const sugg = pre.suggested != null ? pre.suggested : Math.round(cur * 0.01 * 100) / 100;
+    draft = pre;
+    const dlg = document.getElementById('dlg');
+    document.getElementById('dlgc').innerHTML = `<header><h3>J’ai parié</h3><button id="dlgx" class="x" aria-label="Fermer">×</button></header>
+      <form id="addbet" class="cfg">
+        <p><b>${esc(pre.match || '')}</b>${pre.t ? ` · ${dt(pre.t)}` : ''}<br>${esc(pre.label || '')}</p>
+        ${pre.manual ? `<div class="g3">
+          <label>Match / description <input id="b-match" required placeholder="ex. PSG – Lyon" value="${esc(pre.match || '')}"></label>
+          <label>Pari <input id="b-label" required placeholder="ex. PSG gagne" value="${esc(pre.label || '')}"></label>
+          <label>Sport <select id="b-sport">${Object.entries(SPORT).map(([k, v]) => `<option value="${k}">${v}</option>`).join('')}</select></label>
+          <label>Date du match <input id="b-date" type="datetime-local" value="${new Date(Date.now() - new Date().getTimezoneOffset() * 60e3).toISOString().slice(0, 16)}"></label></div>` : ''}
+        <div class="g3">
+          <label>Cote obtenue <input id="b-odds" type="number" step="any" min="1.01" inputmode="decimal" required value="${pre.odds ?? ''}"></label>
+          <label>Mise (€) <input id="b-stake" type="number" step="any" min="0.1" inputmode="decimal" required value="${sugg}"></label>
+          <label>Bookmaker <input id="b-book" value="${esc(pre.book || 'Winamax')}"></label>
+        </div>
+        <p class="muted">${pre.suggested != null ? `Mise conseillée par le moteur : ${eur(pre.suggested)}.` : 'Pas de value sur ce pari : restez sur une petite mise (1 % de la bankroll au maximum).'}</p>
+        <div class="row"><button class="btn-main sm" type="submit">Enregistrer le pari</button></div>
+      </form>`;
+    dlg.hidden = false;
+    document.getElementById('dlgx').onclick = () => { dlg.hidden = true; };
+    document.getElementById('addbet').addEventListener('submit', (e) => {
+      e.preventDefault();
+      const g = (id) => document.getElementById(id);
+      const odds = parseFloat(String(g('b-odds').value).replace(',', '.')), stake = parseFloat(String(g('b-stake').value).replace(',', '.'));
+      if (!(odds > 1) || !(stake > 0)) return;
+      const bet = {
+        id: 'B' + Date.now() + Math.floor(Math.random() * 1000), createdAt: Date.now(), source: draft.source || 'manuel',
+        eventId: draft.eventId || null, sport: draft.manual ? g('b-sport').value : draft.sport, sportKey: draft.sportKey || null, comp: draft.comp || '',
+        match: draft.manual ? g('b-match').value.trim() : draft.match, home: draft.home || null, away: draft.away || null,
+        t: draft.manual ? Date.parse(g('b-date').value) || Date.now() : draft.t, label: draft.manual ? g('b-label').value.trim() : draft.label,
+        type: draft.type || null, point: draft.point ?? null, market: draft.market || null,
+        odds, stake, book: g('b-book').value.trim() || 'Winamax', pApp: draft.p ?? null, oddsApp: draft.odds ?? null, value: !!draft.value,
+        status: 'en attente', profit: null,
+      };
+      const all = bets(); all.push(bet); saveBets(all);
+      dlg.hidden = true;
+      if (window.SPToast) window.SPToast('Pari enregistré dans « Mes paris »');
+      if (window.SPRoute) window.SPRoute();
+    });
+  }
+
+  // ------------------------------------------------------------------ règlement
+  function settleOne(b, status, score, source) {
+    const win = status === 'gagné' ? 1 : status === 'demi-gagné' ? 0.5 : 0;
+    const push = status === 'remboursé' || status === 'annulé' ? 1 : status === 'demi-gagné' || status === 'demi-perdu' ? 0.5 : 0;
+    b.status = status;
+    b.profit = Math.round((b.stake * win * (b.odds - 1) - b.stake * (1 - win - push)) * 100) / 100;
+    b.score = score || null; b.settledAt = Date.now(); b.settleSource = source;
+  }
+  async function autoSettle() {
+    const all = bets();
+    const pend = all.filter((b) => b.status === 'en attente' && b.type && b.home && b.t < Date.now() - 2.5 * 3600e3 && (b.sport === 'football' || b.sport === 'nba'));
+    let n = 0;
+    for (const b of pend) {
+      const lg = b.sport === 'nba' ? ['basketball', 'nba'] : ['soccer', D.FOOTBALL[b.sportKey]?.espn];
+      if (!lg[1]) continue;
+      const sb = await D.espnScoreboard(lg[0], lg[1], b.t - 86400e3, b.t + 86400e3);
+      if (!sb.ok) continue;
+      const ev = sb.events.find((x) => x.completed && D.sim(x.h, b.home) >= 0.5 && D.sim(x.a, b.away) >= 0.5 && Math.abs(x.t - b.t) < 36 * 3600e3);
+      if (!ev) continue;
+      const r = S.settle({ sport: b.sport, type: b.type, point: b.point, odds: b.odds }, ev.hs, ev.as);
+      if (!r) continue;
+      settleOne(b, r.status, `${ev.hs}-${ev.as}`, 'ESPN (automatique)'); n++;
+    }
+    if (n) saveBets(all);
+    return n;
+  }
+
+  // ------------------------------------------------------------------ statistiques
+  function stats(filterFn) {
+    const b = bank();
+    const all = bets().slice().sort((x, y) => x.t - y.t);
+    const list = filterFn ? all.filter(filterFn) : all;
+    const done = list.filter((x) => x.status !== 'en attente');
+    const pending = list.filter((x) => x.status === 'en attente');
+    const staked = done.reduce((s, x) => s + (x.status === 'annulé' ? 0 : x.stake), 0);
+    const profit = done.reduce((s, x) => s + (x.profit || 0), 0);
+    const wins = done.filter((x) => x.profit > 0).length, losses = done.filter((x) => x.profit < 0).length;
+    const moves = (b?.moves || []).reduce((s, m) => s + m.amount, 0);
+    const allProfit = all.filter((x) => x.status !== 'en attente').reduce((s, x) => s + (x.profit || 0), 0);
+    const bankroll = (b?.start ?? P.cfg().bankroll) + moves + allProfit;
+    const atRisk = all.filter((x) => x.status === 'en attente').reduce((s, x) => s + x.stake, 0);
+    // courbe de bankroll jour par jour, perte maximale depuis un sommet, séries
+    const days = new Map();
+    for (const x of all.filter((y) => y.status !== 'en attente')) { const k = dayKey(x.settledAt && x.t > Date.now() ? x.settledAt : x.t); days.set(k, (days.get(k) || 0) + x.profit); }
+    for (const m of b?.moves || []) { const k = dayKey(m.t); days.set(k, (days.get(k) || 0) + m.amount); }
+    let level = b?.start ?? P.cfg().bankroll, peak = level, maxDD = 0;
+    const curve = [...days.entries()].sort().map(([k, v]) => { level += v; peak = Math.max(peak, level); maxDD = Math.max(maxDD, (peak - level) / peak); return { k, v: level }; });
+    let streak = 0, streakType = null;
+    for (const x of done.slice().reverse()) { const t = x.profit > 0 ? 'V' : x.profit < 0 ? 'D' : null; if (!t) continue; if (!streakType) streakType = t; if (t !== streakType) break; streak++; }
+    const group = (f) => {
+      const m = {};
+      for (const x of done) { const k = f(x); m[k] = m[k] || { n: 0, wins: 0, staked: 0, profit: 0, odds: 0 }; m[k].n++; m[k].wins += x.profit > 0 ? 1 : 0; m[k].staked += x.status === 'annulé' ? 0 : x.stake; m[k].profit += x.profit; m[k].odds += x.odds; }
+      return m;
+    };
+    return {
+      list, done, pending, staked, profit, wins, losses, bankroll, atRisk, maxDD, curve, streak, streakType,
+      roi: staked ? profit / staked : null, hit: done.length ? wins / done.length : null,
+      avgOdds: done.length ? done.reduce((s, x) => s + x.odds, 0) / done.length : null,
+      avgStake: list.length ? list.reduce((s, x) => s + x.stake, 0) / list.length : null,
+      expected: done.filter((x) => x.pApp != null).reduce((s, x) => s + x.stake * (x.pApp * x.odds - 1), 0),
+      byWeek: group((x) => weekKey(x.t)), byDay: group((x) => dayKey(x.t)), bySport: group((x) => SPORT[x.sport] || x.sport),
+      bySource: group((x) => SRC[x.source] || x.source), byMarket: group((x) => x.label?.match(/corner/i) ? 'Corners' : x.label?.match(/carton/i) ? 'Cartons' : ({ h2h: 'Vainqueur', totals: 'Total', spreads: 'Handicap' }[x.market] || 'Autre')),
+      byValue: group((x) => (x.value ? 'Avec value' : 'Sans value')),
+    };
+  }
+
+  // ------------------------------------------------------------------ rendu
+  function lineSVG(curve, start) {
+    if (curve.length < 2) return '<p class="muted">La courbe apparaît après deux jours de paris réglés.</p>';
+    const W = 640, H = 220, pad = 48;
+    const ys = curve.map((p) => p.v).concat(start), lo = Math.min(...ys), hi = Math.max(...ys), span = hi - lo || 1;
+    const X = (i) => pad + i / (curve.length - 1) * (W - pad - 12), Y = (v) => 12 + (hi - v) / span * (H - 44);
+    const d = curve.map((p, i) => `${i ? 'L' : 'M'}${X(i).toFixed(1)},${Y(p.v).toFixed(1)}`).join('');
+    const last = curve[curve.length - 1];
+    return `<svg viewBox="0 0 ${W} ${H}" class="chart" role="img" aria-label="Évolution de la bankroll">
+      <line x1="${pad}" x2="${W - 12}" y1="${Y(start)}" y2="${Y(start)}" class="axis dash"/>
+      <text x="4" y="${Y(hi) + 4}" class="lbl">${Math.round(hi)} €</text><text x="4" y="${Y(lo) + 4}" class="lbl">${Math.round(lo)} €</text><text x="4" y="${Y(start) - 4}" class="lbl">départ</text>
+      <path d="${d} L${X(curve.length - 1)},${H - 32} L${X(0)},${H - 32} Z" class="area"/><path d="${d}" class="line"/>
+      <circle cx="${X(curve.length - 1)}" cy="${Y(last.v)}" r="4" class="endpt"/>
+      <text x="${X(curve.length - 1) - 6}" y="${Y(last.v) - 9}" text-anchor="end" class="lbl b">${eur(last.v)}</text>
+      <text x="${pad}" y="${H - 10}" class="lbl">${curve[0].k}</text><text x="${W - 12}" y="${H - 10}" text-anchor="end" class="lbl">${last.k}</text></svg>`;
+  }
+  function barsSVG(byWeek) {
+    const ks = Object.keys(byWeek).sort().slice(-12);
+    if (!ks.length) return '<p class="muted">Pas encore de semaine terminée.</p>';
+    const W = 640, H = 200, pad = 40, vals = ks.map((k) => byWeek[k].profit), m = Math.max(1, ...vals.map(Math.abs));
+    const bw = (W - pad - 12) / ks.length, zero = H / 2;
+    return `<svg viewBox="0 0 ${W} ${H}" class="chart" role="img" aria-label="Profit par semaine">
+      <line x1="${pad}" x2="${W - 12}" y1="${zero}" y2="${zero}" class="axis"/>
+      <text x="4" y="16" class="lbl">+${m.toFixed(0)} €</text><text x="4" y="${H - 22}" class="lbl">−${m.toFixed(0)} €</text>
+      ${ks.map((k, i) => { const v = byWeek[k].profit, h = Math.abs(v) / m * (zero - 24); return `<rect x="${pad + i * bw + bw * 0.15}" y="${v >= 0 ? zero - h : zero}" width="${bw * 0.7}" height="${Math.max(1, h)}" rx="3" class="${v >= 0 ? 'barp' : 'barn'}"><title>${k} : ${eurS(v)} (${byWeek[k].n} paris)</title></rect><text x="${pad + i * bw + bw / 2}" y="${H - 4}" text-anchor="middle" class="lbl">${k.slice(5)}</text>`; }).join('')}
+    </svg>`;
+  }
+  function table(obj, label, sortKeys) {
+    const ks = sortKeys ? Object.keys(obj).sort().reverse() : Object.keys(obj).sort((a, b) => obj[b].n - obj[a].n);
+    if (!ks.length) return '<p class="muted">—</p>';
+    return `<div class="tw"><table class="t"><thead><tr><th>${label}</th><th>Paris</th><th>Réussite</th><th>Misé</th><th>Profit</th><th>ROI</th><th>Cote moy.</th></tr></thead><tbody>
+      ${ks.map((k) => { const v = obj[k]; return `<tr><td>${esc(k)}</td><td class="n">${v.n}</td><td class="n">${pct(v.wins / v.n, 0)}</td><td class="n">${eur(v.staked)}</td><td class="n ${v.profit >= 0 ? 'pos' : 'neg'}">${eurS(v.profit)}</td><td class="n">${v.staked ? sgn(v.profit / v.staked) : '—'}</td><td class="n">${(v.odds / v.n).toFixed(2)}</td></tr>`; }).join('')}
+    </tbody></table></div>`;
+  }
+
+  function render() {
+    const b = bank();
+    const now = Date.now();
+    const f = period === 'jour' ? (x) => dayKey(x.t) === dayKey(now) : period === 'semaine' ? (x) => weekKey(x.t) === weekKey(now) : period === 'mois' ? (x) => dayKey(x.t).slice(0, 7) === dayKey(now).slice(0, 7) : null;
+    const st = stats(f), all = stats();
+    const k = (l, v, s, cls = '') => `<div class="kpi"><small>${l}</small><b class="${cls}">${v}</b>${s ? `<span>${s}</span>` : ''}</div>`;
+    const setup = !b ? `<section class="card notice"><h3>Votre bankroll de départ</h3><p>Indiquez la somme que vous consacrez aux paris. Elle sert de base au suivi et aux mises conseillées.</p>
+      <form id="bankf" class="row"><input id="bk-start" type="number" step="any" min="1" inputmode="decimal" placeholder="ex. 100" required aria-label="Bankroll de départ"><button class="btn-sec" type="submit">Commencer le suivi</button></form></section>` : '';
+    const start = b?.start ?? P.cfg().bankroll;
+    return `<h2>Mes paris</h2>
+      ${setup}
+      <div class="row"><div class="seg">${[['jour', 'Aujourd’hui'], ['semaine', 'Cette semaine'], ['mois', 'Ce mois'], ['tout', 'Depuis le début']].map(([v, l]) => `<button data-per="${v}" class="${period === v ? 'on' : ''}">${l}</button>`).join('')}</div>
+        <button id="addmanual" class="btn-sec">+ Ajouter un pari</button><button id="settlemine" class="btn-sec">Mettre à jour les résultats</button></div>
+      <div class="kpirow">
+        ${k('Bankroll actuelle', eur(all.bankroll), `départ ${eur(start)}${b?.since ? ' le ' + new Date(b.since).toLocaleDateString('fr-FR') : ''}`, all.bankroll >= start ? 'pos' : 'neg')}
+        ${k('Profit', eurS(st.profit), `${st.done.length} pari(s) réglé(s)`, st.profit >= 0 ? 'pos' : 'neg')}
+        ${k('ROI', sgn(st.roi), 'profit / mises')}
+        ${k('Réussite', pct(st.hit, 0), `${st.wins} gagnés · ${st.losses} perdus`)}
+        ${k('En jeu', eur(all.atRisk), `${all.pending.length} pari(s) en attente`)}
+        ${k('Cote moyenne', st.avgOdds ? st.avgOdds.toFixed(2) : '—', `mise moyenne ${eur(st.avgStake)}`)}
+        ${k('Série en cours', all.streak ? `${all.streak} ${all.streakType === 'V' ? 'gagné' : 'perdu'}${all.streak > 1 ? 's' : ''}` : '—')}
+        ${k('Perte max. depuis un sommet', pct(all.maxDD, 0), 'drawdown')}
+        ${k('Profit attendu', eurS(st.expected), 'selon les probabilités du moteur')}
+      </div>
+      ${all.atRisk > 0.15 * all.bankroll ? `<p class="notice">Vous avez ${eur(all.atRisk)} en jeu, soit plus de 15 % de votre bankroll : c’est risqué.</p>` : ''}
+      ${all.streakType === 'D' && all.streak >= 4 ? `<p class="notice">${all.streak} paris perdus d’affilée : c’est normal statistiquement de temps en temps. N’augmentez pas vos mises pour « vous refaire ».</p>` : ''}
+      <div class="grid2">
+        <section class="card"><h3>Évolution de la bankroll</h3>${lineSVG(all.curve, start)}</section>
+        <section class="card"><h3>Profit par semaine</h3>${barsSVG(all.byWeek)}</section>
+      </div>
+      <section class="card"><h3>Semaine par semaine</h3>${table(st.byWeek, 'Semaine', true)}</section>
+      <section class="card"><h3>Jour par jour</h3>${table(st.byDay, 'Jour', true)}</section>
+      <div class="grid2">
+        <section class="card"><h3>Par sport</h3>${table(st.bySport, 'Sport')}</section>
+        <section class="card"><h3>Par type de pari</h3>${table(st.bySource, 'Origine')}</section>
+        <section class="card"><h3>Par marché</h3>${table(st.byMarket, 'Marché')}</section>
+        <section class="card"><h3>Avec ou sans value</h3>${table(st.byValue, 'Value')}<p class="muted">Sur la durée, seuls les paris « avec value » devraient être rentables.</p></section>
+      </div>
+      <section class="card"><h3>Tous mes paris</h3><div class="tw"><table class="t hist"><thead><tr><th>Match</th><th>Pari</th><th>Cote</th><th>Mise</th><th>Origine</th><th>Résultat</th><th>Profit</th><th></th></tr></thead><tbody>
+        ${st.list.slice().reverse().map((x) => `<tr><td>${esc(x.match)}<br><small class="muted">${dt(x.t)} · ${esc(SPORT[x.sport] || '')}</small></td><td>${esc(x.label)}</td><td class="n">${x.odds.toFixed(2)}</td><td class="n">${eur(x.stake)}</td><td>${esc(SRC[x.source] || x.source)}${x.value ? ' <span class="tag t-ok">value</span>' : ''}</td>
+          <td>${x.status === 'en attente' ? `<span class="manual" data-bid="${esc(x.id)}"><button data-r="gagné" title="Gagné">G</button><button data-r="perdu" title="Perdu">P</button><button data-r="remboursé" title="Remboursé">R</button></span>${x.type ? '<br><small class="muted">réglage auto après le match</small>' : ''}` : `<span class="tag t-${x.profit > 0 ? 'ok' : x.profit < 0 ? 'bad' : 'na'}">${esc(x.status)}</span> <small class="muted">${esc(x.score || '')}</small>`}</td>
+          <td class="n ${x.profit > 0 ? 'pos' : x.profit < 0 ? 'neg' : ''}">${x.profit != null ? eurS(x.profit) : '—'}</td><td><button class="linkbtn" data-del="${esc(x.id)}" title="Supprimer">supprimer</button></td></tr>`).join('') || '<tr><td colspan="8" class="muted">Aucun pari. Appuyez sur « J’ai parié » sous un pronostic, ou sur « + Ajouter un pari ».</td></tr>'}
+      </tbody></table></div></section>
+      ${b ? `<section class="card"><h3>Dépôts et retraits</h3><form id="movef" class="row"><input id="mv-amt" type="number" step="any" inputmode="decimal" placeholder="+50 ou −20" required aria-label="Montant"><input id="mv-note" placeholder="note (facultatif)" aria-label="Note"><button class="btn-sec" type="submit">Ajouter</button></form>
+        <ul class="muted">${(b.moves || []).map((m) => `<li>${new Date(m.t).toLocaleDateString('fr-FR')} : ${eurS(m.amount)} ${esc(m.note || '')}</li>`).join('') || '<li>Aucun mouvement.</li>'}</ul>
+        <p><button id="resetbank" class="linkbtn">Changer la bankroll de départ</button></p></section>` : ''}`;
+  }
+
+  function bind(rerender) {
+    const $ = (q) => document.querySelector(q);
+    $('#bankf')?.addEventListener('submit', (e) => { e.preventDefault(); const v = parseFloat($('#bk-start').value); if (!(v > 0)) return; D.LS.set(BKEY, { start: v, since: Date.now(), moves: [] }); const C = P.cfg(); C.bankroll = v; P.saveCfg(C); rerender(); });
+    document.querySelectorAll('[data-per]').forEach((x) => x.addEventListener('click', () => { period = x.dataset.per; rerender(); }));
+    $('#addmanual')?.addEventListener('click', () => openAdd({ manual: true, source: 'manuel' }));
+    $('#settlemine')?.addEventListener('click', async () => { const n = await autoSettle(); if (window.SPToast) window.SPToast(`${n} résultat(s) mis à jour`); rerender(); });
+    document.querySelectorAll('.manual[data-bid] button').forEach((btn) => btn.addEventListener('click', () => {
+      const all = bets(), x = all.find((y) => y.id === btn.parentElement.dataset.bid); if (!x) return;
+      settleOne(x, btn.dataset.r, null, 'saisie manuelle'); saveBets(all); rerender();
+    }));
+    document.querySelectorAll('[data-del]').forEach((btn) => btn.addEventListener('click', () => {
+      if (!window.confirm('Supprimer ce pari du suivi ?')) return;
+      saveBets(bets().filter((y) => y.id !== btn.dataset.del)); rerender();
+    }));
+    $('#movef')?.addEventListener('submit', (e) => {
+      e.preventDefault(); const v = parseFloat(String($('#mv-amt').value).replace(',', '.')); if (!v) return;
+      const b = bank(); b.moves = [...(b.moves || []), { t: Date.now(), amount: v, note: $('#mv-note').value.trim() }]; D.LS.set(BKEY, b); rerender();
+    });
+    $('#resetbank')?.addEventListener('click', () => {
+      const b = bank(); const v = parseFloat(window.prompt('Nouvelle bankroll de départ (€) :', b?.start ?? ''));
+      if (v > 0) { D.LS.set(BKEY, { ...b, start: v }); rerender(); }
+    });
+  }
+  return { render, bind, openAdd, autoSettle, stats, bets };
 })();
 
 </script>
@@ -2647,7 +2927,7 @@ const SPChecker = (() => {
         <div><small>Score qualité</small><b>${p.score}/100</b><span>≠ probabilité</span></div>
         <div><small>Simulations</small><b>${int(p.sims)}</b><span>graine ${p.seed ?? '—'}</span></div>
       </div>
-      ${p.cat !== 'watch' ? adviceBox(p) : ''}
+      ${p.cat !== 'watch' ? adviceBox(p) + betBtn({ source: p.cat === 'best' ? 'best' : 'value', eventId: p.eventId, sport: p.sport, sportKey: p.sportKey, comp: p.comp, match: p.match, home: p.home, away: p.away, t: p.t, label: p.label, type: p.type, point: p.point, market: p.market, odds: p.odds, book: p.book, p: p.p, value: true, suggested: advice(p).stake }) : ''}
       ${big ? `<div class="why"><h4>Pourquoi cette sélection</h4><p>${esc(whyText(p))}</p></div>` : ''}
       ${p.warnings?.length ? `<div class="risks"><h4>Risques identifiés</h4><ul>${p.warnings.map((w) => `<li>${esc(w)}</li>`).join('')}</ul></div>` : `<div class="risks"><h4>Risques identifiés</h4><ul><li>Aucun signal spécifique dans les sources consultées. Le résultat reste aléatoire.</li></ul></div>`}
       <details ${big ? 'open' : ''}><summary>Détail du score de qualité</summary><div class="parts">${parts}</div></details>
@@ -2663,36 +2943,65 @@ const SPChecker = (() => {
     const minOdds = Math.ceil(((1 + C.minEV - (p.pPush || 0)) / Math.max(1e-6, p.p)) * 100) / 100;
     const k = Math.max(0, (p.p * p.odds + (p.pPush || 0) - 1) / (p.odds - 1));
     const frac = Math.min(C.maxStakePct, C.kellyFrac * k);
-    const stake = Math.round(C.bankroll * frac * 100) / 100;
-    return { minOdds, stake, frac, bank: C.bankroll };
+    const B = curBank();
+    const stake = Math.round(B * frac * 100) / 100;
+    return { minOdds, stake, frac, bank: B };
   }
   function adviceBox(p) {
     const a = advice(p);
     return `<div class="advice"><b>En clair :</b> sur ${esc(p.book)}, pariez « ${esc(p.label)} » pour ${esc(p.match)} seulement si la cote affichée est <b>au moins ${num(a.minOdds)}</b> (relevée : ${num(p.odds)}).
       Mise indicative : <b>${num(a.stake)} €</b> (${(a.frac * 100).toFixed(1)} % d’une bankroll de ${int(a.bank)} €, quart de Kelly plafonné). Si la cote a baissé ou si le match a commencé, ne pariez pas.</div>`;
   }
+  const eur0 = (x) => Math.round(x).toLocaleString('fr-FR') + ' €';
+  function safeList(A) {
+    const L = (A.safe || []).filter((s) => !A.daily || s.eventId !== A.daily.eventId);
+    if (!L.length) return '';
+    return `<section class="card"><h3>Autres paris sûrs du jour</h3><p class="muted">Très probables (≥ ${(P.cfg().safeMinP * 100).toFixed(0)} %) et cote Winamax pas en dessous de leur vraie valeur. Ne les combinez pas : jouez-les séparément, avec une petite mise chacun.</p>
+      <div class="tw"><table class="t"><tbody>${L.map((s) => `<tr><td><b>${esc(s.match)}</b><br><small class="muted">${dt(s.t)} · ${esc(s.comp)}</small></td><td>${esc(s.label)}</td><td class="n">${num(s.odds)}</td><td class="n">${pct(s.p, 0)}</td><td>${s.tier === 1 ? '<span class="tag t-ok">cote correcte</span>' : '<span class="tag t-warn">cote un peu basse</span>'}</td><td class="n">${num(safeStake(s.tier === 1 ? 'sûr' : 'sûr-bas', s.p, s.odds, s.pPush))} €</td><td>${betBtn({ source: 'safe', ...s, suggested: safeStake(s.tier === 1 ? 'sûr' : 'sûr-bas', s.p, s.odds, s.pPush) })}</td></tr>`).join('')}</tbody></table></div></section>`;
+  }
   function dailyCard(A) {
     const d = A.daily;
     if (!d) return `<section class="card nobet"><h3>Pas de pronostic du jour</h3><p>Aucun match des prochaines 24 h n’a assez de données ou une cote Winamax acceptable.</p></section>`;
     const C = P.cfg(), pk = d.pick;
     const minOdds = Math.ceil(((1 + C.minEV - (pk.pPush || 0)) / pk.p) * 100) / 100;
-    const k = Math.max(0, (pk.p * pk.odds + (pk.pPush || 0) - 1) / (pk.odds - 1));
-    const stake = Math.round(C.bankroll * Math.min(C.maxStakePct, C.kellyFrac * k) * 100) / 100;
+    const stake = safeStake(d.kind, pk.p, pk.odds, pk.pPush);
+    const kindTag = { 'sûr': '<span class="tag t-ok">PARI SÛR · cote correcte</span>', 'sûr-bas': '<span class="tag t-warn">PARI SÛR · cote un peu basse</span>', value: '<span class="tag t-ok">VALUE</span>', probable: '<span class="tag t-na">probable, sans value</span>' }[d.kind] || '';
+    const stakeNote = { 'sûr': `${(C.safeStakePct * 100).toFixed(0)} % de votre bankroll (${eur0(curBank())})`, 'sûr-bas': `${(C.safeStakePct * 50).toFixed(0)} % de la bankroll : cote un peu basse`, value: 'quart de Kelly plafonné', probable: '1 % de la bankroll : pas de value' }[d.kind];
     return `<section class="card pick big daily">
-      <div class="eyebrow">PRONOSTIC DU JOUR</div>
+      <div class="eyebrow">PRONOSTIC DU JOUR${d.kind && d.kind.startsWith('sûr') ? ' · MODE PARIS SÛRS' : ''}</div>
       <header><div><span class="sport s-${d.sport}">${SPORT[d.sport]}</span> <span class="muted">${esc(d.comp)}</span></div><div class="when">${dt(d.t)}</div></header>
       <h3>${esc(d.match)}</h3>
-      <div class="sel"><span class="mk">${MKT[pk.market] || ''}</span><b>${esc(pk.label)}</b> ${pk.value ? '<span class="tag t-ok">VALUE</span>' : '<span class="tag t-na">sans value</span>'} <span class="tag t-${d.confidence === 'forte' ? 'ok' : d.confidence === 'moyenne' ? 'warn' : 'na'}">confiance ${esc(d.confidence)}</span></div>
+      <div class="sel"><span class="mk">${MKT[pk.market] || ''}</span><b>${esc(pk.label)}</b> ${kindTag} <span class="tag t-${d.confidence === 'forte' ? 'ok' : d.confidence === 'moyenne' ? 'warn' : 'na'}">confiance ${esc(d.confidence)}</span></div>
       <div class="kpis">
         <div><small>Cote ${esc(pk.book)}</small><b class="odds">${num(pk.odds)}</b><span>minimum pour une value : ${num(minOdds)}</span></div>
         <div><small>Probabilité</small><b>${pct(pk.p)}</b><span>cote juste ${num(1 / pk.p)}</span></div>
         <div><small>EV</small><b class="${pk.ev > 0 ? 'pos' : 'neg'}">${sgn(pk.ev)}</b><span>par unité misée</span></div>
-        <div><small>Mise indicative</small><b>${pk.value ? num(stake) + ' €' : 'petite'}</b><span>${pk.value ? 'quart de Kelly plafonné' : '≤ 1 % de la bankroll : pas de value'}</span></div>
+        <div><small>Mise conseillée</small><b>${num(stake)} €</b><span>${esc(stakeNote)}</span></div>
       </div>
       <h4>L’analyse</h4><ul>${d.why.map((w) => `<li>${esc(w)}</li>`).join('')}</ul>
       ${d.warnings?.length ? `<h4>Points de vigilance</h4><ul>${d.warnings.map((w) => `<li>${esc(w)}</li>`).join('')}</ul>` : ''}
+      ${betBtn({ source: 'daily', eventId: d.eventId, sport: d.sport, sportKey: d.sportKey, comp: d.comp, match: d.match, home: d.home, away: d.away, t: d.t, label: pk.label, type: pk.type, point: pk.point, market: pk.market, odds: pk.odds, book: pk.book, p: pk.p, value: pk.value, suggested: stake })}
       <p class="muted"><small>Vérifiez la cote sur Winamax avant de parier ; si le match a commencé ou si la cote a beaucoup baissé, abstenez-vous. ${esc(d.dataNote || '')}</small></p>
     </section>`;
+  }
+  const curBank = () => { try { return SPData.LS.get('sp:bank', null) ? SPMyBets.stats().bankroll : P.cfg().bankroll; } catch { return P.cfg().bankroll; } };
+  function safeStake(kind, p, odds, pPush) {
+    const C = P.cfg(), B = curBank();
+    if (kind === 'sûr') return Math.round(B * C.safeStakePct * 100) / 100;
+    if (kind === 'sûr-bas') return Math.round(B * C.safeStakePct * 0.5 * 100) / 100;
+    if (kind === 'value') return Math.round(B * Math.min(C.maxStakePct, C.kellyFrac * Math.max(0, (p * odds + (pPush || 0) - 1) / (odds - 1))) * 100) / 100;
+    return Math.round(B * 0.01 * 100) / 100;
+  }
+  const BETDRAFTS = new Map();
+  function betBtn(d) {
+    const id = 'd' + BETDRAFTS.size;
+    BETDRAFTS.set(id, d);
+    return `<button class="btn-sec betbtn" data-bet="${id}">J’ai parié</button>`;
+  }
+  function stakeFor(p, odds, pPush) {
+    const C = P.cfg();
+    const k = Math.max(0, (p * odds + (pPush || 0) - 1) / (odds - 1));
+    return Math.round(C.bankroll * Math.min(C.maxStakePct, C.kellyFrac * k) * 100) / 100;
   }
   function formChips(fm) {
     if (!fm) return '<span class="muted">forme indisponible</span>';
@@ -2712,7 +3021,7 @@ const SPChecker = (() => {
       ${f.sport === 'football' ? `<p class="muted">Score le plus probable <b>${f.score.h}-${f.score.a}</b> (${pct(f.score.p, 0)}) · buts attendus ${num(f.expected.home, 2)} – ${num(f.expected.away, 2)} · +2,5 buts ${pct(f.probs.over25, 0)} · les deux marquent ${pct(f.probs.btts, 0)}</p>` : ''}
       ${f.sport === 'nba' ? `<p class="muted">Score projeté <b>${Math.round(f.expected.home)}-${Math.round(f.expected.away)}</b> · total attendu ${num(f.expected.total, 1)} points</p>` : ''}
       ${f.form ? `<div class="formrow"><div><small>${esc(hn)}</small>${formChips(f.form.home)}</div><div><small>${esc(an)}</small>${formChips(f.form.away)}</div></div>` : ''}
-      ${f.pick ? `<div class="advice"><b>Pari le plus probable :</b> ${esc(f.pick.label)} @ <b>${num(f.pick.odds)}</b> (${esc(f.pick.book)}) — probabilité ${pct(f.pick.p)}, EV ${sgn(f.pick.ev)} ${f.pick.value ? '<span class="tag t-ok">VALUE</span>' : '<span class="tag t-na">pas de value</span>'}</div>` : ''}
+      ${f.pick ? `<div class="advice"><b>Pari le plus probable :</b> ${esc(f.pick.label)} @ <b>${num(f.pick.odds)}</b> (${esc(f.pick.book)}) — probabilité ${pct(f.pick.p)}, EV ${sgn(f.pick.ev)} ${f.pick.value ? '<span class="tag t-ok">VALUE</span>' : '<span class="tag t-na">pas de value</span>'}</div>${betBtn({ source: 'prono', eventId: f.eventId, sport: f.sport, sportKey: f.sportKey, comp: f.comp, match: f.match, home: f.home, away: f.away, t: f.t, label: f.pick.label, type: f.pick.type, point: f.pick.point, market: f.pick.market, odds: f.pick.odds, book: f.pick.book, p: f.pick.p, value: f.pick.value, suggested: f.pick.value ? stakeFor(f.pick.p, f.pick.odds, f.pick.pPush) : null })}` : ''}
       ${f.facts?.length ? `<ul class="muted">${f.facts.map((x) => `<li>${esc(x)}</li>`).join('')}</ul>` : ''}
       <p class="muted"><small>${esc(f.dataNote || '')}</small></p>
     </article>`;
@@ -2731,6 +3040,7 @@ const SPChecker = (() => {
   // ------------------------------------------------------------ pages
   const pages = {
     check() { return SPChecker.render(); },
+    bets() { return SPMyBets.render(); },
     pronos() {
       const A = S.lastAnalysis(); if (!A) return emptyRun();
       const list = A.forecasts || [];
@@ -2763,6 +3073,7 @@ const SPChecker = (() => {
         <div id="progress" class="progress" ${running ? '' : 'hidden'}><div class="pb"><i id="pbar"></i></div><div id="ptext" class="muted"></div><ol id="steps" class="steps"></ol></div>
       </section>
       ${A ? dailyCard(A) : ''}
+      ${A ? safeList(A) : ''}
       ${A ? summaryBlock(A) : `<section class="card empty"><h3>Aucune analyse pour l’instant</h3><p>Le premier lancement télécharge environ deux saisons de résultats ESPN (mis en cache ensuite) puis consomme des crédits The Odds API : environ 3 par compétition scannée.</p></section>`}`;
     },
     best() {
@@ -2879,6 +3190,10 @@ const SPChecker = (() => {
         <section class="card"><h3>Compétitions</h3><div class="chks">${Object.entries(D.FOOTBALL).map(([k2, v]) => chk('L-' + k2, C.leagues[k2], v.name + (v.stats ? '' : ' <small>(marché seul)</small>'))).join('')}
           ${chk('c-nba', C.nba, 'NBA')}${chk('c-tennis', C.tennis, 'Tennis ATP/WTA (tournois actifs)')}</div>
           ${n('c-tt', C.maxTennisTournaments, 'Tournois de tennis max', 1)}</section>
+        <section class="card"><h3>Type de pronostic du jour</h3><div class="g3">
+          <label>Mode <select id="c-mode"><option value="sûr" ${C.mode !== 'value' ? 'selected' : ''}>Paris sûrs : très probables, petites cotes</option><option value="value" ${C.mode === 'value' ? 'selected' : ''}>Value : rentabilité maximale, cotes plus hautes</option></select></label>
+          ${n('c-sminp', C.safeMinP, 'Probabilité minimale d’un pari sûr', 0.01)}${n('c-smaxo', C.safeMaxOdds, 'Cote maximale d’un pari sûr', 0.05)}${n('c-stol', C.safeTolEV, 'Tolérance de cote (−0.03 = 3 % sous la vraie valeur)', 0.005)}${n('c-sst', C.safeStakePct, 'Mise par pari sûr (0.02 = 2 % de la bankroll)', 0.005)}</div>
+          <p class="muted">Un pari sûr perd quand même parfois : à 75 %, une fois sur quatre. La bankroll ne grossit que si les cotes jouées ne sont pas en dessous de leur vraie valeur, c’est pourquoi la tolérance est limitée.</p></section>
         <section class="card"><h3>Mise indicative</h3><div class="g3">
           ${n('c-bank', C.bankroll, 'Bankroll (€)', 1)}${n('c-kf', C.kellyFrac, 'Fraction de Kelly (0.25 = quart)', 0.05)}${n('c-maxst', C.maxStakePct, 'Mise max (0.02 = 2 % de la bankroll)', 0.005)}</div>
           <p class="muted">Ne misez que de l’argent que vous pouvez perdre. La mise indicative ne garantit rien.</p></section>
@@ -2960,6 +3275,7 @@ const SPChecker = (() => {
     const h = (location.hash || '#dashboard').slice(1);
     const page = pages[h] ? h : 'dashboard';
     document.querySelectorAll('nav a').forEach((a) => a.classList.toggle('on', a.getAttribute('href') === '#' + page));
+    BETDRAFTS.clear();
     $('#main').innerHTML = pages[page]() + disclaimer();
     if (page === 'dashboard' && running) renderProgress();
     bind(page);
@@ -2979,6 +3295,8 @@ const SPChecker = (() => {
       });
     }
     if (page === 'check') SPChecker.bind(route);
+    if (page === 'bets') SPMyBets.bind(route);
+    document.querySelectorAll('[data-bet]').forEach((b) => b.addEventListener('click', () => { const d = BETDRAFTS.get(b.dataset.bet); if (d) SPMyBets.openAdd(d); }));
     if (page === 'calendar') {
       $('#calf').addEventListener('change', () => {
         calFilter = { sport: $('#f-sport').value, comp: $('#f-comp').value, day: $('#f-day').value, mkt: $('#f-mkt').value, omin: +$('#f-omin').value || 0, omax: +$('#f-omax').value || 0 };
@@ -3016,6 +3334,7 @@ const SPChecker = (() => {
         C.minOdds = Math.max(1.2, +v('c-minodds')); C.maxOdds = +v('c-maxodds'); C.minEV = Math.max(0, +v('c-minev'));
         C.maxOddsAgeMin = +v('c-age'); C.maxGap = +v('c-gap'); C.wMarket = Math.min(1, Math.max(0, +v('c-wm'))); C.hours = +v('c-hours'); C.extendTo48 = c('c-48');
         C.minSims = Math.max(10000, +v('c-mins')); C.maxSims = Math.max(C.minSims, +v('c-maxs')); C.tol = Math.max(0.0005, +v('c-tol')); C.phase2Events = Math.max(1, +v('c-p2'));
+        C.mode = v('c-mode'); C.safeMinP = Math.min(0.95, Math.max(0.55, +v('c-sminp'))); C.safeMaxOdds = Math.max(1.2, +v('c-smaxo')); C.safeTolEV = Math.min(0, Math.max(-0.08, +v('c-stol'))); C.safeStakePct = Math.min(0.05, Math.max(0, +v('c-sst')));
         C.bankroll = Math.max(0, +v('c-bank')); C.kellyFrac = Math.min(1, Math.max(0, +v('c-kf'))); C.maxStakePct = Math.min(0.1, Math.max(0, +v('c-maxst')));
         C.autoOn = c('c-auto'); C.autoTime = v('c-time'); C.preMatchRecheck = c('c-pre'); C.notif = c('c-notif');
         if (C.notif && 'Notification' in window && Notification.permission === 'default') Notification.requestPermission();
@@ -3047,6 +3366,8 @@ const SPChecker = (() => {
   document.addEventListener('keydown', (e) => { if (e.key === 'Escape') $('#dlg').hidden = true; });
   $('#dlg').addEventListener('click', (e) => { if (e.target.id === 'dlg') $('#dlg').hidden = true; });
   route();
+  window.SPToast = toast; window.SPRoute = route;
+  SPMyBets.autoSettle().then((n) => { if (n) { toast(`${n} de vos paris réglé(s)`); route(); } }).catch(() => {});
   S.autoSettle().then((n) => { if (n) { toast(`${n} résultat(s) mis à jour`); route(); } }).catch(() => {});
 })();
 

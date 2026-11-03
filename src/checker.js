@@ -46,8 +46,8 @@ const SPChecker = (() => {
         <label>Match <select id="k-ev">${evs.map((e) => `<option value="${esc(e.id)}" ${e.id === cur ? 'selected' : ''}>${esc(dt(e.t))} · ${esc(e.home)} – ${esc(e.away)} (${esc(e.comp)})</option>`).join('')}</select></label>
         <div class="g3">
           <label>Pari <select id="k-mk">${MARKETS[ev.sport].map((m) => `<option value="${m[0]}" ${lastResult?.mk === m[0] ? 'selected' : ''}>${esc(m[1].replace('joueur 1', ev.home).replace('joueur 2', ev.away))}</option>`).join('')}</select></label>
-          <label>Ligne (si demandée) <input id="k-line" type="number" step="0.25" inputmode="decimal" placeholder="ex. 2.5" value="${lastResult?.line ?? ''}"></label>
-          <label>Cote Winamax <input id="k-odds" type="number" step="0.01" min="1.01" inputmode="decimal" placeholder="ex. 2.10" value="${lastResult?.odds ?? ''}" required></label>
+          <label>Ligne (si demandée) <input id="k-line" type="number" step="any" inputmode="decimal" placeholder="ex. 2.5" value="${lastResult?.line ?? ''}"></label>
+          <label>Cote Winamax <input id="k-odds" type="number" step="any" min="1.01" inputmode="decimal" placeholder="ex. 2.10" value="${lastResult?.odds ?? ''}" required></label>
         </div>
         <label class="chk"><input type="checkbox" id="k-boost" ${lastResult?.boost ? 'checked' : ''}> C’est une cote boostée (mise souvent plafonnée par Winamax)</label>
         <div class="row"><button class="btn-main sm" type="submit">Calculer</button><span id="k-wait" class="muted" hidden>Simulation en cours…</span></div>
