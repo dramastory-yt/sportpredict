@@ -322,10 +322,89 @@ def tennis():
     save("tennis.json", out)
 
 
+# ---------------------------------------------------------------- ESPN tennis (résultats) -> Elo surface
+T_CLAY = re.compile(r"(roland|french open|monte|madrid|rome|italian|barcelona|hamburg|geneva|lyon|bastad|gstaad|umag|kitzb|estoril|munich|houston|marrakech|buenos|rio|santiago|cordoba|charleston|bogota|rabat|strasbourg|palermo|prague|warsaw|iasi|parma)", re.I)
+T_GRASS = re.compile(r"(wimbledon|queen|halle|eastbourne|hertogenbosch|mallorca|stuttgart|newport|berlin|bad homburg|nottingham|birmingham)", re.I)
+T_INDOOR = re.compile(r"(paris masters|rolex paris|atp finals|wta finals|vienna|basel|stockholm|antwerp|metz|sofia|rotterdam|marseille|montpellier|dallas|linz|ostrava|astana|belgrade|next gen|davis cup|billie jean|athens|tokyo|guangzhou|ningbo|jiujiang|seoul)", re.I)
+
+
+def espn_tennis():
+    out = {"source": "résultats ESPN (Elo calculé par SportPredict)", "fetchedAt": META["generatedAt"], "tours": {}}
+    for tour, path in (("ATP", "atp"), ("WTA", "wta")):
+        seen, matches, calls, errs = set(), [], 0, 0
+        day = TODAY - dt.timedelta(days=420)
+        while day <= TODAY:
+            try:
+                j = get(f"https://site.api.espn.com/apis/site/v2/sports/tennis/{path}/scoreboard?dates={day.strftime('%Y%m%d')}", tries=1).json()
+            except Exception:  # noqa: BLE001
+                errs += 1
+                day += dt.timedelta(days=3)
+                continue
+            calls += 1
+            for ev in j.get("events", []):
+                tname = ev.get("name") or ev.get("shortName") or ""
+                surf = "clay" if T_CLAY.search(tname) else "grass" if T_GRASS.search(tname) else "hard_indoor" if T_INDOOR.search(tname) else "hard"
+                for g in ev.get("groupings", []) or [{"competitions": ev.get("competitions", [])}]:
+                    gname = ((g.get("grouping") or {}).get("displayName") or (g.get("grouping") or {}).get("slug") or "singles").lower()
+                    if "double" in gname or "mixed" in gname:
+                        continue
+                    for comp in g.get("competitions", []):
+                        cid = comp.get("id")
+                        st = (comp.get("status") or {}).get("type") or {}
+                        if cid in seen or not st.get("completed"):
+                            continue
+                        if "retired" in str(st.get("description", "")).lower() or "walkover" in str(st.get("description", "")).lower():
+                            continue
+                        cs = comp.get("competitors", [])
+                        if len(cs) != 2:
+                            continue
+                        names = [((c.get("athlete") or {}).get("displayName") or (c.get("roster") or {}).get("displayName")) for c in cs]
+                        win = [bool(c.get("winner")) for c in cs]
+                        if not all(names) or sum(win) != 1:
+                            continue
+                        seen.add(cid)
+                        d = comp.get("date") or ev.get("date")
+                        try:
+                            ts = dt.datetime.fromisoformat(d.replace("Z", "+00:00"))
+                        except (AttributeError, ValueError):
+                            continue
+                        w, l = (names[0], names[1]) if win[0] else (names[1], names[0])
+                        matches.append((ts, w, l, surf))
+            day += dt.timedelta(days=3)
+            time.sleep(0.2)
+        note(f"ESPN tennis {tour}", bool(matches), f"{len(matches)} matchs de simple terminés ({calls} requêtes, {errs} échecs)")
+        if not matches:
+            continue
+        matches.sort(key=lambda m: m[0])
+        E, Es, N, Ns, last = {}, {}, {}, {}, {}
+        ll_elo, ll_n = 0.0, 0
+        for d, w, l, s in matches:
+            ew, el = E.get(w, 1500.0), E.get(l, 1500.0)
+            sw, sl = Es.get((w, s), 1500.0), Es.get((l, s), 1500.0)
+            if N.get(w, 0) >= 10 and N.get(l, 0) >= 10:  # backtest : prédiction avant mise à jour
+                p = 1 / (1 + 10 ** ((((el + sl) / 2) - ((ew + sw) / 2)) / 400))
+                ll_elo += -math.log(max(1e-9, p)); ll_n += 1
+            pe = 1 / (1 + 10 ** ((el - ew) / 400)); ps = 1 / (1 + 10 ** ((sl - sw) / 400))
+            E[w] = ew + k_factor(N.get(w, 0)) * (1 - pe); E[l] = el - k_factor(N.get(l, 0)) * (1 - pe)
+            Es[(w, s)] = sw + k_factor(Ns.get((w, s), 0)) * (1 - ps); Es[(l, s)] = sl - k_factor(Ns.get((l, s), 0)) * (1 - ps)
+            for pl in (w, l):
+                N[pl] = N.get(pl, 0) + 1; Ns[(pl, s)] = Ns.get((pl, s), 0) + 1; last[pl] = int(d.timestamp() * 1000)
+        players = {}
+        for pl, e in E.items():
+            tok = pl.split()
+            if len(tok) < 2:
+                continue
+            key = " ".join(tok[1:]) + " " + tok[0][0] + "."  # format « Nom P. » attendu par l'application
+            players[key] = {"elo": round(e, 1), "n": N[pl], "last": last[pl], "full": pl,
+                            "surf": {s: [round(Es[(pl, s)], 1), Ns[(pl, s)]] for s in ("hard", "hard_indoor", "clay", "grass") if (pl, s) in Es}}
+        out["tours"][tour] = {"players": players, "backtest": {"n": 0, "eloLogLoss": round(ll_elo / max(1, ll_n), 4), "nElo": ll_n, "pinnacleLogLoss": None, "wMarket": None, "blendLogLoss": None}}
+    save("tennis.json", out)
+
+
 if __name__ == "__main__":
     # understat.com et tennis-data.co.uk refusent les serveurs GitHub (délai dépassé / 403) :
     # désactivés par défaut, réactivables avec ENABLE_BLOCKED_SOURCES=1 (par ex. sur un ordinateur personnel).
-    fns = [football_data, clubelo] + ([understat, tennis] if os.environ.get("ENABLE_BLOCKED_SOURCES") == "1" else [])
+    fns = [football_data, clubelo] + ([understat, tennis] if os.environ.get("ENABLE_BLOCKED_SOURCES") == "1" else [espn_tennis])
     for k in ("understat", "tennis-data"):
         if os.environ.get("ENABLE_BLOCKED_SOURCES") != "1":
             note(k, False, "désactivé : la source refuse les serveurs GitHub Actions")

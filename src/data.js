@@ -89,6 +89,12 @@ const SPData = (() => {
     const q = `regions=${regions}&markets=${markets}&oddsFormat=decimal&dateFormat=iso`;
     return cachedJSON(`odds:ev:${eventId}:${Date.now()}`, `${ODDS}/sports/${sportKey}/events/${eventId}/odds?apiKey=${encodeURIComponent(key)}&${q}`, 0, 'The Odds API', { raw: true });
   }
+  // Liste des événements : gratuite (ne consomme pas de crédit). Sert à ne pas interroger les cotes
+  // d'une compétition sans match dans la fenêtre.
+  async function oddsEventsList(key, sportKey, hours = 48) {
+    const from = isoNoMs(Date.now()), to = isoNoMs(Date.now() + hours * 3600e3);
+    return cachedJSON(`odds:events:${sportKey}:${hours}`, `${ODDS}/sports/${sportKey}/events?apiKey=${encodeURIComponent(key)}&dateFormat=iso&commenceTimeFrom=${from}&commenceTimeTo=${to}`, 20 * 60e3, 'The Odds API', { raw: true });
+  }
   async function oddsScores(key, sportKey, daysFrom = 3) {
     return cachedJSON(`odds:scores:${sportKey}`, `${ODDS}/sports/${sportKey}/scores?apiKey=${encodeURIComponent(key)}&daysFrom=${daysFrom}&dateFormat=iso`, 30 * 60e3, 'The Odds API', { raw: true });
   }
@@ -263,7 +269,7 @@ Règles :
 
   return {
     LS, log, apiStatus, setStatus, meta, purgeCache, FOOTBALL,
-    oddsSports, oddsFor, oddsEvent, oddsScores,
+    oddsSports, oddsFor, oddsEvent, oddsScores, oddsEventsList,
     espnResults, espnScoreboard, espnSummary, espnNews, nbaInjuries,
     norm, sim, bestMatch, claudeAnalyze, localData,
   };

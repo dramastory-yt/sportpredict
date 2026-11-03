@@ -403,7 +403,43 @@ function SPEngineFactory() {
     }
     return { nReal, nProxy, a, b, label: [nReal ? `xG réel football-data (${nReal})` : '', nProxy ? `xG estimé par les tirs (${nProxy}, ${a.toFixed(3)} but/tir cadré)` : ''].filter(Boolean).join(' + ') };
   };
-  SP.fdRow = (r) => ({ t: r[0], h: r[1], a: r[2], hg: r[3], ag: r[4], hs: r[5], as: r[6], hst: r[7], ast: r[8], pin: r[13] && r[14] && r[15] ? [r[13], r[14], r[15]] : null, rxh: r[18] ?? null, rxa: r[19] ?? null, refSrc: r[20] || null });
+  SP.fdRow = (r) => ({ t: r[0], h: r[1], a: r[2], hg: r[3], ag: r[4], hs: r[5], as: r[6], hst: r[7], ast: r[8], pin: r[13] && r[14] && r[15] ? [r[13], r[14], r[15]] : null, rxh: r[18] ?? null, rxa: r[19] ?? null, refSrc: r[20] || null, cornersH: r[9], cornersA: r[10], cardsH: r[11], cardsA: r[12] });
+
+  // Comptages surdispersés (corners, cartons) : loi binomiale négative de moyenne μ et variance φ·μ.
+  SP.nbPmf = function (k, mu, phi) {
+    if (phi <= 1.0001) return pois(k, mu);
+    const r = mu / (phi - 1), p = r / (r + mu);
+    let lg = 0; for (let i = 0; i < k; i++) lg += Math.log(r + i) - Math.log(i + 1);
+    return Math.exp(lg + r * Math.log(p) + k * Math.log(1 - p));
+  };
+  SP.nbOver = function (mu, phi, line) {
+    let cdf = 0; for (let k = 0; k <= Math.floor(line); k++) cdf += SP.nbPmf(k, mu, phi);
+    return Math.max(0, 1 - cdf);
+  };
+  // Modèle de comptage par équipe (attaque/défense, avantage domicile) + dispersion estimée sur les résidus.
+  SP.fitCounts = function (ms, key) {
+    const data = ms.filter((m) => m[key + 'H'] != null && m[key + 'A'] != null).map((m) => ({ t: m.t, h: m.h, a: m.a, hg: m[key + 'H'], ag: m[key + 'A'] }));
+    if (data.length < 100) return null;
+    const fit = SP.fitDixonColes(data, { skipRho: true, xi: 0.0025, ridge: 4 });
+    if (!fit) return null;
+    let num = 0, den = 0;
+    for (const d of data) { const l = SP.dcLambdas(fit, d.h, d.a); if (!l) continue; const mu = l.lh + l.la; num += (d.hg + d.ag - mu) ** 2; den += mu; }
+    fit.phi = Math.max(1, num / den);
+    fit.n = data.length;
+    return fit;
+  };
+  // Recalibrage de Platt : p' = σ(a + b·logit p), ajusté sur les résultats réels.
+  SP.fitPlatt = function (ps, ys) {
+    let a = 0, b = 1;
+    const lg = (p) => Math.log(Math.max(1e-6, p) / Math.max(1e-6, 1 - p));
+    for (let it = 0; it < 500; it++) {
+      let ga = 0, gb = 0;
+      for (let i = 0; i < ps.length; i++) { const x = lg(ps[i]); const q = 1 / (1 + Math.exp(-(a + b * x))); ga += ys[i] - q; gb += (ys[i] - q) * x; }
+      a += 0.5 * ga / ps.length; b += 0.5 * gb / ps.length;
+    }
+    return { a, b };
+  };
+  SP.applyPlatt = (c, p) => { const x = Math.log(Math.max(1e-6, p) / Math.max(1e-6, 1 - p)); return 1 / (1 + Math.exp(-(c.a + c.b * x))); };
 
   SP.calibrationBins = function (ps, ys, nb = 10) {
     const bins = Array.from({ length: nb }, () => ({ n: 0, p: 0, y: 0 }));
@@ -783,6 +819,13 @@ function SPEngineFactory() {
       case 'tOver': return x;             // tennis : x = total de jeux
       case 'tUnder': return -x;
       case 'spread': return sel.side === 'A' ? x : -x; // x = jeux A − jeux B
+      case 'bttsYes': return x > 0 && y > 0 ? 1 : -1;
+      case 'bttsNo': return x > 0 && y > 0 ? -1 : 1;
+      case 'dc1X': return x >= y ? 1 : -1;
+      case 'dcX2': return y >= x ? 1 : -1;
+      case 'dc12': return x !== y ? 1 : -1;
+      case 'homeTotalOver': return x;
+      case 'awayTotalOver': return y;
       default: return 0;
     }
   };

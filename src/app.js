@@ -149,6 +149,7 @@
 
   // ------------------------------------------------------------ pages
   const pages = {
+    check() { return SPChecker.render(); },
     dashboard() {
       const A = S.lastAnalysis(), C = P.cfg();
       const today = new Date().toLocaleDateString('fr-FR', { timeZone: TZ, weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
@@ -258,6 +259,14 @@
         <section class="card"><h3>Par marché</h3><table class="t">${head}${grp(m.byMarket, MKT)}</table></section>
       </div>
       <section class="card"><h3>Par mois</h3><table class="t">${head}${grp(m.byMonth)}</table></section>
+      <section class="card"><h3>Recalibrage sur vos résultats réels</h3>
+        ${(() => { const R = S.results(); const bin = S.picks().filter((p) => R[p.pid] && R[p.pid].push === 0 && (R[p.pid].win === 0 || R[p.pid].win === 1));
+          if (bin.length < 100) return `<p class="muted">Disponible après 100 paris réglés (actuellement ${bin.length}). Il corrige une éventuelle surconfiance ou sous-confiance du moteur.</p>`;
+          const pl = SP.fitPlatt(bin.map((p) => p.p), bin.map((p) => R[p.pid].win));
+          const cur = P.cfg().platt;
+          return `<p>Sur ${bin.length} paris : ${pl.b < 0.9 ? 'le moteur est <b>trop confiant</b>' : pl.b > 1.1 ? 'le moteur est <b>trop prudent</b>' : 'le moteur est <b>bien calibré</b>'} (pente ${pl.b.toFixed(2)}, idéal 1). Exemple : 60 % devient ${pct(SP.applyPlatt(pl, 0.6))}.</p>
+            <div class="row"><button id="applyplatt" class="btn-sec" data-a="${pl.a}" data-b="${pl.b}">Appliquer ce recalibrage</button>${cur ? '<button id="resetplatt" class="btn-sec">Retirer le recalibrage actuel</button>' : ''}</div>`; })()}
+      </section>
       <section class="card"><h3>Poids du marché dans l’ensemble</h3>
         <p>Valeur utilisée : <b>${P.cfg().wMarket}</b>. ${m.wSuggest ? `L’historique (${m.wSuggest.n} pronostics réglés) suggère <b>${m.wSuggest.w}</b> (log loss minimale). <button id="applyw" data-w="${m.wSuggest.w}" class="btn-sec">Appliquer après vérification</button>` : 'Une suggestion apparaîtra après 50 pronostics réglés disposant des deux probabilités. Elle n’est jamais appliquée automatiquement.'}</p></section>
       <section class="card"><h3>Backtests chronologiques de la dernière analyse</h3>${A?.backtests && Object.keys(A.backtests).length ? `<div class="tw"><table class="t"><thead><tr><th>Compétition</th><th>Matchs testés</th><th>Log loss par modèle</th><th>Ensemble</th><th>Naïf</th><th>Poids</th></tr></thead><tbody>${Object.entries(A.backtests).map(([n, b]) => `<tr><td>${esc(n)}</td><td class="n">${b.n}</td><td>${Object.entries(b.models).map(([mm, v]) => `${mm} ${num(v.logLoss, 4)}`).join(' · ')}</td><td class="n">${num(b.ensemble.logLoss, 4)}</td><td class="n">${b.naive ? num(b.naive.logLoss, 4) : '—'}</td><td>${Object.entries(b.weights).map(([mm, w]) => `${mm} ${w.toFixed(2)}`).join(' · ')}</td></tr>`).join('')}</tbody></table></div><p class="muted">Chaque match est prédit uniquement avec les matchs antérieurs (aucune donnée postérieure). Les performances passées ne garantissent pas les performances futures.</p>` : '<p class="muted">Aucun backtest disponible (lancez une analyse).</p>'}</section>`;
@@ -379,6 +388,7 @@
         launch({ force: true, parentId: A.id, onlyKeys: keys.size ? keys : null });
       });
     }
+    if (page === 'check') SPChecker.bind(route);
     if (page === 'calendar') {
       $('#calf').addEventListener('change', () => {
         calFilter = { sport: $('#f-sport').value, comp: $('#f-comp').value, day: $('#f-day').value, mkt: $('#f-mkt').value, omin: +$('#f-omin').value || 0, omax: +$('#f-omax').value || 0 };
@@ -402,6 +412,8 @@
     }
     if (page === 'perf') {
       document.querySelectorAll('.seg button').forEach((b) => b.addEventListener('click', () => { perfDays = +b.dataset.days; route(); }));
+      $('#applyplatt')?.addEventListener('click', (e) => { const C = P.cfg(); C.platt = { a: +e.target.dataset.a, b: +e.target.dataset.b }; P.saveCfg(C); toast('Recalibrage appliqué aux prochaines analyses'); route(); });
+      $('#resetplatt')?.addEventListener('click', () => { const C = P.cfg(); delete C.platt; P.saveCfg(C); toast('Recalibrage retiré'); route(); });
       $('#applyw')?.addEventListener('click', (e) => { const C = P.cfg(); C.wMarket = +e.target.dataset.w; P.saveCfg(C); toast('Poids du marché mis à jour'); route(); });
     }
     if (page === 'config') {

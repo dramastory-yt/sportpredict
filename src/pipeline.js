@@ -388,11 +388,12 @@ onmessage = (e) => {
         const r = (pl) => { const s = pl.surf?.[sk]; return s && s[1] >= 5 ? (pl.elo + s[0]) / 2 : pl.elo; };
         pEloA = 1 / (1 + Math.pow(10, (r(b) - r(a)) / 400));
         const bt = T.tours[ctx.tour].backtest;
-        wT = bt.n >= 300 ? bt.wMarket : C.wMarket;
+        // sans backtest contre le marché (source ESPN sans cotes), l'Elo ne modifie pas la probabilité : il sert à détecter les divergences
+        wT = bt.n >= 300 ? bt.wMarket : 1;
         pFinal = wT * sA.fairMkt + (1 - wT) * pEloA;
         dq = Math.min(a.n, b.n) >= 20 ? 0.65 : 0.45;
         calib = bt.n >= 300 ? Math.max(0, (Math.log(2) - bt.blendLogLoss) / 0.15) : null;
-        eloNote = `Elo ${ctx.tour} global+${ctx.surface} (tennis-data.co.uk) : ${a.name} ${r(a).toFixed(0)} (${a.n} matchs) vs ${b.name} ${r(b).toFixed(0)} (${b.n}) · poids marché ${wT}${bt.n >= 300 ? ` (backtest ${bt.n} matchs)` : ' (réglage)'}`;
+        eloNote = `Elo ${ctx.tour} global+${ctx.surface} (${T.source || 'tennis'}) : ${a.name} ${r(a).toFixed(0)} (${a.n} matchs) vs ${b.name} ${r(b).toFixed(0)} (${b.n}) · poids marché ${wT}${bt.n >= 300 ? ` (backtest ${bt.n} matchs)` : ' (Elo non validé contre le marché : sert seulement à repérer les divergences)'}`;
       } else eloNote = `joueur(s) introuvable(s) dans les données Elo (${a ? '' : E.home}${!a && !b ? ', ' : ''}${b ? '' : E.away})`;
     }
     const sv = SP.tennisSolveServe(pFinal, ctx.base, ctx.bestOf);
@@ -458,9 +459,11 @@ onmessage = (e) => {
     if (opts.onlyKeys) keys.splice(0, keys.length, ...keys.filter((k) => opts.onlyKeys.has(k)));
     const titles = Object.fromEntries(active.map((s) => [s.key, s.title]));
     const hours = C.extendTo48 ? 48 : C.hours;
-    let raw = [];
+    let raw = [], skippedNoEvents = 0;
     for (let i = 0; i < keys.length; i++) {
       S.progress(0, i, keys.length, titles[keys[i]]);
+      const evl = await D.oddsEventsList(C.oddsKey, keys[i], hours);
+      if (evl.ok && Array.isArray(evl.data) && !evl.data.some((e) => Date.parse(e.commence_time) > Date.now())) { skippedNoEvents++; continue; }
       const r = await D.oddsFor(C.oddsKey, keys[i], { regions: C.regions, markets: keys[i].startsWith('tennis') ? 'h2h,totals,spreads' : C.markets, hours, ttlMin: opts.force ? 0 : 10 });
       if (!r.ok) { A.errors.push(`${titles[keys[i]]}: ${r.error}`); continue; }
       raw.push(...r.data.map((e) => ({ ...e, _fetched: r.at, _stale: !!r.stale })));
@@ -468,7 +471,7 @@ onmessage = (e) => {
     raw = raw.filter((e) => Date.parse(e.commence_time) > Date.now());
     A.counts.available = raw.length;
     A.sources.odds = { provider: 'The Odds API', regions: C.regions, at: Date.now(), remaining: D.apiStatus['The Odds API']?.remaining ?? null };
-    S.done(0, `${raw.length} événements à venir (${keys.length} compétitions)`);
+    S.done(0, `${raw.length} événements à venir (${keys.length - skippedNoEvents} compétitions interrogées, ${skippedNoEvents} sans match ignorées : crédits économisés)`);
 
     // ---------------- 2. statistiques
     S.start(1);
@@ -490,7 +493,7 @@ onmessage = (e) => {
     }
     A.backtests = {
       ...Object.fromEntries(Object.entries(fbStats).filter(([, v]) => v.ok && v.bt).map(([kk, v]) => [D.FOOTBALL[kk].name + ` (${v.source})`, { n: v.bt.n, models: { ...v.bt.models, ...(v.bt.market ? { [`marché (${v.refs || 'clôture'})`]: v.bt.market } : {}) }, ensemble: v.bt.blend || v.bt.ensemble, naive: v.bt.naive, weights: { ...v.bt.weights, ...(v.bt.wMarket != null ? { 'poids marché': v.bt.wMarket } : {}) }, calibration: v.bt.calibration }])),
-      ...Object.fromEntries(Object.entries(LD.tennis?.tours || {}).map(([tour, t]) => [`Tennis ${tour} (Elo surface)`, { n: t.backtest.n, models: { elo: { logLoss: t.backtest.eloLogLoss }, 'marché Pinnacle': { logLoss: t.backtest.pinnacleLogLoss } }, ensemble: { logLoss: t.backtest.blendLogLoss }, weights: { 'poids marché': t.backtest.wMarket } }])),
+      ...Object.fromEntries(Object.entries(LD.tennis?.tours || {}).map(([tour, t]) => [`Tennis ${tour} (Elo surface, ${LD.tennis.source || ''})`, { n: t.backtest.n || t.backtest.nElo || 0, models: { elo: { logLoss: t.backtest.eloLogLoss }, ...(t.backtest.pinnacleLogLoss != null ? { 'marché Pinnacle': { logLoss: t.backtest.pinnacleLogLoss } } : {}) }, ensemble: { logLoss: t.backtest.blendLogLoss ?? t.backtest.eloLogLoss }, naive: { logLoss: Math.log(2) }, weights: t.backtest.wMarket != null ? { 'poids marché': t.backtest.wMarket } : { 'poids marché': 1 } }])),
       ...(nba?.bt ? { NBA: { n: nba.bt.n, models: nba.bt.models, ensemble: nba.bt.ensemble, weights: nba.bt.weights, calibration: nba.bt.calibration } } : {}),
     };
     const okStats = Object.values(fbStats).filter((v) => v.ok).length + (nba?.ok ? 1 : 0);
@@ -652,7 +655,8 @@ onmessage = (e) => {
     for (const E of events) {
       if (E.skip) continue;
       for (const s of E.mk.sels) {
-        const p = s.p2 || s.p1; if (!p) continue;
+        let p = s.p2 || s.p1; if (!p) continue;
+        if (C.platt && p.pWin != null) { const q = SP.applyPlatt(C.platt, p.pWin); p = { ...p, pWin: q, ev: q * s.best.price + (p.pPush || 0) - 1 }; }
         const pStats = s.p1.pStats, pMkt = s.p1.pMkt;
         const modelGap = pStats != null && pMkt != null ? Math.abs(pStats - pMkt) : null;
         const ci = s.p2 ? s.p2.ci : 0.01;
@@ -786,7 +790,7 @@ onmessage = (e) => {
     return {
       id: E.id, sport: E.sport, sportKey: E.sportKey, comp: E.comp, home: E.home, away: E.away, t: E.t, day: E.day, skip: E.skip || null,
       statsNote: E.model?.statsNote || null, models: E.model?.models || null, ctx: E.model?.ctx || null, warnings: E.warnings, info: E.info, news: E.news || [],
-      sims: E.sim ? { n: E.sim.n, ms: E.sim.ms, scenarios: E.sim.scenarios, key: E.sim.key } : null,
+      sims: E.sim ? { n: E.sim.n, ms: E.sim.ms, scenarios: E.sim.scenarios, key: E.sim.key } : null, spec: E.model?.simSpec || null, wSource: E.model?.wSource || null,
       sels: E.mk.sels.map((s) => ({
         id: s.id, mkey: s.mkey, label: s.label, best: s.noTarget ? null : s.best.price, book: s.noTarget ? 'non proposé par le bookmaker cible' : s.best.title, anyBest: s.bestAny?.price ?? s.best.price, last: s.best.last, nBooks: s.nBooks, mean: s.mean, pin: s.pinnacle,
         fair: s.fairMkt, p: (s.p2 || s.p1)?.pWin ?? null, ev: (s.p2 || s.p1)?.ev ?? null, deep: !!s.p2,
@@ -802,5 +806,5 @@ onmessage = (e) => {
   function hashSeed(s) { let h = 2166136261; for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 16777619); } return h >>> 0; }
   const fmtInt = (n) => new Intl.NumberFormat('fr-FR').format(n);
 
-  return { run, cfg, saveCfg, DEFAULT_CFG, SP, tennisContext };
+  return { run, cfg, saveCfg, DEFAULT_CFG, SP, tennisContext, runSims };
 })();

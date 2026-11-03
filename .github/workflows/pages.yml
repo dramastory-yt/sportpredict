@@ -32,6 +32,19 @@ jobs:
         run: python scripts/collect.py dist/data
       - name: Backtest chronologique sur les données réelles
         run: node scripts/backtest.mjs dist/data
+      - name: Alerte du matin sur Telegram (facultative, seulement si les secrets existent)
+        if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+        continue-on-error: true
+        env:
+          ODDS_API_KEY: ${{ secrets.ODDS_API_KEY }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          BANKROLL: ${{ secrets.BANKROLL }}
+        run: |
+          if [ -z "$ODDS_API_KEY" ] || [ -z "$TELEGRAM_BOT_TOKEN" ] || [ -z "$TELEGRAM_CHAT_ID" ]; then echo "Alerte non configurée."; exit 0; fi
+          npm install --no-save playwright@1.49.1
+          npx playwright install --with-deps chromium
+          node scripts/morning.mjs dist
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
         with:

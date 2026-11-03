@@ -116,6 +116,21 @@ for (const h of ['#best', '#values', '#watch', '#calendar', '#history', '#perf',
   if (h === '#calendar') { await page.click('.ev'); await page.waitForTimeout(100); await page.screenshot({ path: process.argv[2] + '/detail.png' }); await page.keyboard.press('Escape'); }
   await page.screenshot({ path: process.argv[2] + '/' + h.slice(1) + '.png', fullPage: h === '#best' });
 }
+// vérificateur de cote : double chance, corners et BTTS
+await page.evaluate(() => { location.hash = '#check'; });
+await page.waitForTimeout(150);
+const checks = [];
+for (const [mk, line, odds] of [['1N', '', '1.45'], ['bttsY', '', '1.80'], ['cornersO', '9.5', '1.85'], ['over', '2.5', '1.95']]) {
+  await page.selectOption('#k-mk', mk); await page.fill('#k-line', line); await page.fill('#k-odds', odds);
+  const before = await page.textContent('#k-out');
+  await page.click('#chk button[type=submit]');
+  await page.waitForFunction((b) => document.querySelector('#k-out').textContent !== b, before, { timeout: 60000 });
+  checks.push(mk + ' → ' + (await page.textContent('#k-out')).replace(/\s+/g, ' ').slice(0, 140));
+}
+console.log('vérificateur :\n ' + checks.join('\n '));
+await page.screenshot({ path: process.argv[2] + '/check.png', fullPage: true });
+await page.evaluate(() => { location.hash = '#dashboard'; });
+await page.waitForTimeout(150);
 // réanalyse
 await page.click('#re');
 await page.waitForFunction(() => !document.body.classList.contains('busy'), null, { timeout: 180000 });

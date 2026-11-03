@@ -122,6 +122,22 @@ ok(nbt && nbt.ensemble.logLoss < Math.log(2), 'NBA ensemble bat pile-ou-face');
 const ns = SP.simulate({ kind: 'nba', ph: 115, pa: 110, sdM: 12.5, sdT: 18, corr: 0, sigmaM: 0.5, seed: 1, minN: 200000, maxN: 200000, keyEvent: (h, a) => h > a });
 near(ns.key.p, SP.normCdf(5 / 12.5), 0.015, 'MC NBA ≈ Φ(marge/σ)');
 
+// --- comptages (corners) et recalibrage
+{
+  let s = 0; for (let k = 0; k < 80; k++) s += SP.nbPmf(k, 10, 1.6);
+  near(s, 1, 1e-6, 'binomiale négative normalisée');
+  near(SP.nbOver(10, 1, 9.5), 1 - Array.from({ length: 10 }, (_, k) => SP.pois(k, 10)).reduce((a, b) => a + b), 1e-9, 'NB φ=1 = Poisson');
+  const cm = matches.map((m) => ({ ...m, cornersH: SP.poissonDraw(R, 5.5), cornersA: SP.poissonDraw(R, 4.5) }));
+  const cf = SP.fitCounts(cm, 'corners');
+  const l = SP.dcLambdas(cf, 'T0', 'T1');
+  near(l.lh + l.la, 10, 0.8, 'modèle corners : moyenne totale');
+  const ps = [], ys = []; for (let i = 0; i < 3000; i++) { const p = 0.2 + 0.6 * R(); ps.push(p); ys.push(R() < 0.5 + (p - 0.5) * 0.6 ? 1 : 0); }
+  const pl = SP.fitPlatt(ps, ys);
+  ok(pl.b < 0.85 && pl.b > 0.4, 'Platt détecte la surconfiance (b=' + pl.b.toFixed(2) + ')');
+  const btts = SP.evalFromSim({ kind: 'football', M: 11, hist: SP.scoreMatrix(1.5, 1.1, 0).flat() }, SP.normalizeSel({ type: 'bttsYes' }), 2);
+  near(btts.pWin, (1 - Math.exp(-1.5)) * (1 - Math.exp(-1.1)), 1e-6, 'BTTS analytique');
+}
+
 // --- score qualité
 const q = SP.qualityScore({ edge: 0.04, uncert: 0.015, modelGap: 0.02, dataQuality: 0.8, calib: 0.5, mcSpread: 0.05, oddsAgeMin: 5, booksAtPrice: 2, riskPenalty: 0, odds: 1.85 });
 ok(q.total > 50 && q.total <= 100 && q.parts.length === 8, 'score qualité ' + q.total);

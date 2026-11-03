@@ -29,6 +29,29 @@ Les clés restent dans le `localStorage` du navigateur. Elles ne sont envoyées 
 | `src/app.js` | Interface (8 pages) |
 | `build.mjs` | Assemble tout dans `dist/index.html` |
 
+## Vérifier une cote (onglet « Vérifier une cote »)
+
+Pour une cote boostée Winamax ou un pari que l'analyse automatique ne couvre pas, choisissez le match et le pari, puis saisissez la cote. L'outil donne la probabilité, la cote juste, l'EV, la cote minimale et une mise indicative.
+Marchés couverts :
+* football : 1/N/2, double chance, remboursé si nul, plus/moins de buts, les deux équipes marquent, handicaps, **corners** et **cartons jaunes** (modèles attaque/défense par équipe sur football-data, loi binomiale négative) ;
+* NBA : vainqueur, handicap, total ;
+* tennis : vainqueur, total de jeux, handicap de jeux.
+
+Les marchés jamais comparés à des cotes réelles exigent une EV doublée (5 % minimum).
+
+## Alerte Telegram chaque matin (facultative, gratuite)
+
+1. Sur Telegram, écrivez à **@BotFather**, envoyez `/newbot`, choisissez un nom et copiez le **jeton** reçu.
+2. Écrivez « bonjour » à votre nouveau bot, puis ouvrez `https://api.telegram.org/bot<JETON>/getUpdates` et repérez `"chat":{"id": ...}` : c'est votre **chat id**.
+3. Sur GitHub, ouvrez le dépôt, puis Settings → Secrets and variables → Actions → New repository secret. Créez `ODDS_API_KEY`, `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID` et, en option, `BANKROLL`.
+4. Chaque matin vers 6 h 40, le robot exécute l'application, lance l'analyse et vous envoie le résultat.
+
+Une analyse consomme environ 20 à 30 crédits The Odds API. Avec l'offre gratuite (500 par mois), l'alerte quotidienne utilise presque tout le quota : lancez alors peu d'analyses manuelles. L'application ignore déjà gratuitement les compétitions sans match.
+
+## Recalibrage
+
+Après 100 paris réglés, l'onglet Stats propose un recalibrage de Platt, qui corrige une éventuelle surconfiance du moteur. Il ne s'applique qu'après votre clic.
+
 ## Bookmaker cible : Winamax
 
 Par défaut, la value et l'EV sont calculées **à la cote Winamax** (`winamax_fr`, région `eu` de The Odds API), car c'est là que vous pariez.
@@ -63,7 +86,7 @@ Chaque matin vers 6 h 40 (heure de Paris), `scripts/collect.py` récupère et pu
 Conclusion honnête : les modèles battent nettement le modèle naïf, mais **le marché de clôture reste meilleur partout**. Le moteur leur donne donc le poids mesuré : de 0 % (Liga, Serie A…) à 45 % (Premier League). Une value vient alors surtout d'une cote Winamax supérieure au prix juste du marché, et les modèles servent à détecter les divergences.
 Comparer aux cotes de clôture est volontairement sévère : elles sont plus précises que les cotes disponibles au moment de parier.
 
-**État des sources au 3 novembre 2026 :** football-data.co.uk fonctionne (environ 5 000 matchs sur 9 championnats ; vrai xG pour la saison 2026/27, cotes de clôture Pinnacle, Betfair Exchange ou moyenne du marché). understat.com (aucune réponse) et tennis-data.co.uk (403) refusent les serveurs GitHub : ils sont désactivés par défaut, et l'xG vient d'une **estimation par les tirs** calibrée sur football-data. ClubElo était en panne (erreur 502) lors du test. Le tennis reste donc fondé sur le marché.
+**État des sources au 3 novembre 2026 :** football-data.co.uk fonctionne (environ 5 000 matchs sur 9 championnats ; vrai xG pour la saison 2026/27, cotes de clôture Pinnacle, Betfair Exchange ou moyenne du marché). understat.com (aucune réponse) et tennis-data.co.uk (403) refusent les serveurs GitHub : ils sont désactivés par défaut, et l'xG vient d'une **estimation par les tirs** calibrée sur football-data. ClubElo était en panne (erreur 502) lors du test. Pour le tennis, un Elo par surface est calculé à partir des résultats ESPN. Faute de cotes historiques pour le valider, il ne modifie pas la probabilité : il sert à repérer les divergences avec le marché.
 
 Si une source échoue, l'échec est consigné dans `data/meta.json` et l'application revient à ESPN ou au marché seul.
 Ouverte en fichier local, l'application n'a pas ces données : utilisez la version en ligne.
