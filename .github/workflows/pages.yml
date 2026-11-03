@@ -30,6 +30,8 @@ jobs:
       - run: pip install requests openpyxl xlrd
       - name: Collecte des données (une source en échec n'arrête pas la publication)
         run: python scripts/collect.py dist/data
+      - name: Backtest chronologique sur les données réelles
+        run: node scripts/backtest.mjs dist/data
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
         with:
