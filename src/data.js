@@ -9,6 +9,8 @@ const SPData = (() => {
     del(k) { try { localStorage.removeItem(k); } catch { /* ignore */ } },
   };
   const log = [];
+  // nettoyage des anciens caches volumineux (versions précédentes) au démarrage
+  try { Object.keys(localStorage).filter((k) => k.startsWith('sp:c:espn')).forEach((k) => localStorage.removeItem(k)); } catch { /* ignore */ }
   const apiStatus = {}; // fournisseur -> {ok, at, msg, remaining}
   function setStatus(provider, ok, msg, extra = {}) {
     apiStatus[provider] = { ok, at: Date.now(), msg, ...extra };
@@ -38,7 +40,9 @@ const SPData = (() => {
       const data = await res.json();
       const entry = { at: now, data, headers: hdr };
       mem.set(cacheKey, entry);
-      if (!raw) LS.set('sp:c:' + cacheKey, entry);
+      // Persistance limitée : Safari (iPhone) n'accorde qu'environ 5 Mo par site. Les grosses réponses
+      // (ESPN notamment) restent en mémoire seulement, pour garder la place aux analyses et aux paris.
+      if (!raw && !cacheKey.startsWith('espn:')) { const s = JSON.stringify(entry); if (s.length < 60000) LS.set('sp:c:' + cacheKey, entry); }
       setStatus(provider, true, 'OK', hdr['x-requests-remaining'] ? { remaining: +hdr['x-requests-remaining'] } : {});
       log.push({ at: now, provider, url: cacheKey, ok: true });
       return { ok: true, data, at: now, cached: false, headers: hdr };

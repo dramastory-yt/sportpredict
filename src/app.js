@@ -75,6 +75,7 @@
     if (P.cfg().notif && A.best && 'Notification' in window && Notification.permission === 'granted') {
       try { new Notification('SportPredict AI — pari validé', { body: `${A.best.match} · ${A.best.label} @ ${A.best.odds}` }); } catch { /* ignore */ }
     }
+    if (A.storageOk === false) toast('Stockage du navigateur plein : analyse affichée mais non enregistrée. Faites Historique > Exporter puis videz le cache dans Réglages.', 'bad');
     location.hash = '#dashboard';
   }
 

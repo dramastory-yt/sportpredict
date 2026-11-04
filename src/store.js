@@ -6,13 +6,21 @@ const SPStore = (() => {
 
   function saveAnalysis(A) {
     // conserve les 30 dernières analyses détaillées (l'événementiel complet est volumineux)
-    const list = get(K.analyses, []);
+    memLast = A; // l'analyse reste affichée même si le stockage du navigateur est plein
+    let list = get(K.analyses, []);
     list.push(A);
-    while (list.length > 30) list.shift();
-    if (!D.LS.set(K.analyses, list)) { // stockage plein : on allège les plus anciennes
-      list.forEach((a, i) => { if (i < list.length - 3) a.events = []; });
-      D.LS.set(K.analyses, list);
-    }
+    while (list.length > 20) list.shift();
+    const slim = (a) => ({ ...a, events: (a.events || []).map((e) => ({ ...e, news: [], info: [], models: null, sels: (e.sels || []).filter((x) => x.deep).slice(0, 10), forecast: e.forecast ? { ...e.forecast, markets: undefined } : null })) });
+    const steps = [
+      () => list,
+      () => { D.purgeCache(); return list; },
+      () => list.map((a, i) => (i < list.length - 1 ? { ...a, events: [] } : a)),
+      () => list.slice(-3).map((a, i, arr) => (i < arr.length - 1 ? { ...a, events: [] } : a)),
+      () => [slim(A)],
+      () => [{ ...A, events: [] }],
+    ];
+    A.storageOk = false;
+    for (const st of steps) { const l = st(); if (D.LS.set(K.analyses, l)) { list = l; A.storageOk = true; break; } }
     // publication : les pronostics publiés ne sont jamais modifiés ensuite
     const picks = get(K.picks, []);
     const pub = [A.best, ...A.values].filter(Boolean).map((p) => ({ ...p, analysisId: A.id, parentId: A.parentId, publishedAt: A.finishedAt }));
@@ -21,11 +29,12 @@ const SPStore = (() => {
       p.version = picks.filter((x) => x.eventId === p.eventId && x.selId === p.selId).length + 1;
       picks.push(p);
     }
-    D.LS.set(K.picks, picks);
+    if (!D.LS.set(K.picks, picks)) { D.purgeCache(); D.LS.set(K.picks, picks); }
     return pub;
   }
-  const analyses = () => get(K.analyses, []);
-  const lastAnalysis = () => { const a = analyses(); return a[a.length - 1] || null; };
+  const analyses = () => { const a = get(K.analyses, []); if (memLast && !a.some((x) => x.id === memLast.id)) a.push(memLast); return a; };
+  let memLast = null;
+  const lastAnalysis = () => { if (memLast) return memLast; const a = analyses(); return a[a.length - 1] || null; };
   const picks = () => get(K.picks, []);
   const results = () => get(K.results, {});
   const clv = () => get(K.clv, {});

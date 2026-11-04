@@ -77,7 +77,7 @@ const errors = [];
 page.on('pageerror', (e) => errors.push(e.message));
 page.on('console', (m) => { if (m.type() === 'error') errors.push(m.text()); });
 let oddsCalls = 0;
-await page.route('**/*', async (route) => {
+const handler = async (route) => {
   const url = route.request().url();
   const json = (o, h = {}) => route.fulfill({ status: 200, contentType: 'application/json', headers: { 'access-control-allow-origin': '*', ...h }, body: JSON.stringify(o) });
   if (url.includes('fonts.g')) return route.fulfill({ status: 200, body: '' });
@@ -99,7 +99,8 @@ await page.route('**/*', async (route) => {
   if (url.includes('/data/meta.json')) return json({ generatedAt: new Date().toISOString(), sources: {} });
   if (url.startsWith('http://127.0.0.1')) return route.continue();
   return route.fulfill({ status: 404, body: 'blocked in test' });
-});
+};
+await page.route('**/*', handler);
 await page.goto(BASE);
 await page.evaluate(() => localStorage.setItem('sp:cfg', JSON.stringify({ oddsKey: 'TEST', leagues: { soccer_epl: true, soccer_france_ligue_one: false, soccer_spain_la_liga: false, soccer_italy_serie_a: false, soccer_germany_bundesliga: false, soccer_uefa_champs_league: false, soccer_uefa_europa_league: false }, maxSims: 300000, minSims: 100000, safeMinP: 0.6, safeMaxOdds: 1.8 })));
 await page.reload();
@@ -155,8 +156,27 @@ await page.waitForFunction(() => !document.body.classList.contains('busy'), null
 const re = await page.evaluate(() => { const a = JSON.parse(localStorage.getItem('sp:analyses')).pop(); return { kind: a.kind, parent: a.parentId, recheck: a.recheck?.length, picks: JSON.parse(localStorage.getItem('sp:picks')).length }; });
 console.log('réanalyse :', JSON.stringify(re));
 const mobile = await browser.newPage({ viewport: { width: 390, height: 844 } });
+// Simulation Safari iPhone : stockage limité à 3 Mo, et caches volumineux d'une ancienne version
+await mobile.addInitScript(() => {
+  const orig = Storage.prototype.setItem;
+  Storage.prototype.setItem = function (k, v) {
+    let tot = 0; for (let i = 0; i < this.length; i++) { const kk = this.key(i); if (kk !== k) tot += kk.length + (this.getItem(kk) || '').length; }
+    if (tot + k.length + String(v).length > 1.5e6) { const e = new Error('QuotaExceededError'); e.name = 'QuotaExceededError'; throw e; }
+    return orig.call(this, k, v);
+  };
+});
+await mobile.route('**/*', handler);
 await mobile.goto(BASE);
 const ov = await mobile.evaluate(() => document.documentElement.scrollWidth > window.innerWidth);
+// analyse complète sur le « téléphone » avec quota : le résultat doit s'afficher et être enregistré
+await mobile.evaluate(() => { localStorage.setItem('sp:cfg', JSON.stringify({ oddsKey: 'TEST', leagues: { soccer_epl: true, soccer_france_ligue_one: false, soccer_spain_la_liga: false, soccer_italy_serie_a: false, soccer_germany_bundesliga: false, soccer_uefa_champs_league: false, soccer_uefa_europa_league: false }, maxSims: 200000 })); for (let i = 0; i < 6; i++) { try { localStorage.setItem('sp:c:espn:old' + i, 'x'.repeat(200000)); } catch (e) {} } });
+await mobile.reload();
+await mobile.click('#go');
+await mobile.waitForFunction(() => !document.body.classList.contains('busy'), null, { timeout: 180000 });
+const mob = await mobile.evaluate(() => ({ daily: !!document.querySelector('.daily'), empty: document.body.textContent.includes('Aucune analyse pour'), saved: (JSON.parse(localStorage.getItem('sp:analyses') || '[]')).length, used: Object.keys(localStorage).reduce((s, k) => s + k.length + localStorage.getItem(k).length, 0) }));
+await mobile.reload();
+const mob2 = await mobile.evaluate(() => !!document.querySelector('.daily'));
+console.log('iPhone simulé (quota 1,5 Mo) :', JSON.stringify(mob), '| après rechargement, pronostic affiché :', mob2);
 await mobile.screenshot({ path: process.argv[2] + '/mobile.png' });
 console.log('débordement horizontal mobile :', ov);
 console.log('erreurs JS :', errors.length ? errors : 'aucune');
