@@ -9,7 +9,7 @@ const SPPipeline = (() => {
     oddsKey: '', claudeKey: '', regions: 'eu', markets: 'h2h,totals,spreads', targetBook: 'winamax_fr',
     leagues: Object.fromEntries(Object.entries(D.FOOTBALL).map(([k, v]) => [k, v.on])),
     tennis: true, nba: true, maxTennisTournaments: 4,
-    allFootball: true, allBasket: true, creditBudget: 45, excluded: [],
+    footballScope: 'principal', basketScope: 'principal', creditBudget: 45, excluded: [], included: [],
     wMarket: 0.65, minEV: 0.02, minOdds: 1.20, maxOdds: 3.5, prefLo: 1.40, prefHi: 2.20,
     bankroll: 100, kellyFrac: 0.25, maxStakePct: 0.02, mode: 'sûr', safeMinP: 0.70, safeMaxOdds: 1.70, safeTolEV: -0.03, safeStakePct: 0.02, maxOddsAgeMin: 45, maxGap: 0.10, maxSims: 1000000, minSims: 100000, tol: 0.0015, phase2Events: 14,
     hours: 24, extendTo48: true, autoOn: false, autoTime: '09:00', notif: false, preMatchRecheck: false,
@@ -67,6 +67,26 @@ onmessage = (e) => {
       };
       pool.workers.forEach(start);
     });
+  }
+
+  // Compétitions principales (régulières, bien couvertes) : les seules interrogées par défaut.
+  const FOOT_MAIN = new Set(['soccer_france_ligue_one', 'soccer_epl', 'soccer_spain_la_liga', 'soccer_italy_serie_a', 'soccer_germany_bundesliga',
+    'soccer_uefa_champs_league', 'soccer_uefa_europa_league', 'soccer_uefa_europa_conference_league',
+    'soccer_france_ligue_two', 'soccer_efl_champ', 'soccer_netherlands_eredivisie', 'soccer_portugal_primeira_liga']);
+  const BASKET_MAIN = new Set(['basketball_nba', 'basketball_euroleague']);
+  const groupOfSport = (s) => (s.group === 'Soccer' ? 'football' : s.group === 'Basketball' ? 'basket' : s.group === 'Tennis' ? 'tennis' : null);
+  function isDefault(s, C) {
+    const g = groupOfSport(s);
+    if (g === 'football') return C.footballScope === 'toutes' || FOOT_MAIN.has(s.key);
+    if (g === 'basket') return C.basketScope === 'toutes' || BASKET_MAIN.has(s.key);
+    if (g === 'tennis') return !!C.tennis;
+    return false;
+  }
+  function isWanted(s, C) {
+    if (!groupOfSport(s) || !s.active || s.has_outrights) return false;
+    if ((C.excluded || []).includes(s.key)) return false;
+    if ((C.included || []).includes(s.key)) return true;
+    return isDefault(s, C);
   }
 
   // ------------------------------------------------------------ marchés
@@ -467,12 +487,7 @@ onmessage = (e) => {
     const hours = C.extendTo48 ? 48 : C.hours;
     // TOUTES les compétitions actives de foot, basket et tennis (liste gratuite), sauf celles exclues dans Réglages.
     const groupOf = (s) => (s.group === 'Soccer' ? 'football' : s.group === 'Basketball' ? 'basket' : s.group === 'Tennis' ? 'tennis' : null);
-    const wanted = active.filter((s) => {
-      const g = groupOf(s); if (!g) return false;
-      if ((C.excluded || []).includes(s.key)) return false;
-      if (D.FOOTBALL[s.key] && C.leagues[s.key] === false && !C.allFootball) return false;
-      return g === 'football' ? (C.allFootball || C.leagues[s.key]) : g === 'basket' ? (C.allBasket || (s.key === 'basketball_nba' && C.nba)) : C.tennis;
-    });
+    const wanted = active.filter((s) => isWanted(s, C));
     const MAJOR = new Set([...Object.entries(D.FOOTBALL).filter(([, v]) => v.on).map(([k2]) => k2), 'basketball_nba', 'basketball_euroleague']);
     const wmx = D.LS.get('sp:wmx', {}); // compétitions sans cotes chez le bookmaker cible (mémorisé 7 jours)
     // 1) liste des matchs : gratuite, en parallèle par 6
@@ -1065,5 +1080,5 @@ onmessage = (e) => {
   function hashSeed(s) { let h = 2166136261; for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 16777619); } return h >>> 0; }
   const fmtInt = (n) => new Intl.NumberFormat('fr-FR').format(n);
 
-  return { run, cfg, saveCfg, DEFAULT_CFG, SP, tennisContext, runSims };
+  return { run, cfg, saveCfg, DEFAULT_CFG, SP, tennisContext, runSims, isDefault, isWanted };
 })();

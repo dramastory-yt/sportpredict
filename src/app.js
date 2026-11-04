@@ -381,7 +381,10 @@
           <p class="muted">La value et l’EV sont calculées à la cote de ce bookmaker uniquement.</p>
         </section>
         <section class="card"><h3>Compétitions</h3>
-          <div class="chks">${chk('c-allf', C.allFootball, 'Football : toutes les compétitions')}${chk('c-allb', C.allBasket, 'Basket : toutes (NBA, Euroleague…)')}${chk('c-tennis', C.tennis, 'Tennis : tous les tournois ATP/WTA')}</div>
+          <div class="g3">
+            <label>Football <select id="c-fscope"><option value="principal" ${C.footballScope !== 'toutes' ? 'selected' : ''}>Compétitions principales (recommandé)</option><option value="toutes" ${C.footballScope === 'toutes' ? 'selected' : ''}>Toutes les compétitions</option></select></label>
+            <label>Basket <select id="c-bscope"><option value="principal" ${C.basketScope !== 'toutes' ? 'selected' : ''}>NBA et Euroleague (recommandé)</option><option value="toutes" ${C.basketScope === 'toutes' ? 'selected' : ''}>Toutes les compétitions</option></select></label>
+            ${chk('c-tennis', C.tennis, 'Tennis : tournois ATP/WTA en cours')}</div>
           ${n('c-budget', C.creditBudget, 'Budget de crédits par analyse (≈ 2 à 3 par compétition)')}
           <p class="muted">À chaque analyse, l’application récupère gratuitement la liste de toutes les compétitions actives et ne paie que pour celles qui ont des matchs dans les 24 h. Les compétitions où ${C.targetBook === 'winamax_fr' ? 'Winamax' : 'votre bookmaker'} ne propose aucune cote sont mémorisées et ignorées pendant 7 jours. Priorité aux grands championnats, puis aux compétitions avec le plus de matchs.</p>
           ${(() => {
@@ -392,7 +395,7 @@
             return Object.entries(grp).map(([g, lab]) => {
               const L = sp.filter((s) => s.group === g && s.active && !s.has_outrights).sort((x, y) => x.title.localeCompare(y.title));
               if (!L.length) return '';
-              return `<details><summary>${lab} : ${L.length} compétitions actives</summary><div class="chks">${L.map((s) => { const w = wmx[s.key]; const tag = !w ? '' : w.has ? ' <small class="pos">Winamax ✓</small>' : ' <small class="neg">pas de Winamax</small>'; return `<label class="chk"><input type="checkbox" data-comp="${esc(s.key)}" ${(C.excluded || []).includes(s.key) ? '' : 'checked'}> ${esc(s.title)}${tag}</label>`; }).join('')}</div></details>`;
+              return `<details><summary>${lab} : ${L.length} compétitions actives</summary><div class="chks">${L.map((s) => { const w = wmx[s.key]; const tag = !w ? '' : w.has ? ' <small class="pos">Winamax ✓</small>' : ' <small class="neg">pas de Winamax</small>'; return `<label class="chk"><input type="checkbox" data-comp="${esc(s.key)}" data-def="${P.isDefault(s, C) ? 1 : 0}" ${P.isWanted(s, C) ? 'checked' : ''}> ${esc(s.title)}${tag}</label>`; }).join('')}</div></details>`;
             }).join('');
           })()}
         </section>
@@ -536,10 +539,16 @@
         e.preventDefault();
         const C = P.cfg(), v = (id) => $('#' + id).value, c = (id) => $('#' + id).checked;
         C.oddsKey = v('c-odds').trim(); C.claudeKey = v('c-claude').trim(); C.regions = v('c-reg'); C.targetBook = v('c-target');
-        C.allFootball = c('c-allf'); C.allBasket = c('c-allb'); C.tennis = c('c-tennis'); C.nba = C.allBasket || C.nba;
+        C.footballScope = v('c-fscope'); C.basketScope = v('c-bscope'); C.tennis = c('c-tennis'); C.nba = true;
         C.creditBudget = Math.max(3, parseFloat(v('c-budget')) || 45);
         const boxes = [...document.querySelectorAll('[data-comp]')];
-        if (boxes.length) C.excluded = boxes.filter((b) => !b.checked).map((b) => b.dataset.comp);
+        // une case cochée hors liste par défaut = ajout ; décochée dans la liste par défaut = exclusion
+        if (boxes.length) {
+          const sp = D.LS.get('sp:c:odds:sports', null)?.data || [];
+          const def = (k) => { const s = sp.find((x) => x.key === k); return s ? P.isDefault(s, C) : false; };
+          C.excluded = boxes.filter((b) => !b.checked && def(b.dataset.comp)).map((b) => b.dataset.comp);
+          C.included = boxes.filter((b) => b.checked && !def(b.dataset.comp)).map((b) => b.dataset.comp);
+        }
         C.minOdds = Math.max(1.2, +v('c-minodds')); C.maxOdds = +v('c-maxodds'); C.minEV = Math.max(0, +v('c-minev'));
         C.maxOddsAgeMin = +v('c-age'); C.maxGap = +v('c-gap'); C.wMarket = Math.min(1, Math.max(0, +v('c-wm'))); C.hours = +v('c-hours'); C.extendTo48 = c('c-48');
         C.minSims = Math.max(10000, +v('c-mins')); C.maxSims = Math.max(C.minSims, +v('c-maxs')); C.tol = Math.max(0.0005, +v('c-tol')); C.phase2Events = Math.max(1, +v('c-p2'));
