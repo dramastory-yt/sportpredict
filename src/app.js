@@ -11,7 +11,7 @@
   const dt = (t) => new Date(t).toLocaleString('fr-FR', { timeZone: TZ, weekday: 'short', day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' });
   const hm = (t) => new Date(t).toLocaleTimeString('fr-FR', { timeZone: TZ, hour: '2-digit', minute: '2-digit' });
   const ago = (t) => { const m = Math.round((Date.now() - t) / 60e3); return m < 1 ? 'à l’instant' : m < 60 ? `il y a ${m} min` : m < 1440 ? `il y a ${Math.round(m / 60)} h` : `il y a ${Math.round(m / 1440)} j`; };
-  const SPORT = { football: 'Football', tennis: 'Tennis', nba: 'NBA' };
+  const SPORT = { football: 'Football', tennis: 'Tennis', nba: 'NBA', basket: 'Basket' };
   const MKT = { h2h: 'Vainqueur', totals: 'Total', spreads: 'Handicap' };
 
   const STEPS = ['Récupération des matchs', 'Collecte des statistiques', 'Analyse des blessures', 'Vérification des compositions', 'Analyse des actualités', 'Comparaison des cotes', 'Calcul des modèles', 'Simulations Monte-Carlo', 'Classement des opportunités', 'Validation finale'];
@@ -379,9 +379,22 @@
           <label>Bookmaker où vous pariez <select id="c-target">${[['winamax_fr', 'Winamax'], ['', 'Aucun : meilleure cote disponible']].map(([v, l]) => `<option value="${v}" ${C.targetBook === v ? 'selected' : ''}>${l}</option>`).join('')}</select></label>
           <p class="muted">La value et l’EV sont calculées à la cote de ce bookmaker uniquement.</p>
         </section>
-        <section class="card"><h3>Compétitions</h3><div class="chks">${Object.entries(D.FOOTBALL).map(([k2, v]) => chk('L-' + k2, C.leagues[k2], v.name + (v.stats ? '' : ' <small>(marché seul)</small>'))).join('')}
-          ${chk('c-nba', C.nba, 'NBA')}${chk('c-tennis', C.tennis, 'Tennis ATP/WTA (tournois actifs)')}</div>
-          ${n('c-tt', C.maxTennisTournaments, 'Tournois de tennis max', 1)}</section>
+        <section class="card"><h3>Compétitions</h3>
+          <div class="chks">${chk('c-allf', C.allFootball, 'Football : toutes les compétitions')}${chk('c-allb', C.allBasket, 'Basket : toutes (NBA, Euroleague…)')}${chk('c-tennis', C.tennis, 'Tennis : tous les tournois ATP/WTA')}</div>
+          ${n('c-budget', C.creditBudget, 'Budget de crédits par analyse (≈ 2 à 3 par compétition)')}
+          <p class="muted">À chaque analyse, l’application récupère gratuitement la liste de toutes les compétitions actives et ne paie que pour celles qui ont des matchs dans les 24 h. Les compétitions où ${C.targetBook === 'winamax_fr' ? 'Winamax' : 'votre bookmaker'} ne propose aucune cote sont mémorisées et ignorées pendant 7 jours. Priorité aux grands championnats, puis aux compétitions avec le plus de matchs.</p>
+          ${(() => {
+            const sp = D.LS.get('sp:c:odds:sports', null)?.data;
+            if (!sp) return '<p class="muted">La liste détaillée apparaîtra après la première analyse.</p>';
+            const wmx = D.LS.get('sp:wmx', {});
+            const grp = { Soccer: 'Football', Basketball: 'Basket', Tennis: 'Tennis' };
+            return Object.entries(grp).map(([g, lab]) => {
+              const L = sp.filter((s) => s.group === g && s.active && !s.has_outrights).sort((x, y) => x.title.localeCompare(y.title));
+              if (!L.length) return '';
+              return `<details><summary>${lab} : ${L.length} compétitions actives</summary><div class="chks">${L.map((s) => { const w = wmx[s.key]; const tag = !w ? '' : w.has ? ' <small class="pos">Winamax ✓</small>' : ' <small class="neg">pas de Winamax</small>'; return `<label class="chk"><input type="checkbox" data-comp="${esc(s.key)}" ${(C.excluded || []).includes(s.key) ? '' : 'checked'}> ${esc(s.title)}${tag}</label>`; }).join('')}</div></details>`;
+            }).join('');
+          })()}
+        </section>
         <section class="card"><h3>Type de pronostic du jour</h3><div class="g3">
           <label>Mode <select id="c-mode"><option value="sûr" ${C.mode !== 'value' ? 'selected' : ''}>Paris sûrs : très probables, petites cotes</option><option value="value" ${C.mode === 'value' ? 'selected' : ''}>Value : rentabilité maximale, cotes plus hautes</option></select></label>
           ${n('c-sminp', C.safeMinP, 'Probabilité minimale d’un pari sûr', 0.01)}${n('c-smaxo', C.safeMaxOdds, 'Cote maximale d’un pari sûr', 0.05)}${n('c-stol', C.safeTolEV, 'Tolérance de cote (−0.03 = 3 % sous la vraie valeur)', 0.005)}${n('c-sst', C.safeStakePct, 'Mise par pari sûr (0.02 = 2 % de la bankroll)', 0.005)}</div>
@@ -521,8 +534,10 @@
         e.preventDefault();
         const C = P.cfg(), v = (id) => $('#' + id).value, c = (id) => $('#' + id).checked;
         C.oddsKey = v('c-odds').trim(); C.claudeKey = v('c-claude').trim(); C.regions = v('c-reg'); C.targetBook = v('c-target');
-        for (const k of Object.keys(D.FOOTBALL)) C.leagues[k] = c('L-' + k);
-        C.nba = c('c-nba'); C.tennis = c('c-tennis'); C.maxTennisTournaments = Math.max(0, +v('c-tt'));
+        C.allFootball = c('c-allf'); C.allBasket = c('c-allb'); C.tennis = c('c-tennis'); C.nba = C.allBasket || C.nba;
+        C.creditBudget = Math.max(3, parseFloat(v('c-budget')) || 45);
+        const boxes = [...document.querySelectorAll('[data-comp]')];
+        if (boxes.length) C.excluded = boxes.filter((b) => !b.checked).map((b) => b.dataset.comp);
         C.minOdds = Math.max(1.2, +v('c-minodds')); C.maxOdds = +v('c-maxodds'); C.minEV = Math.max(0, +v('c-minev'));
         C.maxOddsAgeMin = +v('c-age'); C.maxGap = +v('c-gap'); C.wMarket = Math.min(1, Math.max(0, +v('c-wm'))); C.hours = +v('c-hours'); C.extendTo48 = c('c-48');
         C.minSims = Math.max(10000, +v('c-mins')); C.maxSims = Math.max(C.minSims, +v('c-maxs')); C.tol = Math.max(0.0005, +v('c-tol')); C.phase2Events = Math.max(1, +v('c-p2'));

@@ -76,6 +76,15 @@ const SPData = (() => {
     soccer_efl_champ: { espn: 'eng.2', name: 'Championship', stats: true, on: false },
     soccer_netherlands_eredivisie: { espn: 'ned.1', name: 'Eredivisie', stats: true, on: false },
     soccer_portugal_primeira_liga: { espn: 'por.1', name: 'Liga Portugal', stats: true, on: false },
+    soccer_spl: { espn: 'sco.1', name: 'Premiership (Écosse)', stats: true, on: false },
+    soccer_belgium_first_div: { espn: 'bel.1', name: 'Pro League (Belgique)', stats: true, on: false },
+    soccer_turkey_super_league: { espn: 'tur.1', name: 'Süper Lig (Turquie)', stats: true, on: false },
+    soccer_greece_super_league: { espn: 'gre.1', name: 'Super League (Grèce)', stats: true, on: false },
+    soccer_germany_bundesliga2: { espn: 'ger.2', name: '2. Bundesliga', stats: true, on: false },
+    soccer_italy_serie_b: { espn: 'ita.2', name: 'Serie B', stats: true, on: false },
+    soccer_spain_segunda_division: { espn: 'esp.2', name: 'Liga 2 (Espagne)', stats: true, on: false },
+    soccer_england_league1: { espn: 'eng.3', name: 'League One', stats: true, on: false },
+    soccer_england_league2: { espn: 'eng.4', name: 'League Two', stats: true, on: false },
   };
 
   async function oddsSports(key) {

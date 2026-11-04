@@ -72,6 +72,9 @@ FD_LEAGUES = {
     "soccer_epl": "E0", "soccer_france_ligue_one": "F1", "soccer_spain_la_liga": "SP1",
     "soccer_italy_serie_a": "I1", "soccer_germany_bundesliga": "D1", "soccer_france_ligue_two": "F2",
     "soccer_efl_champ": "E1", "soccer_netherlands_eredivisie": "N1", "soccer_portugal_primeira_liga": "P1",
+    "soccer_spl": "SC0", "soccer_belgium_first_div": "B1", "soccer_turkey_super_league": "T1", "soccer_greece_super_league": "G1",
+    "soccer_germany_bundesliga2": "D2", "soccer_italy_serie_b": "I2", "soccer_spain_segunda_division": "SP2",
+    "soccer_england_league1": "E2", "soccer_england_league2": "E3",
 }
 
 
@@ -435,7 +438,9 @@ def espn_nba():
 # ---------------------------------------------------------------- ESPN football : buteurs de la saison
 ESPN_SOCCER = {"soccer_epl": "eng.1", "soccer_france_ligue_one": "fra.1", "soccer_spain_la_liga": "esp.1", "soccer_italy_serie_a": "ita.1",
                "soccer_germany_bundesliga": "ger.1", "soccer_france_ligue_two": "fra.2", "soccer_efl_champ": "eng.2",
-               "soccer_netherlands_eredivisie": "ned.1", "soccer_portugal_primeira_liga": "por.1"}
+               "soccer_netherlands_eredivisie": "ned.1", "soccer_portugal_primeira_liga": "por.1",
+               "soccer_spl": "sco.1", "soccer_belgium_first_div": "bel.1", "soccer_turkey_super_league": "tur.1", "soccer_greece_super_league": "gre.1",
+               "soccer_germany_bundesliga2": "ger.2", "soccer_italy_serie_b": "ita.2", "soccer_spain_segunda_division": "esp.2"}
 
 
 def espn_scorers():

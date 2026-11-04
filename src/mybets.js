@@ -10,7 +10,7 @@ const SPMyBets = (() => {
   const TZ = 'Europe/Paris';
   const dt = (t) => new Date(t).toLocaleString('fr-FR', { timeZone: TZ, day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' });
   const dayKey = (t) => new Date(t).toLocaleDateString('fr-CA', { timeZone: TZ }); // AAAA-MM-JJ
-  const SPORT = { football: 'Football', tennis: 'Tennis', nba: 'NBA', autre: 'Autre' };
+  const SPORT = { football: 'Football', tennis: 'Tennis', nba: 'NBA', basket: 'Basket', autre: 'Autre' };
   const SRC = { daily: 'Pronostic du jour', best: 'Meilleur pari', value: 'Value', prono: 'Pronostic', check: 'Vérificateur', manuel: 'Pari perso' };
 
   const bets = () => D.LS.get(KEY, []);

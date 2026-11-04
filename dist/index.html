@@ -91,7 +91,7 @@ main { max-width: 1180px; margin: 0 auto; padding-block: 1.4rem 3rem; padding-le
 .pick header, .card header { display: flex; justify-content: space-between; gap: .6rem; flex-wrap: wrap; align-items: baseline; margin-bottom: .3rem; }
 .when { font-family: var(--f-mono); font-size: .85rem; color: var(--muted); }
 .sport { font: 600 .72rem var(--f-body); text-transform: uppercase; letter-spacing: .07em; padding: .1rem .45rem; border-radius: 5px; border: 1px solid; }
-.s-football { color: var(--foot); } .s-tennis { color: var(--tennis); } .s-nba { color: var(--nba); }
+.s-football { color: var(--foot); } .s-tennis { color: var(--tennis); } .s-nba, .s-basket { color: var(--nba); }
 .pick h3 { font-size: 1.3rem; }
 .pick.big { border-color: color-mix(in srgb, var(--accent) 55%, var(--line)); background: linear-gradient(180deg, color-mix(in srgb, var(--accent) 6%, var(--surface)), var(--surface) 240px); }
 .pick.big h3 { font-size: clamp(1.4rem, 3.5vw, 2rem); }
@@ -1161,6 +1161,15 @@ const SPData = (() => {
     soccer_efl_champ: { espn: 'eng.2', name: 'Championship', stats: true, on: false },
     soccer_netherlands_eredivisie: { espn: 'ned.1', name: 'Eredivisie', stats: true, on: false },
     soccer_portugal_primeira_liga: { espn: 'por.1', name: 'Liga Portugal', stats: true, on: false },
+    soccer_spl: { espn: 'sco.1', name: 'Premiership (Écosse)', stats: true, on: false },
+    soccer_belgium_first_div: { espn: 'bel.1', name: 'Pro League (Belgique)', stats: true, on: false },
+    soccer_turkey_super_league: { espn: 'tur.1', name: 'Süper Lig (Turquie)', stats: true, on: false },
+    soccer_greece_super_league: { espn: 'gre.1', name: 'Super League (Grèce)', stats: true, on: false },
+    soccer_germany_bundesliga2: { espn: 'ger.2', name: '2. Bundesliga', stats: true, on: false },
+    soccer_italy_serie_b: { espn: 'ita.2', name: 'Serie B', stats: true, on: false },
+    soccer_spain_segunda_division: { espn: 'esp.2', name: 'Liga 2 (Espagne)', stats: true, on: false },
+    soccer_england_league1: { espn: 'eng.3', name: 'League One', stats: true, on: false },
+    soccer_england_league2: { espn: 'eng.4', name: 'League Two', stats: true, on: false },
   };
 
   async function oddsSports(key) {
@@ -1549,6 +1558,7 @@ const SPPipeline = (() => {
     oddsKey: '', claudeKey: '', regions: 'eu', markets: 'h2h,totals,spreads', targetBook: 'winamax_fr',
     leagues: Object.fromEntries(Object.entries(D.FOOTBALL).map(([k, v]) => [k, v.on])),
     tennis: true, nba: true, maxTennisTournaments: 4,
+    allFootball: true, allBasket: true, creditBudget: 45, excluded: [],
     wMarket: 0.65, minEV: 0.02, minOdds: 1.20, maxOdds: 3.5, prefLo: 1.40, prefHi: 2.20,
     bankroll: 100, kellyFrac: 0.25, maxStakePct: 0.02, mode: 'sûr', safeMinP: 0.70, safeMaxOdds: 1.70, safeTolEV: -0.03, safeStakePct: 0.02, maxOddsAgeMin: 45, maxGap: 0.10, maxSims: 1000000, minSims: 100000, tol: 0.0015, phase2Events: 14,
     hours: 24, extendTo48: true, autoOn: false, autoTime: '09:00', notif: false, preMatchRecheck: false,
@@ -1973,7 +1983,7 @@ onmessage = (e) => {
     if (C.targetBook && c.second && c.best.price / c.second.price > 1.07) warn.push(`${c.best.title} est ${((c.best.price / c.second.price - 1) * 100).toFixed(0)} % au-dessus du bookmaker suivant : vérifiez la cote sur le site avant de parier`);
     else if (c.second && c.best.book !== 'pinnacle' && c.best.price / c.second.price > 1.07) reasons.push(`cote isolée (${c.best.title} ${c.best.price} vs ${c.second.price} ailleurs) : possible erreur ou cote obsolète`);
     if (c.modelGap != null && c.modelGap > C.maxGap) reasons.push(`divergence modèles/marché de ${(c.modelGap * 100).toFixed(1)} pts non expliquée`);
-    if (c.fairMkt == null && c.sport !== 'nba') reasons.push('probabilité de marché indisponible');
+    if (c.fairMkt == null && c.sport !== 'nba' && c.sport !== 'basket') reasons.push('probabilité de marché indisponible');
     if (c.simN && c.simCI > 0.01) reasons.push('simulations insuffisamment stables');
     if (c.mcSpread > 0.2) reasons.push('résultat trop sensible aux hypothèses (scénarios)');
     if (c.llm?.impact === 'majeur') reasons.push('information majeure à confirmer (analyse des actualités)');
@@ -2001,27 +2011,60 @@ onmessage = (e) => {
     S.start(0);
     const sp = await D.oddsSports(C.oddsKey);
     if (!sp.ok) { S.fail(0, 'The Odds API : ' + sp.error); A.errors.push(sp.error); return finish(A, ui); }
-    const active = sp.data.filter((s) => s.active);
-    const keys = [];
-    for (const [k, on] of Object.entries(C.leagues)) if (on && active.find((s) => s.key === k)) keys.push(k);
-    if (C.nba && active.find((s) => s.key === 'basketball_nba')) keys.push('basketball_nba');
-    if (C.tennis) active.filter((s) => s.group === 'Tennis' && !s.has_outrights).slice(0, C.maxTennisTournaments).forEach((s) => keys.push(s.key));
-    if (opts.onlyKeys) keys.splice(0, keys.length, ...keys.filter((k) => opts.onlyKeys.has(k)));
-    const titles = Object.fromEntries(active.map((s) => [s.key, s.title]));
+    const active = sp.data.filter((s) => s.active && !s.has_outrights);
+    const titles = Object.fromEntries(sp.data.map((s) => [s.key, s.title]));
     const hours = C.extendTo48 ? 48 : C.hours;
-    let raw = [], skippedNoEvents = 0;
-    for (let i = 0; i < keys.length; i++) {
-      S.progress(0, i, keys.length, titles[keys[i]]);
-      const evl = await D.oddsEventsList(C.oddsKey, keys[i], hours);
-      if (evl.ok && Array.isArray(evl.data) && !evl.data.some((e) => Date.parse(e.commence_time) > Date.now())) { skippedNoEvents++; continue; }
-      const r = await D.oddsFor(C.oddsKey, keys[i], { regions: C.regions, markets: keys[i].startsWith('tennis') ? 'h2h,totals,spreads' : C.markets, hours, ttlMin: opts.force ? 0 : 10 });
-      if (!r.ok) { A.errors.push(`${titles[keys[i]]}: ${r.error}`); continue; }
+    // TOUTES les compétitions actives de foot, basket et tennis (liste gratuite), sauf celles exclues dans Réglages.
+    const groupOf = (s) => (s.group === 'Soccer' ? 'football' : s.group === 'Basketball' ? 'basket' : s.group === 'Tennis' ? 'tennis' : null);
+    const wanted = active.filter((s) => {
+      const g = groupOf(s); if (!g) return false;
+      if ((C.excluded || []).includes(s.key)) return false;
+      if (D.FOOTBALL[s.key] && C.leagues[s.key] === false && !C.allFootball) return false;
+      return g === 'football' ? (C.allFootball || C.leagues[s.key]) : g === 'basket' ? (C.allBasket || (s.key === 'basketball_nba' && C.nba)) : C.tennis;
+    });
+    const MAJOR = new Set([...Object.entries(D.FOOTBALL).filter(([, v]) => v.on).map(([k2]) => k2), 'basketball_nba', 'basketball_euroleague']);
+    const wmx = D.LS.get('sp:wmx', {}); // compétitions sans cotes chez le bookmaker cible (mémorisé 7 jours)
+    // 1) liste des matchs : gratuite, en parallèle par 6
+    const withCount = [];
+    for (let i = 0; i < wanted.length; i += 6) {
+      S.progress(0, i, wanted.length, 'recherche des matchs (gratuit)');
+      const rs = await Promise.all(wanted.slice(i, i + 6).map((s) => D.oddsEventsList(C.oddsKey, s.key, hours)));
+      rs.forEach((r, j) => {
+        const s = wanted[i + j];
+        const n = r.ok && Array.isArray(r.data) ? r.data.filter((e) => Date.parse(e.commence_time) > Date.now()).length : null;
+        withCount.push({ key: s.key, n, group: groupOf(s) });
+      });
+    }
+    const nRegions = C.regions.split(',').length;
+    let skippedNoEvents = 0, skippedNoTarget = 0, skippedBudget = [], spent = 0;
+    const plan = withCount.filter((x) => {
+      if (x.n === 0) { skippedNoEvents++; return false; }
+      const w = wmx[x.key];
+      if (C.targetBook && w && w.has === false && Date.now() - w.at < 7 * 86400e3) { skippedNoTarget++; return false; }
+      return true;
+    }).sort((a, b) => (MAJOR.has(b.key) - MAJOR.has(a.key)) || ((b.n ?? 1) - (a.n ?? 1)));
+    const keys = [];
+    let raw = [];
+    for (let i = 0; i < plan.length; i++) {
+      const x = plan[i];
+      // marchés : complets pour les majeures, vainqueur + total pour les autres (2 crédits au lieu de 3)
+      const markets = MAJOR.has(x.key) || x.group === 'tennis' ? C.markets : 'h2h,totals';
+      const cost = markets.split(',').length * nRegions;
+      if (spent + cost > C.creditBudget) { skippedBudget.push(titles[x.key] || x.key); continue; }
+      if (opts.onlyKeys && !opts.onlyKeys.has(x.key)) continue;
+      S.progress(0, i, plan.length, titles[x.key]);
+      const r = await D.oddsFor(C.oddsKey, x.key, { regions: C.regions, markets, hours, ttlMin: opts.force ? 0 : 10 });
+      if (!r.ok) { A.errors.push(`${titles[x.key]}: ${r.error}`); continue; }
+      if (!r.cached) spent += cost;
+      keys.push(x.key);
+      if (C.targetBook && r.data.length) wmx[x.key] = { has: r.data.some((e) => (e.bookmakers || []).some((b) => b.key === C.targetBook)), at: Date.now() };
       raw.push(...r.data.map((e) => ({ ...e, _fetched: r.at, _stale: !!r.stale })));
     }
-    raw = raw.filter((e) => Date.parse(e.commence_time) > Date.now());
+    D.LS.set('sp:wmx', wmx);
+    A.coverage = { scanned: withCount.length, queried: keys.length, noEvents: skippedNoEvents, noTarget: skippedNoTarget, overBudget: skippedBudget, spent, competitions: keys.map((k2) => titles[k2] || k2) };
     A.counts.available = raw.length;
     A.sources.odds = { provider: 'The Odds API', regions: C.regions, at: Date.now(), remaining: D.apiStatus['The Odds API']?.remaining ?? null };
-    S.done(0, `${raw.length} événements à venir (${keys.length - skippedNoEvents} compétitions interrogées, ${skippedNoEvents} sans match ignorées : crédits économisés)`);
+    S.done(0, `${raw.length} matchs à venir dans ${keys.length} compétitions (${withCount.length} actives scannées gratuitement ; ${skippedNoEvents} sans match, ${skippedNoTarget} sans cotes Winamax, ${skippedBudget.length} hors budget) · ${spent} crédits utilisés`, skippedBudget.length > 0);
 
     // ---------------- 2. statistiques
     S.start(1);
@@ -2058,7 +2101,7 @@ onmessage = (e) => {
 
     // préparation des événements
     const events = raw.map((e) => {
-      const sport = e.sport_key.startsWith('soccer') ? 'football' : e.sport_key === 'basketball_nba' ? 'nba' : 'tennis';
+      const sport = e.sport_key.startsWith('soccer') ? 'football' : e.sport_key === 'basketball_nba' ? 'nba' : e.sport_key.startsWith('basketball') ? 'basket' : 'tennis';
       const E = {
         id: e.id, sport, sportKey: e.sport_key, comp: D.FOOTBALL[e.sport_key]?.name || titles[e.sport_key] || e.sport_title,
         home: e.home_team, away: e.away_team, t: Date.parse(e.commence_time), fetched: e._fetched, staleOdds: e._stale,
@@ -2142,6 +2185,7 @@ onmessage = (e) => {
       try {
         if (E.sport === 'football') M = modelFootball(E, C, fbStats[E.sportKey], LD.clubelo);
         else if (E.sport === 'nba') M = modelNBA(E, C, nba);
+        else if (E.sport === 'basket') M = modelNBA(E, C, null);
         else M = modelTennis(E, C, LD.tennis);
       } catch (err) { M = { error: String(err) }; }
       E.model = M;
@@ -2345,7 +2389,7 @@ onmessage = (e) => {
         const why = [];
         why.push(`${f.headline} : ${E.sport === 'football' ? `1 ${(f.probs.home * 100).toFixed(0)} % · N ${(f.probs.draw * 100).toFixed(0)} % · 2 ${(f.probs.away * 100).toFixed(0)} %` : `${E.home} ${(f.probs.home * 100).toFixed(0)} % · ${E.away} ${(f.probs.away * 100).toFixed(0)} %`}.`);
         if (E.sport === 'football') why.push(`Buts attendus ${f.expected.home.toFixed(2)} – ${f.expected.away.toFixed(2)}, score le plus probable ${f.score.h}-${f.score.a}.`);
-        if (E.sport === 'nba') why.push(`Score projeté ${Math.round(f.expected.home)}-${Math.round(f.expected.away)} (total ${f.expected.total.toFixed(1)}).`);
+        if (E.sport === 'nba' || E.sport === 'basket') why.push(`Score projeté ${Math.round(f.expected.home)}-${Math.round(f.expected.away)} (total ${f.expected.total.toFixed(1)}).`);
         if (f.form?.home && f.form?.away) why.push(`Forme récente : ${E.home} ${f.form.home.seq}, ${E.away} ${f.form.away.seq} (du plus ancien au plus récent).`);
         const sc = scored.find((c) => c.E === E && c.s.label === pick.label);
         if (sc?.pStats != null && sc?.pMkt != null) why.push(`Modèles statistiques ${(sc.pStats * 100).toFixed(0)} % contre ${(sc.pMkt * 100).toFixed(0)} % pour le marché sans marge : ${Math.abs(sc.pStats - sc.pMkt) < 0.05 ? 'ils sont d’accord' : 'léger désaccord, prudence'}.`);
@@ -2465,7 +2509,7 @@ onmessage = (e) => {
         const [mh, ma] = E.model.st.match.map((m) => m.name);
         f.form = { home: recentForm(stats.ms, mh, 5, 'hg', 'ag'), away: recentForm(stats.ms, ma, 5, 'hg', 'ag') };
       }
-    } else if (E.sport === 'nba') {
+    } else if (E.sport === 'nba' || E.sport === 'basket') {
       const sp = E.model.simSpec;
       const pH = SP.normCdf((sp.ph - sp.pa) / Math.sqrt(sp.sdM ** 2 + sp.sigmaM ** 2));
       f.probs = { home: pH, away: 1 - pH };
@@ -2581,12 +2625,14 @@ const SPChecker = (() => {
       ['ahH', 'Handicap domicile (ex. -4.5)', 'ahHome', true, 'modèle'], ['ahA', 'Handicap extérieur (ex. +4.5)', 'ahAway', true, 'modèle'],
       ['over', 'Plus de X points', 'over', true, 'modèle'], ['under', 'Moins de X points', 'under', true, 'modèle'],
     ],
+    basket: null,
     tennis: [
       ['tA', 'Victoire joueur 1', 'tennisA', false, 'modèle'], ['tB', 'Victoire joueur 2', 'tennisB', false, 'modèle'],
       ['tO', 'Plus de X jeux', 'tOver', true, 'modèle'], ['tU', 'Moins de X jeux', 'tUnder', true, 'modèle'],
       ['spA', 'Handicap jeux joueur 1 (ex. -3.5)', 'spread', true, 'modèle', null, 'A'], ['spB', 'Handicap jeux joueur 2 (ex. +3.5)', 'spread', true, 'modèle', null, 'B'],
     ],
   };
+  MARKETS.basket = MARKETS.nba;
   let lastResult = null;
 
   function render() {
@@ -2706,7 +2752,7 @@ const SPMyBets = (() => {
   const TZ = 'Europe/Paris';
   const dt = (t) => new Date(t).toLocaleString('fr-FR', { timeZone: TZ, day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' });
   const dayKey = (t) => new Date(t).toLocaleDateString('fr-CA', { timeZone: TZ }); // AAAA-MM-JJ
-  const SPORT = { football: 'Football', tennis: 'Tennis', nba: 'NBA', autre: 'Autre' };
+  const SPORT = { football: 'Football', tennis: 'Tennis', nba: 'NBA', basket: 'Basket', autre: 'Autre' };
   const SRC = { daily: 'Pronostic du jour', best: 'Meilleur pari', value: 'Value', prono: 'Pronostic', check: 'Vérificateur', manuel: 'Pari perso' };
 
   const bets = () => D.LS.get(KEY, []);
@@ -2959,7 +3005,7 @@ const SPMyBets = (() => {
   const dt = (t) => new Date(t).toLocaleString('fr-FR', { timeZone: TZ, weekday: 'short', day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' });
   const hm = (t) => new Date(t).toLocaleTimeString('fr-FR', { timeZone: TZ, hour: '2-digit', minute: '2-digit' });
   const ago = (t) => { const m = Math.round((Date.now() - t) / 60e3); return m < 1 ? 'à l’instant' : m < 60 ? `il y a ${m} min` : m < 1440 ? `il y a ${Math.round(m / 60)} h` : `il y a ${Math.round(m / 1440)} j`; };
-  const SPORT = { football: 'Football', tennis: 'Tennis', nba: 'NBA' };
+  const SPORT = { football: 'Football', tennis: 'Tennis', nba: 'NBA', basket: 'Basket' };
   const MKT = { h2h: 'Vainqueur', totals: 'Total', spreads: 'Handicap' };
 
   const STEPS = ['Récupération des matchs', 'Collecte des statistiques', 'Analyse des blessures', 'Vérification des compositions', 'Analyse des actualités', 'Comparaison des cotes', 'Calcul des modèles', 'Simulations Monte-Carlo', 'Classement des opportunités', 'Validation finale'];
@@ -3327,9 +3373,22 @@ const SPMyBets = (() => {
           <label>Bookmaker où vous pariez <select id="c-target">${[['winamax_fr', 'Winamax'], ['', 'Aucun : meilleure cote disponible']].map(([v, l]) => `<option value="${v}" ${C.targetBook === v ? 'selected' : ''}>${l}</option>`).join('')}</select></label>
           <p class="muted">La value et l’EV sont calculées à la cote de ce bookmaker uniquement.</p>
         </section>
-        <section class="card"><h3>Compétitions</h3><div class="chks">${Object.entries(D.FOOTBALL).map(([k2, v]) => chk('L-' + k2, C.leagues[k2], v.name + (v.stats ? '' : ' <small>(marché seul)</small>'))).join('')}
-          ${chk('c-nba', C.nba, 'NBA')}${chk('c-tennis', C.tennis, 'Tennis ATP/WTA (tournois actifs)')}</div>
-          ${n('c-tt', C.maxTennisTournaments, 'Tournois de tennis max', 1)}</section>
+        <section class="card"><h3>Compétitions</h3>
+          <div class="chks">${chk('c-allf', C.allFootball, 'Football : toutes les compétitions')}${chk('c-allb', C.allBasket, 'Basket : toutes (NBA, Euroleague…)')}${chk('c-tennis', C.tennis, 'Tennis : tous les tournois ATP/WTA')}</div>
+          ${n('c-budget', C.creditBudget, 'Budget de crédits par analyse (≈ 2 à 3 par compétition)')}
+          <p class="muted">À chaque analyse, l’application récupère gratuitement la liste de toutes les compétitions actives et ne paie que pour celles qui ont des matchs dans les 24 h. Les compétitions où ${C.targetBook === 'winamax_fr' ? 'Winamax' : 'votre bookmaker'} ne propose aucune cote sont mémorisées et ignorées pendant 7 jours. Priorité aux grands championnats, puis aux compétitions avec le plus de matchs.</p>
+          ${(() => {
+            const sp = D.LS.get('sp:c:odds:sports', null)?.data;
+            if (!sp) return '<p class="muted">La liste détaillée apparaîtra après la première analyse.</p>';
+            const wmx = D.LS.get('sp:wmx', {});
+            const grp = { Soccer: 'Football', Basketball: 'Basket', Tennis: 'Tennis' };
+            return Object.entries(grp).map(([g, lab]) => {
+              const L = sp.filter((s) => s.group === g && s.active && !s.has_outrights).sort((x, y) => x.title.localeCompare(y.title));
+              if (!L.length) return '';
+              return `<details><summary>${lab} : ${L.length} compétitions actives</summary><div class="chks">${L.map((s) => { const w = wmx[s.key]; const tag = !w ? '' : w.has ? ' <small class="pos">Winamax ✓</small>' : ' <small class="neg">pas de Winamax</small>'; return `<label class="chk"><input type="checkbox" data-comp="${esc(s.key)}" ${(C.excluded || []).includes(s.key) ? '' : 'checked'}> ${esc(s.title)}${tag}</label>`; }).join('')}</div></details>`;
+            }).join('');
+          })()}
+        </section>
         <section class="card"><h3>Type de pronostic du jour</h3><div class="g3">
           <label>Mode <select id="c-mode"><option value="sûr" ${C.mode !== 'value' ? 'selected' : ''}>Paris sûrs : très probables, petites cotes</option><option value="value" ${C.mode === 'value' ? 'selected' : ''}>Value : rentabilité maximale, cotes plus hautes</option></select></label>
           ${n('c-sminp', C.safeMinP, 'Probabilité minimale d’un pari sûr', 0.01)}${n('c-smaxo', C.safeMaxOdds, 'Cote maximale d’un pari sûr', 0.05)}${n('c-stol', C.safeTolEV, 'Tolérance de cote (−0.03 = 3 % sous la vraie valeur)', 0.005)}${n('c-sst', C.safeStakePct, 'Mise par pari sûr (0.02 = 2 % de la bankroll)', 0.005)}</div>
@@ -3469,8 +3528,10 @@ const SPMyBets = (() => {
         e.preventDefault();
         const C = P.cfg(), v = (id) => $('#' + id).value, c = (id) => $('#' + id).checked;
         C.oddsKey = v('c-odds').trim(); C.claudeKey = v('c-claude').trim(); C.regions = v('c-reg'); C.targetBook = v('c-target');
-        for (const k of Object.keys(D.FOOTBALL)) C.leagues[k] = c('L-' + k);
-        C.nba = c('c-nba'); C.tennis = c('c-tennis'); C.maxTennisTournaments = Math.max(0, +v('c-tt'));
+        C.allFootball = c('c-allf'); C.allBasket = c('c-allb'); C.tennis = c('c-tennis'); C.nba = C.allBasket || C.nba;
+        C.creditBudget = Math.max(3, parseFloat(v('c-budget')) || 45);
+        const boxes = [...document.querySelectorAll('[data-comp]')];
+        if (boxes.length) C.excluded = boxes.filter((b) => !b.checked).map((b) => b.dataset.comp);
         C.minOdds = Math.max(1.2, +v('c-minodds')); C.maxOdds = +v('c-maxodds'); C.minEV = Math.max(0, +v('c-minev'));
         C.maxOddsAgeMin = +v('c-age'); C.maxGap = +v('c-gap'); C.wMarket = Math.min(1, Math.max(0, +v('c-wm'))); C.hours = +v('c-hours'); C.extendTo48 = c('c-48');
         C.minSims = Math.max(10000, +v('c-mins')); C.maxSims = Math.max(C.minSims, +v('c-maxs')); C.tol = Math.max(0.0005, +v('c-tol')); C.phase2Events = Math.max(1, +v('c-p2'));

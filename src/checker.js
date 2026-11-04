@@ -27,12 +27,14 @@ const SPChecker = (() => {
       ['ahH', 'Handicap domicile (ex. -4.5)', 'ahHome', true, 'modèle'], ['ahA', 'Handicap extérieur (ex. +4.5)', 'ahAway', true, 'modèle'],
       ['over', 'Plus de X points', 'over', true, 'modèle'], ['under', 'Moins de X points', 'under', true, 'modèle'],
     ],
+    basket: null,
     tennis: [
       ['tA', 'Victoire joueur 1', 'tennisA', false, 'modèle'], ['tB', 'Victoire joueur 2', 'tennisB', false, 'modèle'],
       ['tO', 'Plus de X jeux', 'tOver', true, 'modèle'], ['tU', 'Moins de X jeux', 'tUnder', true, 'modèle'],
       ['spA', 'Handicap jeux joueur 1 (ex. -3.5)', 'spread', true, 'modèle', null, 'A'], ['spB', 'Handicap jeux joueur 2 (ex. +3.5)', 'spread', true, 'modèle', null, 'B'],
     ],
   };
+  MARKETS.basket = MARKETS.nba;
   let lastResult = null;
 
   function render() {

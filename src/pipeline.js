@@ -9,6 +9,7 @@ const SPPipeline = (() => {
     oddsKey: '', claudeKey: '', regions: 'eu', markets: 'h2h,totals,spreads', targetBook: 'winamax_fr',
     leagues: Object.fromEntries(Object.entries(D.FOOTBALL).map(([k, v]) => [k, v.on])),
     tennis: true, nba: true, maxTennisTournaments: 4,
+    allFootball: true, allBasket: true, creditBudget: 45, excluded: [],
     wMarket: 0.65, minEV: 0.02, minOdds: 1.20, maxOdds: 3.5, prefLo: 1.40, prefHi: 2.20,
     bankroll: 100, kellyFrac: 0.25, maxStakePct: 0.02, mode: 'sûr', safeMinP: 0.70, safeMaxOdds: 1.70, safeTolEV: -0.03, safeStakePct: 0.02, maxOddsAgeMin: 45, maxGap: 0.10, maxSims: 1000000, minSims: 100000, tol: 0.0015, phase2Events: 14,
     hours: 24, extendTo48: true, autoOn: false, autoTime: '09:00', notif: false, preMatchRecheck: false,
@@ -433,7 +434,7 @@ onmessage = (e) => {
     if (C.targetBook && c.second && c.best.price / c.second.price > 1.07) warn.push(`${c.best.title} est ${((c.best.price / c.second.price - 1) * 100).toFixed(0)} % au-dessus du bookmaker suivant : vérifiez la cote sur le site avant de parier`);
     else if (c.second && c.best.book !== 'pinnacle' && c.best.price / c.second.price > 1.07) reasons.push(`cote isolée (${c.best.title} ${c.best.price} vs ${c.second.price} ailleurs) : possible erreur ou cote obsolète`);
     if (c.modelGap != null && c.modelGap > C.maxGap) reasons.push(`divergence modèles/marché de ${(c.modelGap * 100).toFixed(1)} pts non expliquée`);
-    if (c.fairMkt == null && c.sport !== 'nba') reasons.push('probabilité de marché indisponible');
+    if (c.fairMkt == null && c.sport !== 'nba' && c.sport !== 'basket') reasons.push('probabilité de marché indisponible');
     if (c.simN && c.simCI > 0.01) reasons.push('simulations insuffisamment stables');
     if (c.mcSpread > 0.2) reasons.push('résultat trop sensible aux hypothèses (scénarios)');
     if (c.llm?.impact === 'majeur') reasons.push('information majeure à confirmer (analyse des actualités)');
@@ -461,27 +462,60 @@ onmessage = (e) => {
     S.start(0);
     const sp = await D.oddsSports(C.oddsKey);
     if (!sp.ok) { S.fail(0, 'The Odds API : ' + sp.error); A.errors.push(sp.error); return finish(A, ui); }
-    const active = sp.data.filter((s) => s.active);
-    const keys = [];
-    for (const [k, on] of Object.entries(C.leagues)) if (on && active.find((s) => s.key === k)) keys.push(k);
-    if (C.nba && active.find((s) => s.key === 'basketball_nba')) keys.push('basketball_nba');
-    if (C.tennis) active.filter((s) => s.group === 'Tennis' && !s.has_outrights).slice(0, C.maxTennisTournaments).forEach((s) => keys.push(s.key));
-    if (opts.onlyKeys) keys.splice(0, keys.length, ...keys.filter((k) => opts.onlyKeys.has(k)));
-    const titles = Object.fromEntries(active.map((s) => [s.key, s.title]));
+    const active = sp.data.filter((s) => s.active && !s.has_outrights);
+    const titles = Object.fromEntries(sp.data.map((s) => [s.key, s.title]));
     const hours = C.extendTo48 ? 48 : C.hours;
-    let raw = [], skippedNoEvents = 0;
-    for (let i = 0; i < keys.length; i++) {
-      S.progress(0, i, keys.length, titles[keys[i]]);
-      const evl = await D.oddsEventsList(C.oddsKey, keys[i], hours);
-      if (evl.ok && Array.isArray(evl.data) && !evl.data.some((e) => Date.parse(e.commence_time) > Date.now())) { skippedNoEvents++; continue; }
-      const r = await D.oddsFor(C.oddsKey, keys[i], { regions: C.regions, markets: keys[i].startsWith('tennis') ? 'h2h,totals,spreads' : C.markets, hours, ttlMin: opts.force ? 0 : 10 });
-      if (!r.ok) { A.errors.push(`${titles[keys[i]]}: ${r.error}`); continue; }
+    // TOUTES les compétitions actives de foot, basket et tennis (liste gratuite), sauf celles exclues dans Réglages.
+    const groupOf = (s) => (s.group === 'Soccer' ? 'football' : s.group === 'Basketball' ? 'basket' : s.group === 'Tennis' ? 'tennis' : null);
+    const wanted = active.filter((s) => {
+      const g = groupOf(s); if (!g) return false;
+      if ((C.excluded || []).includes(s.key)) return false;
+      if (D.FOOTBALL[s.key] && C.leagues[s.key] === false && !C.allFootball) return false;
+      return g === 'football' ? (C.allFootball || C.leagues[s.key]) : g === 'basket' ? (C.allBasket || (s.key === 'basketball_nba' && C.nba)) : C.tennis;
+    });
+    const MAJOR = new Set([...Object.entries(D.FOOTBALL).filter(([, v]) => v.on).map(([k2]) => k2), 'basketball_nba', 'basketball_euroleague']);
+    const wmx = D.LS.get('sp:wmx', {}); // compétitions sans cotes chez le bookmaker cible (mémorisé 7 jours)
+    // 1) liste des matchs : gratuite, en parallèle par 6
+    const withCount = [];
+    for (let i = 0; i < wanted.length; i += 6) {
+      S.progress(0, i, wanted.length, 'recherche des matchs (gratuit)');
+      const rs = await Promise.all(wanted.slice(i, i + 6).map((s) => D.oddsEventsList(C.oddsKey, s.key, hours)));
+      rs.forEach((r, j) => {
+        const s = wanted[i + j];
+        const n = r.ok && Array.isArray(r.data) ? r.data.filter((e) => Date.parse(e.commence_time) > Date.now()).length : null;
+        withCount.push({ key: s.key, n, group: groupOf(s) });
+      });
+    }
+    const nRegions = C.regions.split(',').length;
+    let skippedNoEvents = 0, skippedNoTarget = 0, skippedBudget = [], spent = 0;
+    const plan = withCount.filter((x) => {
+      if (x.n === 0) { skippedNoEvents++; return false; }
+      const w = wmx[x.key];
+      if (C.targetBook && w && w.has === false && Date.now() - w.at < 7 * 86400e3) { skippedNoTarget++; return false; }
+      return true;
+    }).sort((a, b) => (MAJOR.has(b.key) - MAJOR.has(a.key)) || ((b.n ?? 1) - (a.n ?? 1)));
+    const keys = [];
+    let raw = [];
+    for (let i = 0; i < plan.length; i++) {
+      const x = plan[i];
+      // marchés : complets pour les majeures, vainqueur + total pour les autres (2 crédits au lieu de 3)
+      const markets = MAJOR.has(x.key) || x.group === 'tennis' ? C.markets : 'h2h,totals';
+      const cost = markets.split(',').length * nRegions;
+      if (spent + cost > C.creditBudget) { skippedBudget.push(titles[x.key] || x.key); continue; }
+      if (opts.onlyKeys && !opts.onlyKeys.has(x.key)) continue;
+      S.progress(0, i, plan.length, titles[x.key]);
+      const r = await D.oddsFor(C.oddsKey, x.key, { regions: C.regions, markets, hours, ttlMin: opts.force ? 0 : 10 });
+      if (!r.ok) { A.errors.push(`${titles[x.key]}: ${r.error}`); continue; }
+      if (!r.cached) spent += cost;
+      keys.push(x.key);
+      if (C.targetBook && r.data.length) wmx[x.key] = { has: r.data.some((e) => (e.bookmakers || []).some((b) => b.key === C.targetBook)), at: Date.now() };
       raw.push(...r.data.map((e) => ({ ...e, _fetched: r.at, _stale: !!r.stale })));
     }
-    raw = raw.filter((e) => Date.parse(e.commence_time) > Date.now());
+    D.LS.set('sp:wmx', wmx);
+    A.coverage = { scanned: withCount.length, queried: keys.length, noEvents: skippedNoEvents, noTarget: skippedNoTarget, overBudget: skippedBudget, spent, competitions: keys.map((k2) => titles[k2] || k2) };
     A.counts.available = raw.length;
     A.sources.odds = { provider: 'The Odds API', regions: C.regions, at: Date.now(), remaining: D.apiStatus['The Odds API']?.remaining ?? null };
-    S.done(0, `${raw.length} événements à venir (${keys.length - skippedNoEvents} compétitions interrogées, ${skippedNoEvents} sans match ignorées : crédits économisés)`);
+    S.done(0, `${raw.length} matchs à venir dans ${keys.length} compétitions (${withCount.length} actives scannées gratuitement ; ${skippedNoEvents} sans match, ${skippedNoTarget} sans cotes Winamax, ${skippedBudget.length} hors budget) · ${spent} crédits utilisés`, skippedBudget.length > 0);
 
     // ---------------- 2. statistiques
     S.start(1);
@@ -518,7 +552,7 @@ onmessage = (e) => {
 
     // préparation des événements
     const events = raw.map((e) => {
-      const sport = e.sport_key.startsWith('soccer') ? 'football' : e.sport_key === 'basketball_nba' ? 'nba' : 'tennis';
+      const sport = e.sport_key.startsWith('soccer') ? 'football' : e.sport_key === 'basketball_nba' ? 'nba' : e.sport_key.startsWith('basketball') ? 'basket' : 'tennis';
       const E = {
         id: e.id, sport, sportKey: e.sport_key, comp: D.FOOTBALL[e.sport_key]?.name || titles[e.sport_key] || e.sport_title,
         home: e.home_team, away: e.away_team, t: Date.parse(e.commence_time), fetched: e._fetched, staleOdds: e._stale,
@@ -602,6 +636,7 @@ onmessage = (e) => {
       try {
         if (E.sport === 'football') M = modelFootball(E, C, fbStats[E.sportKey], LD.clubelo);
         else if (E.sport === 'nba') M = modelNBA(E, C, nba);
+        else if (E.sport === 'basket') M = modelNBA(E, C, null);
         else M = modelTennis(E, C, LD.tennis);
       } catch (err) { M = { error: String(err) }; }
       E.model = M;
@@ -805,7 +840,7 @@ onmessage = (e) => {
         const why = [];
         why.push(`${f.headline} : ${E.sport === 'football' ? `1 ${(f.probs.home * 100).toFixed(0)} % · N ${(f.probs.draw * 100).toFixed(0)} % · 2 ${(f.probs.away * 100).toFixed(0)} %` : `${E.home} ${(f.probs.home * 100).toFixed(0)} % · ${E.away} ${(f.probs.away * 100).toFixed(0)} %`}.`);
         if (E.sport === 'football') why.push(`Buts attendus ${f.expected.home.toFixed(2)} – ${f.expected.away.toFixed(2)}, score le plus probable ${f.score.h}-${f.score.a}.`);
-        if (E.sport === 'nba') why.push(`Score projeté ${Math.round(f.expected.home)}-${Math.round(f.expected.away)} (total ${f.expected.total.toFixed(1)}).`);
+        if (E.sport === 'nba' || E.sport === 'basket') why.push(`Score projeté ${Math.round(f.expected.home)}-${Math.round(f.expected.away)} (total ${f.expected.total.toFixed(1)}).`);
         if (f.form?.home && f.form?.away) why.push(`Forme récente : ${E.home} ${f.form.home.seq}, ${E.away} ${f.form.away.seq} (du plus ancien au plus récent).`);
         const sc = scored.find((c) => c.E === E && c.s.label === pick.label);
         if (sc?.pStats != null && sc?.pMkt != null) why.push(`Modèles statistiques ${(sc.pStats * 100).toFixed(0)} % contre ${(sc.pMkt * 100).toFixed(0)} % pour le marché sans marge : ${Math.abs(sc.pStats - sc.pMkt) < 0.05 ? 'ils sont d’accord' : 'léger désaccord, prudence'}.`);
@@ -925,7 +960,7 @@ onmessage = (e) => {
         const [mh, ma] = E.model.st.match.map((m) => m.name);
         f.form = { home: recentForm(stats.ms, mh, 5, 'hg', 'ag'), away: recentForm(stats.ms, ma, 5, 'hg', 'ag') };
       }
-    } else if (E.sport === 'nba') {
+    } else if (E.sport === 'nba' || E.sport === 'basket') {
       const sp = E.model.simSpec;
       const pH = SP.normCdf((sp.ph - sp.pa) / Math.sqrt(sp.sdM ** 2 + sp.sigmaM ** 2));
       f.probs = { home: pH, away: 1 - pH };

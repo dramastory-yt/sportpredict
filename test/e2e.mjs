@@ -46,6 +46,16 @@ function oddsEvents(sport) {
         bookmakers: [bk('pinnacle', 'Pinnacle', [1, 1, 1]), bk('unibet_eu', 'Unibet', [1.03, 0.97, 0.98]), bk('betclic', 'Betclic', [0.98, 1.0, 1.04]), bk('williamhill', 'William Hill', [0.99, 0.98, 1.0]), bk('winamax_fr', 'Winamax (FR)', [1.05, 0.95, 0.96])] };
     });
   }
+  if (sport === 'basketball_euroleague') {
+    const mk = (key, title, f) => ({ key, title, last_update: iso(now - 2 * 60e3), markets: [
+      { key: 'h2h', last_update: iso(now - 2 * 60e3), outcomes: [{ name: 'Real Madrid', price: +(1.45 * f).toFixed(2) }, { name: 'Partizan', price: +(2.75 / f).toFixed(2) }] },
+      { key: 'totals', last_update: iso(now - 2 * 60e3), outcomes: [{ name: 'Over', price: 1.9, point: 162.5 }, { name: 'Under', price: 1.9, point: 162.5 }] }] });
+    return [{ id: 'eur0', sport_key: sport, sport_title: 'Euroleague', commence_time: iso(now + 6 * 3600e3), home_team: 'Real Madrid', away_team: 'Partizan', bookmakers: [mk('pinnacle', 'Pinnacle', 1), mk('winamax_fr', 'Winamax (FR)', 1.03)] }];
+  }
+  if (sport === 'soccer_turkey_super_league') {
+    const bk = (key, title) => ({ key, title, last_update: iso(now - 3 * 60e3), markets: [{ key: 'h2h', last_update: iso(now - 3 * 60e3), outcomes: [{ name: 'Galatasaray', price: 1.5 }, { name: 'Draw', price: 4.2 }, { name: 'Rizespor', price: 6 }] }] });
+    return [{ id: 'tur0', sport_key: sport, sport_title: 'Super Lig', commence_time: iso(now + 8 * 3600e3), home_team: 'Galatasaray', away_team: 'Rizespor', bookmakers: [bk('pinnacle', 'Pinnacle'), bk('unibet_eu', 'Unibet')] }];
+  }
   if (sport === 'basketball_nba') {
     return [[0, 1], [2, 3]].map(([i, j], k) => {
       const h = oddsName(NBA[i]), a = oddsName(NBA[j]);
@@ -84,7 +94,13 @@ const handler = async (route) => {
   if (url.includes('the-odds-api.com/v4/sports?')) return json([
     { key: 'soccer_epl', group: 'Soccer', title: 'EPL', active: true, has_outrights: false },
     { key: 'basketball_nba', group: 'Basketball', title: 'NBA', active: true, has_outrights: false },
-    { key: 'tennis_atp_paris_masters', group: 'Tennis', title: 'ATP Paris Masters', active: true, has_outrights: false }]);
+    { key: 'tennis_atp_paris_masters', group: 'Tennis', title: 'ATP Paris Masters', active: true, has_outrights: false },
+    { key: 'basketball_euroleague', group: 'Basketball', title: 'Basketball Euroleague', active: true, has_outrights: false },
+    { key: 'soccer_turkey_super_league', group: 'Soccer', title: 'Turkey Super League', active: true, has_outrights: false },
+    { key: 'soccer_poland_ekstraklasa', group: 'Soccer', title: 'Ekstraklasa - Poland', active: true, has_outrights: false },
+    { key: 'soccer_fifa_world_cup_winner', group: 'Soccer', title: 'FIFA World Cup Winner', active: true, has_outrights: true }]);
+  const me = url.match(/v4\/sports\/(\w+)\/events\?/);
+  if (me) return json(oddsEvents(me[1]).map(({ bookmakers, ...x }) => x));
   const m = url.match(/v4\/sports\/(\w+)\/odds/);
   if (m) { oddsCalls++; return json(oddsEvents(m[1]), { 'x-requests-remaining': '480', 'access-control-expose-headers': 'x-requests-remaining' }); }
   if (url.includes('/scoreboard?dates=')) { if (url.includes('basketball') && /dates=\d{8}-/.test(url)) return route.fulfill({ status: 400, contentType: 'application/json', headers: { 'access-control-allow-origin': '*' }, body: '{"code":400,"message":"Failed to get events endpoint."}' }); return json(espnScoreboard(url)); }
@@ -109,7 +125,7 @@ const t0 = Date.now();
 await page.click('#go');
 await page.waitForFunction(() => !document.body.classList.contains('busy'), null, { timeout: 180000 });
 console.log('analyse terminée en', ((Date.now() - t0) / 1000).toFixed(1), 's ; appels odds :', oddsCalls);
-const A = await page.evaluate(() => { const a = JSON.parse(localStorage.getItem('sp:analyses')).pop(); return { counts: a.counts, errors: a.errors, best: a.best && { book: a.best.book, any: a.best.bestAny, m: a.best.match, l: a.best.label, o: a.best.odds, ev: a.best.ev, s: a.best.score, sims: a.best.sims }, values: a.values.length, watch: a.watch.map((w) => w.match + ' ' + w.label + ' | ' + w.need.join('; ')), backtests: Object.keys(a.backtests || {}), safe: (a.safe || []).map((s) => s.match + ' ' + s.label + ' @' + s.odds + ' ' + (s.p * 100).toFixed(0) + '% t' + s.tier), daily: a.daily && (a.daily.kind + ' | ' + a.daily.match + ' | ' + a.daily.pick.label + ' @' + a.daily.pick.odds + ' value=' + a.daily.pick.value + ' | ' + a.daily.why.join(' / ')), pronos: (a.forecasts || []).map((f) => f.match + ' | ' + f.headline + ' | ' + f.confidence + ' | ' + (f.pick && f.pick.label + ' @' + f.pick.odds + ' ' + (f.pick.p * 100).toFixed(0) + '%')), tennisNote: a.events.find((e) => e.sport === 'tennis')?.statsNote, eplNote: a.events.find((e) => e.sport === 'football')?.statsNote, skips: a.events.filter((e) => e.skip).map((e) => e.skip) }; });
+const A = await page.evaluate(() => { const a = JSON.parse(localStorage.getItem('sp:analyses')).pop(); return { counts: a.counts, errors: a.errors, best: a.best && { book: a.best.book, any: a.best.bestAny, m: a.best.match, l: a.best.label, o: a.best.odds, ev: a.best.ev, s: a.best.score, sims: a.best.sims }, values: a.values.length, watch: a.watch.map((w) => w.match + ' ' + w.label + ' | ' + w.need.join('; ')), coverage: a.coverage, sportsList: a.events.map((x) => x.sport + ':' + x.comp).filter((v, i, s) => s.indexOf(v) === i), backtests: Object.keys(a.backtests || {}), safe: (a.safe || []).map((s) => s.match + ' ' + s.label + ' @' + s.odds + ' ' + (s.p * 100).toFixed(0) + '% t' + s.tier), daily: a.daily && (a.daily.kind + ' | ' + a.daily.match + ' | ' + a.daily.pick.label + ' @' + a.daily.pick.odds + ' value=' + a.daily.pick.value + ' | ' + a.daily.why.join(' / ')), pronos: (a.forecasts || []).map((f) => f.match + ' | ' + f.headline + ' | ' + f.confidence + ' | ' + (f.pick && f.pick.label + ' @' + f.pick.odds + ' ' + (f.pick.p * 100).toFixed(0) + '%')), tennisNote: a.events.find((e) => e.sport === 'tennis')?.statsNote, eplNote: a.events.find((e) => e.sport === 'football')?.statsNote, skips: a.events.filter((e) => e.skip).map((e) => e.skip) }; });
 console.log(JSON.stringify(A, null, 1));
 await page.evaluate(() => { location.hash = '#pronos'; }); await page.waitForTimeout(150);
 await page.click('.prono details summary'); await page.waitForTimeout(100);
