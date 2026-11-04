@@ -804,7 +804,7 @@ onmessage = (e) => {
         if (!cur || tier < cur.tier || (tier === cur.tier && c.p > cur.c.p)) byEv.set(E.id, { c, tier });
       }
       const realSafe = [...byEv.values()].map(({ c, tier }) => ({
-        tier, eventId: c.E.id, sport: c.E.sport, sportKey: c.E.sportKey, comp: c.E.comp, match: `${c.E.home} – ${c.E.away}`, home: c.E.home, away: c.E.away, t: c.E.t,
+        tier, conf: confOf(c.E, c.p, c.modelGap), eventId: c.E.id, sport: c.E.sport, sportKey: c.E.sportKey, comp: c.E.comp, match: `${c.E.home} – ${c.E.away}`, home: c.E.home, away: c.E.away, t: c.E.t,
         label: c.s.label, type: c.s.type, point: c.s.point, market: c.s.mkey, odds: c.best.price, book: c.best.title, p: c.p, pPush: c.pPush, ev: c.ev, value: c.check.ok, fair: 1 / c.p,
       }));
       // marchés football calculés (sans cote API) : pari sûr « à vérifier » si la probabilité est haute,
@@ -818,10 +818,11 @@ onmessage = (e) => {
         if (gap > 0.08) continue;
         const m = E.forecast.markets.filter((x) => !x.real && !x.risky && x.p >= C.safeMinP && x.minSafe >= C.minOdds).sort((a, b) => b.p - a.p)[0];
         if (!m) continue;
-        derived.push({ tier: 1.5, eventId: E.id, sport: E.sport, sportKey: E.sportKey, comp: E.comp, match: `${E.home} – ${E.away}`, home: E.home, away: E.away, t: E.t,
+        derived.push({ tier: 1.5, conf: confOf(E, m.p, gap), eventId: E.id, sport: E.sport, sportKey: E.sportKey, comp: E.comp, match: `${E.home} – ${E.away}`, home: E.home, away: E.away, t: E.t,
           label: m.label, type: m.type, point: m.point, market: 'calculé', odds: null, book: 'Winamax', p: m.p, pPush: m.pPush, ev: null, value: false, fair: m.fair, minOdds: m.minSafe, toVerify: true });
       }
-      A.safe = [...realSafe, ...derived].sort((x, y) => x.tier - y.tier || y.p - x.p).slice(0, 8);
+      const cr = { forte: 3, moyenne: 2, faible: 1 };
+      A.safe = [...realSafe, ...derived].sort((x, y) => cr[y.conf] - cr[x.conf] || x.tier - y.tier || y.p - x.p).slice(0, 8);
     }
     // PRONOSTIC DU JOUR : toujours un seul choix.
     //  - mode « sûr » (défaut) : le meilleur pari sûr ; à défaut, le meilleur pari value ;
@@ -832,7 +833,21 @@ onmessage = (e) => {
       let E = null, pick = null, kind = null;
       const s0 = A.safe[0];
       const fromBest = () => { E = events.find((x) => x.id === A.best.eventId); pick = { label: A.best.label, type: A.best.type, point: A.best.point, market: A.best.market, odds: A.best.odds, book: A.best.book, p: A.best.p, pPush: A.best.pPush, ev: A.best.ev, value: true, fair: A.best.pMkt }; kind = 'value'; };
-      if (C.mode !== 'value' && s0) { E = events.find((x) => x.id === s0.eventId); pick = s0; kind = s0.tier === 1 ? 'sûr' : s0.toVerify ? 'sûr-verif' : 'sûr-bas'; }
+      const bestConf = A.best ? confOf(events.find((x) => x.id === A.best.eventId) || {}, A.best.p, A.best.modelGap) : null;
+      const strongSafe = A.safe.find((s) => s.conf === 'forte');
+      const strongProno = pool.filter((x) => x.forecast.pick && confOf(x, x.forecast.pick.p, scored.find((c) => c.E === x && c.s.label === x.forecast.pick.label)?.modelGap ?? null) === 'forte').sort((a, b) => b.forecast.pick.p - a.forecast.pick.p)[0];
+      const setSafe = (s) => { E = events.find((x) => x.id === s.eventId); pick = s; kind = s.tier === 1 ? 'sûr' : s.toVerify ? 'sûr-verif' : 'sûr-bas'; };
+      if (C.requireStrong !== false) {
+        // pronostic du jour = uniquement confiance forte ; sinon on le dit et on montre l'alternative à part
+        if (C.mode !== 'value' && strongSafe) setSafe(strongSafe);
+        else if (A.best && bestConf === 'forte') fromBest();
+        else if (C.mode === 'value' && strongSafe) setSafe(strongSafe);
+        else if (strongProno) { E = strongProno; pick = E.forecast.pick; kind = pick.value ? 'value' : 'probable'; }
+        if (!E) {
+          const alt = A.safe[0] || (A.best ? { ...A.best, conf: bestConf } : null);
+          A.dailyAlt = alt ? { match: alt.match, label: alt.label, odds: alt.odds, minOdds: alt.minOdds, p: alt.p, conf: alt.conf || 'moyenne', t: alt.t, comp: alt.comp } : null;
+        }
+      } else if (C.mode !== 'value' && s0) setSafe(s0);
       else if (A.best) fromBest();
       else { E = pool.sort((a, b) => rank[b.forecast.confidence] - rank[a.forecast.confidence] || b.forecast.pick.p - a.forecast.pick.p)[0] || null; pick = E?.forecast.pick; kind = 'probable'; }
       if (E && pick && E.forecast) {
@@ -849,7 +864,7 @@ onmessage = (e) => {
           : kind === 'sûr-bas' ? `Pari sûr : ${(pick.p * 100).toFixed(0)} % de chances, mais la cote ${pick.odds.toFixed(2)} est un peu sous sa vraie valeur (${(1 / pick.p).toFixed(2)}) : mise réduite.`
           : kind === 'value' ? `La cote ${pick.odds.toFixed(2)} est supérieure à la cote juste (${(1 / pick.p).toFixed(2)}) : pari rentable sur la durée selon le modèle.`
           : `La cote ${pick.odds.toFixed(2)} est sous la cote juste (${(1 / pick.p).toFixed(2)}) : pronostic probable mais sans value, mise réduite conseillée.`);
-        A.daily = { kind, eventId: E.id, sport: E.sport, sportKey: E.sportKey, comp: E.comp, match: `${E.home} – ${E.away}`, home: E.home, away: E.away, t: E.t, day: E.day, confidence: f.confidence, headline: f.headline, pick, why, warnings: E.warnings, dataNote: f.dataNote };
+        A.daily = { kind, eventId: E.id, sport: E.sport, sportKey: E.sportKey, comp: E.comp, match: `${E.home} – ${E.away}`, home: E.home, away: E.away, t: E.t, day: E.day, confidence: confOf(E, pick.p, scored.find((c) => c.E === E && c.s.label === pick.label)?.modelGap ?? (kind === 'sûr-verif' ? Math.abs((E.model.st?.p1x2?.[0] ?? 0) - (E.model.models[0].p1x2?.[0] ?? 0)) : null)), headline: f.headline, pick, why, warnings: E.warnings, dataNote: f.dataNote };
       } else A.daily = null;
     }
     A.events = events.map(slimEvent);
@@ -913,6 +928,14 @@ onmessage = (e) => {
     return out;
   }
   const countFits = {};
+  // Confiance d'un pari donné : « forte » seulement si très probable, données solides (modèle statistique
+  // indépendant disponible), modèles d'accord avec le marché et aucun risque signalé sur le match.
+  function confOf(E, p, gap) {
+    const dq = E.model?.dataQuality ?? 0.3;
+    if (p >= 0.70 && dq >= 0.55 && gap != null && gap <= 0.05 && (E.risk || 0) < 2 && !E.staleOdds) return 'forte';
+    if (p >= 0.58 && dq >= 0.35) return 'moyenne';
+    return 'faible';
+  }
   // Forme récente à partir des résultats déjà chargés (V/N/D, buts ou points marqués/encaissés)
   function recentForm(games, team, n, hk, ak) {
     const gs = games.filter((g) => g.h === team || g.a === team).slice(-n);

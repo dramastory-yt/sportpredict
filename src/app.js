@@ -148,7 +148,8 @@
   }
   function dailyCard(A) {
     const d = A.daily;
-    if (!d) return `<section class="card nobet"><h3>Pas de pronostic du jour</h3><p>Aucun match des prochaines 24 h n’a assez de données ou une cote Winamax acceptable.</p></section>`;
+    if (!d) return `<section class="card nobet"><h3>Pas de pronostic à confiance forte aujourd’hui</h3><p>Aucun pari des prochaines 24 h ne réunit toutes les conditions : très probable, données solides, modèles d’accord avec le marché et aucun risque signalé. Mieux vaut ne pas parier, ou revenir plus tard avec « Actualiser et réanalyser ».</p>
+      ${A.dailyAlt ? `<p class="muted">Meilleure alternative (confiance ${esc(A.dailyAlt.conf)}, à vos risques) : <b>${esc(A.dailyAlt.match)}</b> · ${esc(A.dailyAlt.label)} ${A.dailyAlt.odds != null ? '@ ' + num(A.dailyAlt.odds) : '(jouer si cote ≥ ' + num(A.dailyAlt.minOdds) + ')'} · ${pct(A.dailyAlt.p, 0)}</p>` : ''}</section>`;
     const C = P.cfg(), pk = d.pick;
     const minOdds = Math.ceil(((1 + C.minEV - (pk.pPush || 0)) / pk.p) * 100) / 100;
     const stake = safeStake(d.kind, pk.p, pk.odds, pk.pPush);
@@ -396,6 +397,7 @@
           })()}
         </section>
         <section class="card"><h3>Type de pronostic du jour</h3><div class="g3">
+          <label class="chk"><input type="checkbox" id="c-strong" ${C.requireStrong !== false ? 'checked' : ''}> Pronostic du jour uniquement en confiance forte</label>
           <label>Mode <select id="c-mode"><option value="sûr" ${C.mode !== 'value' ? 'selected' : ''}>Paris sûrs : très probables, petites cotes</option><option value="value" ${C.mode === 'value' ? 'selected' : ''}>Value : rentabilité maximale, cotes plus hautes</option></select></label>
           ${n('c-sminp', C.safeMinP, 'Probabilité minimale d’un pari sûr', 0.01)}${n('c-smaxo', C.safeMaxOdds, 'Cote maximale d’un pari sûr', 0.05)}${n('c-stol', C.safeTolEV, 'Tolérance de cote (−0.03 = 3 % sous la vraie valeur)', 0.005)}${n('c-sst', C.safeStakePct, 'Mise par pari sûr (0.02 = 2 % de la bankroll)', 0.005)}</div>
           <p class="muted">Un pari sûr perd quand même parfois : à 75 %, une fois sur quatre. La bankroll ne grossit que si les cotes jouées ne sont pas en dessous de leur vraie valeur, c’est pourquoi la tolérance est limitée.</p></section>
@@ -541,7 +543,7 @@
         C.minOdds = Math.max(1.2, +v('c-minodds')); C.maxOdds = +v('c-maxodds'); C.minEV = Math.max(0, +v('c-minev'));
         C.maxOddsAgeMin = +v('c-age'); C.maxGap = +v('c-gap'); C.wMarket = Math.min(1, Math.max(0, +v('c-wm'))); C.hours = +v('c-hours'); C.extendTo48 = c('c-48');
         C.minSims = Math.max(10000, +v('c-mins')); C.maxSims = Math.max(C.minSims, +v('c-maxs')); C.tol = Math.max(0.0005, +v('c-tol')); C.phase2Events = Math.max(1, +v('c-p2'));
-        C.mode = v('c-mode'); C.safeMinP = Math.min(0.95, Math.max(0.55, +v('c-sminp'))); C.safeMaxOdds = Math.max(1.2, +v('c-smaxo')); C.safeTolEV = Math.min(0, Math.max(-0.08, +v('c-stol'))); C.safeStakePct = Math.min(0.05, Math.max(0, +v('c-sst')));
+        C.mode = v('c-mode'); C.requireStrong = c('c-strong'); C.safeMinP = Math.min(0.95, Math.max(0.55, +v('c-sminp'))); C.safeMaxOdds = Math.max(1.2, +v('c-smaxo')); C.safeTolEV = Math.min(0, Math.max(-0.08, +v('c-stol'))); C.safeStakePct = Math.min(0.05, Math.max(0, +v('c-sst')));
         C.bankroll = Math.max(0, parseFloat(String(v('c-bank')).replace(',', '.')) || 0);
         { const bk = SPData.LS.get('sp:bank', null); SPData.LS.set('sp:bank', bk ? { ...bk, start: C.bankroll } : { start: C.bankroll, since: Date.now(), moves: [] }); } C.kellyFrac = Math.min(1, Math.max(0, +v('c-kf'))); C.maxStakePct = Math.min(0.1, Math.max(0, +v('c-maxst')));
         C.autoOn = c('c-auto'); C.autoTime = v('c-time'); C.preMatchRecheck = c('c-pre'); C.notif = c('c-notif');

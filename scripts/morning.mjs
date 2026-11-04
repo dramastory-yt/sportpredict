@@ -51,6 +51,7 @@ try {
     const d = A.daily, pk = d.pick;
     parts.push(`🎯 <b>PRONOSTIC DU JOUR</b>${{ 'sûr-verif': ' (PARI SÛR, cote à vérifier)', 'sûr': ' (PARI SÛR)', 'sûr-bas': ' (PARI SÛR, cote un peu basse)', value: ' (VALUE)' }[d.kind] || ' (sans value)'} · confiance ${esc(d.confidence)}\n<b>${esc(d.match)}</b>\n${esc(pk.label)} @ <b>${pk.odds != null ? pk.odds.toFixed(2) : '≥ ' + pk.minOdds.toFixed(2) + ' (à vérifier)'}</b> ${esc(pk.book)} · ${(pk.p * 100).toFixed(0)} %\n${d.why.map((w) => '• ' + esc(w)).join('\n')}`);
   }
+  if (!A.daily) parts.push('Pas de pronostic à confiance forte aujourd’hui' + (A.dailyAlt ? ` (alternative en confiance ${esc(A.dailyAlt.conf)} : ${esc(A.dailyAlt.match)} — ${esc(A.dailyAlt.label)})` : '') + '.');
   if (A.best && (!A.daily || A.daily.eventId !== A.best.eventId)) parts.push('<b>Meilleur pari value</b>\n' + line(A.best));
   if (!A.best) parts.push('Aucune value validée aujourd’hui.');
   if (A.values?.length) parts.push('<b>Autres values</b>\n' + A.values.map(line).join('\n\n'));
