@@ -11,7 +11,7 @@ const SPPipeline = (() => {
     tennis: true, nba: true, maxTennisTournaments: 4,
     footballScope: 'principal', basketScope: 'principal', creditBudget: 45, excluded: [], included: [],
     wMarket: 0.65, minEV: 0.02, minOdds: 1.15, maxOdds: 3.5, prefLo: 1.40, prefHi: 2.20,
-    bankroll: 100, kellyFrac: 0.25, maxStakePct: 0.02, mode: 'sûr', safeMinP: 0.70, safeMaxOdds: 1.50, safeTolEV: -0.03, safeStakePct: 0.02, maxOddsAgeMin: 45, maxGap: 0.10, maxSims: 1000000, minSims: 100000, tol: 0.0015, phase2Events: 14,
+    bankroll: 100, kellyFrac: 0.25, maxStakePct: 0.02, mode: 'sûr', dailyMinP: 0.75, safeMinP: 0.70, safeMaxOdds: 1.50, safeTolEV: -0.03, safeStakePct: 0.02, maxOddsAgeMin: 45, maxGap: 0.10, maxSims: 1000000, minSims: 100000, tol: 0.0015, phase2Events: 14,
     hours: 24, extendTo48: true, autoOn: false, autoTime: '09:00', notif: false, preMatchRecheck: false,
   };
   function cfg() {
@@ -756,6 +756,7 @@ onmessage = (e) => {
         const riskNote = [...E.warnings, ...(E.sport === 'football' && !E.lineup ? ['compositions non publiées'] : []), ...(E.staleOdds ? ['cotes issues du cache (fournisseur indisponible)'] : [])];
         if (E.staleOdds) c.critical = 'cotes non actualisées (fournisseur indisponible)';
         c.conf = SP.confidence({ p: c.p, dataQuality: E.model.dataQuality ?? 0.3, gap: modelGap, risk: E.risk, uncert, badCalib: C.platt && C.platt.b < 0.8 });
+        c.reliable = SP.isReliable({ dataQuality: E.model.dataQuality ?? 0.3, gap: modelGap, risk: E.risk, uncert, badCalib: C.platt && C.platt.b < 0.8 });
         c.rel = SP.reliability({ dataQuality: E.model.dataQuality, dataNote: E.model.statsNote, nHist: E.model.nHist, calib: E.model.calib, mcSpread, paramSd: uncParts.parametres });
         c.q = SP.qualityScore({
           p: c.p, fairMkt: s.fairMkt, priceEdge: c.priceEdge, simCI: c.simCI, lineupUnknown: E.sport === 'football' && !E.lineup,
@@ -844,7 +845,7 @@ onmessage = (e) => {
         if (!cur || tier < cur.tier || (tier === cur.tier && c.p > cur.c.p)) byEv.set(E.id, { c, tier });
       }
       const realSafe = [...byEv.values()].map(({ c, tier }) => ({
-        tier, conf: c.conf, rel: c.rel.total, uncert: c.uncert, eventId: c.E.id, sport: c.E.sport, sportKey: c.E.sportKey, comp: c.E.comp, match: `${c.E.home} – ${c.E.away}`, home: c.E.home, away: c.E.away, t: c.E.t,
+        tier, conf: c.conf, reliable: c.reliable, rel: c.rel.total, uncert: c.uncert, eventId: c.E.id, sport: c.E.sport, sportKey: c.E.sportKey, comp: c.E.comp, match: `${c.E.home} – ${c.E.away}`, home: c.E.home, away: c.E.away, t: c.E.t,
         label: c.s.label, type: c.s.type, point: c.s.point, market: c.s.mkey, odds: c.best.price, book: c.best.title, p: c.p, pPush: c.pPush, ev: c.ev, value: c.check.ok, fair: 1 / c.p,
       }));
       // marchés football calculés (sans cote API) : pari sûr « à vérifier » si la probabilité est haute,
@@ -858,7 +859,7 @@ onmessage = (e) => {
         if (gap > 0.08) continue;
         const m = E.forecast.markets.filter((x) => !x.real && !x.risky && x.p >= C.safeMinP && x.minSafe >= C.minOdds).sort((a, b) => b.p - a.p)[0];
         if (!m) continue;
-        derived.push({ tier: 1.5, conf: confOf(E, m.p, gap, 0.03), uncert: 0.03, eventId: E.id, sport: E.sport, sportKey: E.sportKey, comp: E.comp, match: `${E.home} – ${E.away}`, home: E.home, away: E.away, t: E.t,
+        derived.push({ tier: 1.5, conf: confOf(E, m.p, gap, 0.03), reliable: SP.isReliable({ dataQuality: E.model?.dataQuality ?? 0.3, gap, risk: E.risk, uncert: 0.03 }), uncert: 0.03, eventId: E.id, sport: E.sport, sportKey: E.sportKey, comp: E.comp, match: `${E.home} – ${E.away}`, home: E.home, away: E.away, t: E.t,
           label: m.label, type: m.type, point: m.point, market: 'calculé', odds: null, book: 'Winamax', p: m.p, pPush: m.pPush, ev: null, value: false, fair: m.fair, minOdds: m.minSafe, toVerify: true });
       }
       const cr = { 'très haute': 4, haute: 3, 'intéressante': 2, 'insuffisante': 1 };
@@ -875,7 +876,12 @@ onmessage = (e) => {
       const fromBest = () => { E = events.find((x) => x.id === A.best.eventId); pick = { label: A.best.label, type: A.best.type, point: A.best.point, market: A.best.market, odds: A.best.odds, book: A.best.book, p: A.best.p, pPush: A.best.pPush, ev: A.best.ev, value: true, fair: A.best.pMkt }; kind = 'value'; };
       const bestConf = A.best ? confOf(events.find((x) => x.id === A.best.eventId) || {}, A.best.p, A.best.modelGap) : null;
       // priorité 1 : pari à haute probabilité, confiance haute ou très haute, avec avantage (EV ≥ 0) ou cote à vérifier
-      const strongSafe = A.safe.find((s) => SP.isStrong(s.conf) && (s.toVerify || s.ev >= 0));
+      // éligible : fiable + probabilité ≥ seuil (75 % par défaut) + avantage (EV ≥ 0) ou cote à vérifier ;
+      // à défaut, jusqu'à 2 points sous le seuil (« proche du seuil »)
+      const okEdge = (s) => s.toVerify || s.ev >= 0;
+      const strongSafe = A.safe.filter((s) => s.reliable && okEdge(s) && s.p >= C.dailyMinP).sort((x, y) => y.p - x.p)[0]
+        || A.safe.filter((s) => s.reliable && okEdge(s) && s.p >= C.dailyMinP - 0.02).sort((x, y) => y.p - x.p)[0];
+      if (strongSafe && strongSafe.p < C.dailyMinP) strongSafe.nearThreshold = true;
       const strongProno = pool.filter((x) => x.forecast.pick && x.forecast.pick.ev >= 0 && SP.isStrong(confOf(x, x.forecast.pick.p, scored.find((c) => c.E === x && c.s.label === x.forecast.pick.label)?.modelGap ?? null))).sort((a, b) => b.forecast.pick.p - a.forecast.pick.p)[0];
       const setSafe = (s) => { E = events.find((x) => x.id === s.eventId); pick = s; kind = s.tier === 1 ? 'sûr' : s.toVerify ? 'sûr-verif' : 'sûr-bas'; };
       if (C.requireStrong !== false) {

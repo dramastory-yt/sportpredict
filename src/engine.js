@@ -903,6 +903,8 @@ function SPEngineFactory() {
     return 'insuffisante';
   };
   SP.isStrong = (conf) => conf === 'très haute' || conf === 'haute';
+  // fiabilité suffisante (indépendamment du seuil de probabilité)
+  SP.isReliable = (x) => x.dataQuality >= 0.55 && x.gap != null && x.gap <= 0.05 && (x.risk || 0) < 2 && x.uncert <= 0.06 && !x.badCalib;
 
   return SP;
 }
