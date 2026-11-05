@@ -891,8 +891,27 @@ onmessage = (e) => {
         else if (C.mode === 'value' && strongSafe) setSafe(strongSafe);
         else if (strongProno) { E = strongProno; pick = E.forecast.pick; kind = pick.value ? 'value' : 'probable'; }
         if (!E) {
-          const alt = A.safe[0] || (A.best ? { ...A.best, conf: bestConf } : null);
-          A.dailyAlt = alt ? { match: alt.match, label: alt.label, odds: alt.odds, minOdds: alt.minOdds, p: alt.p, conf: alt.conf || 'moyenne', t: alt.t, comp: alt.comp } : null;
+          // CLÉMENCE : toujours un pronostic du jour s'il existe des matchs, en prenant la meilleure sélection
+          // disponible par paliers ; le niveau réel (bon, correct, prudent) est affiché honnêtement.
+          const cand = scored.filter((c) => !c.s.noTarget && c.p != null && c.best.price >= C.minOdds && c.best.price <= 2.2 && c.E.t > Date.now() + 15 * 60e3 && c.E.t - Date.now() <= Math.max(C.hours, 24) * 3600e3 && !c.E.staleOdds);
+          const dq = (c) => c.E.model?.dataQuality ?? 0.3;
+          const tiers = [
+            ['bon', (c) => c.p >= 0.70 && c.ev >= -0.02 && dq(c) >= 0.45 && (c.modelGap == null ? dq(c) >= 0.55 : c.modelGap <= 0.08) && (c.E.risk || 0) < 3],
+            ['correct', (c) => c.p >= 0.65 && c.ev >= -0.04 && dq(c) >= 0.35 && (c.modelGap == null || c.modelGap <= 0.10)],
+            ['prudent', (c) => c.p >= 0.55 && c.ev >= -0.06 && (c.modelGap == null || c.modelGap <= 0.12) && !c.check.reasons.some((r) => /isolée|ancienne/.test(r))],
+          ];
+          for (const [lvl, ok] of tiers) {
+            const best = cand.filter(ok).sort((a, b) => (b.p + Math.min(0, b.ev)) - (a.p + Math.min(0, a.ev)))[0];
+            if (best) {
+              E = best.E; kind = 'clément'; A.dailyLevel = lvl;
+              pick = { label: best.s.label, type: best.s.type, point: best.s.point, market: best.s.mkey, odds: best.best.price, book: best.best.title, p: best.p, pPush: best.pPush, ev: best.ev, value: best.check.ok, uncert: best.uncert, reliable: best.reliable, level: lvl };
+              break;
+            }
+          }
+          if (!E) {
+            const alt = A.safe[0] || (A.best ? { ...A.best, conf: bestConf } : null);
+            A.dailyAlt = alt ? { match: alt.match, label: alt.label, odds: alt.odds, minOdds: alt.minOdds, p: alt.p, conf: alt.conf || 'moyenne', t: alt.t, comp: alt.comp } : null;
+          }
         }
       } else if (C.mode !== 'value' && s0) setSafe(s0);
       else if (A.best) fromBest();
@@ -910,8 +929,9 @@ onmessage = (e) => {
         else why.push(kind === 'sûr' ? `Pari sûr : ${(pick.p * 100).toFixed(0)} % de chances selon l’analyse, et la cote ${pick.odds.toFixed(2)} est au moins égale à sa vraie valeur (${(1 / pick.p).toFixed(2)}).`
           : kind === 'sûr-bas' ? `Pari sûr : ${(pick.p * 100).toFixed(0)} % de chances, mais la cote ${pick.odds.toFixed(2)} est un peu sous sa vraie valeur (${(1 / pick.p).toFixed(2)}) : mise réduite.`
           : kind === 'value' ? `La cote ${pick.odds.toFixed(2)} est supérieure à la cote juste (${(1 / pick.p).toFixed(2)}) : pari rentable sur la durée selon le modèle.`
-          : `La cote ${pick.odds.toFixed(2)} est sous la cote juste (${(1 / pick.p).toFixed(2)}) : pronostic probable mais sans value, mise réduite conseillée.`);
-        A.daily = { kind, eventId: E.id, sport: E.sport, sportKey: E.sportKey, comp: E.comp, match: `${E.home} – ${E.away}`, home: E.home, away: E.away, t: E.t, day: E.day, quality: scored.find((c) => c.E === E && c.s.label === pick.label)?.q || null, reliability: scored.find((c) => c.E === E && c.s.label === pick.label)?.rel || SP.reliability({ dataQuality: E.model.dataQuality, dataNote: E.model.statsNote, nHist: E.model.nHist, calib: E.model.calib, mcSpread: 0.05, paramSd: pick.uncert ?? 0.03 }), uncert: scored.find((c) => c.E === E && c.s.label === pick.label)?.uncert ?? pick.uncert ?? 0.03, uncParts: scored.find((c) => c.E === E && c.s.label === pick.label)?.uncParts || null, edge: scored.find((c) => c.E === E && c.s.label === pick.label)?.edge ?? null, oddsAt: scored.find((c) => c.E === E && c.s.label === pick.label)?.best.last ?? null, confidence: confOf(E, pick.p, scored.find((c) => c.E === E && c.s.label === pick.label)?.modelGap ?? (kind === 'sûr-verif' ? Math.abs((E.model.st?.p1x2?.[0] ?? 0) - (E.model.models[0].p1x2?.[0] ?? 0)) : null)), headline: f.headline, pick, why, warnings: E.warnings, dataNote: f.dataNote };
+          : pick.ev >= 0 ? `La cote ${pick.odds.toFixed(2)} est au moins égale à sa vraie valeur (${(1 / pick.p).toFixed(2)}).` : `La cote ${pick.odds.toFixed(2)} est sous la cote juste (${(1 / pick.p).toFixed(2)}) : pronostic probable mais sans value, mise réduite conseillée.`);
+        const opinion = analystOpinion(E, pick, kind, scored.find((c) => c.E === E && c.s.label === pick.label));
+        A.daily = { opinion, level: pick.level || (SP.isStrong(confOf(E, pick.p, null)) ? 'fort' : null), kind, eventId: E.id, sport: E.sport, sportKey: E.sportKey, comp: E.comp, match: `${E.home} – ${E.away}`, home: E.home, away: E.away, t: E.t, day: E.day, quality: scored.find((c) => c.E === E && c.s.label === pick.label)?.q || null, reliability: scored.find((c) => c.E === E && c.s.label === pick.label)?.rel || SP.reliability({ dataQuality: E.model.dataQuality, dataNote: E.model.statsNote, nHist: E.model.nHist, calib: E.model.calib, mcSpread: 0.05, paramSd: pick.uncert ?? 0.03 }), uncert: scored.find((c) => c.E === E && c.s.label === pick.label)?.uncert ?? pick.uncert ?? 0.03, uncParts: scored.find((c) => c.E === E && c.s.label === pick.label)?.uncParts || null, edge: scored.find((c) => c.E === E && c.s.label === pick.label)?.edge ?? null, oddsAt: scored.find((c) => c.E === E && c.s.label === pick.label)?.best.last ?? null, confidence: confOf(E, pick.p, scored.find((c) => c.E === E && c.s.label === pick.label)?.modelGap ?? (kind === 'sûr-verif' ? Math.abs((E.model.st?.p1x2?.[0] ?? 0) - (E.model.models[0].p1x2?.[0] ?? 0)) : null)), headline: f.headline, pick, why, warnings: E.warnings, dataNote: f.dataNote };
       } else A.daily = null;
     }
     A.events = events.map(slimEvent);
@@ -979,6 +999,40 @@ onmessage = (e) => {
   // indépendant disponible), modèles d'accord avec le marché et aucun risque signalé sur le match.
   function confOf(E, p, gap, uncert) {
     return SP.confidence({ p, dataQuality: E.model?.dataQuality ?? 0.3, gap, risk: E.risk, uncert: uncert ?? 0.03, badCalib: false }) ;
+  }
+  // AVIS DE L'ANALYSTE : texte rédigé à partir des chiffres de l'analyse (aucune invention, aucun LLM).
+  function analystOpinion(E, pick, kind, c) {
+    const f = E.forecast || {}, out = { verdict: '', pour: [], contre: [], conseil: '' };
+    const pc = Math.round(pick.p * 100), fair = (1 - (pick.pPush || 0)) / pick.p;
+    const gapC = c?.modelGap ?? null, lvl = pick.level;
+    const weak = lvl === 'prudent' || (gapC != null && gapC > 0.08);
+    out.verdict = weak ? `Journée pauvre en paris solides : c'est le meilleur choix disponible (${pc} % de chances), mais les signaux ne sont pas tous au vert. Je le jouerais petit.`
+      : lvl === 'correct' ? `Pari correct mais pas imparable : ${pc} % de chances, soit environ une défaite sur ${Math.max(2, Math.round(1 / (1 - pick.p)))}.`
+      : pick.p >= 0.8 ? `Je trouve ce pari solide : ${pc} % de chances selon l'analyse.`
+      : pick.p >= 0.72 ? `Bon pari à mon avis : ${pc} % de chances, c'est le plus fiable des matchs du jour.`
+      : pick.p >= 0.65 ? `Pari correct mais pas imparable : ${pc} % de chances, soit environ une défaite sur ${Math.max(2, Math.round(1 / (1 - pick.p)))}.`
+      : `Journée pauvre en bons paris : c'est le meilleur choix disponible, mais avec ${pc} % de chances, je le jouerais petit ou pas du tout.`;
+    if (!c && E.model?.st?.p1x2 && E.model.models?.[0]?.p1x2) {
+      const g = Math.abs(E.model.st.p1x2[0] - E.model.models[0].p1x2[0]);
+      (g <= 0.05 ? out.pour : out.contre).push(`Modèles statistiques et marché ${g <= 0.05 ? 'd’accord' : 'pas tout à fait d’accord'} sur le rapport de force (${Math.round(E.model.st.p1x2[0] * 100)} % contre ${Math.round(E.model.models[0].p1x2[0] * 100)} % pour la victoire à domicile).`);
+    } else if (c?.pStats != null && c?.pMkt != null) (Math.abs(c.pStats - c.pMkt) <= 0.05 ? out.pour : out.contre).push(`Modèles statistiques (${Math.round(c.pStats * 100)} %) et marché (${Math.round(c.pMkt * 100)} %) ${Math.abs(c.pStats - c.pMkt) <= 0.05 ? 'sont d’accord' : 'ne sont pas tout à fait d’accord'}.`);
+    else out.contre.push('Aucun modèle statistique indépendant pour confirmer : l’estimation repose surtout sur le marché.');
+    if (f.form?.home && f.form?.away) {
+      const w = (s) => (s.match(/V/g) || []).length;
+      const [h, a] = [f.form.home.seq, f.form.away.seq];
+      if (w(h) - w(a) >= 2) out.pour.push(`${E.home} est en meilleure forme (${h} contre ${a}).`);
+      else if (w(a) - w(h) >= 2) out.pour.push(`${E.away} est en meilleure forme (${a} contre ${h}).`);
+    }
+    if (E.sport === 'football' && f.expected) out.pour.push(`Buts attendus ${f.expected.home.toFixed(1)} – ${f.expected.away.toFixed(1)}.`);
+    if (pick.odds != null) (pick.odds >= fair ? out.pour : out.contre).push(pick.odds >= fair ? `La cote ${pick.odds.toFixed(2)} est au-dessus de sa vraie valeur (${fair.toFixed(2)}).` : `La cote ${pick.odds.toFixed(2)} est un peu sous sa vraie valeur (${fair.toFixed(2)}) : rentabilité faible sur la durée.`);
+    for (const w of E.warnings || []) out.contre.push(w);
+    if (E.sport === 'football' && !E.lineup) out.contre.push('Compositions pas encore publiées.');
+    const minOk = Math.ceil(((1 + cfg().minEV - (pick.pPush || 0)) / Math.max(0.01, pick.p - (pick.uncert ?? 0.03))) * 100) / 100;
+    out.conseil = pick.odds == null ? `Jouez-le seulement si Winamax propose au moins ${minOk.toFixed(2)}.`
+      : !weak && lvl !== 'correct' && pick.p >= 0.72 && (pick.ev ?? 0) >= -0.02 ? 'Mon conseil : jouable, avec la mise indiquée. Revérifiez 1 h avant le match avec « Actualiser et réanalyser ».'
+      : !weak && pick.p >= 0.65 ? 'Mon conseil : petite mise seulement, et vérifiez la composition ou les blessures avant de jouer.'
+      : 'Mon conseil : abstenez-vous ou mise symbolique ; rien de vraiment solide aujourd’hui.';
+    return out;
   }
   // Forme récente à partir des résultats déjà chargés (V/N/D, buts ou points marqués/encaissés)
   function recentForm(games, team, n, hk, ak) {

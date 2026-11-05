@@ -157,11 +157,13 @@
     const C = P.cfg(), B = curBank();
     const ev = odds != null ? p * odds + (pPush || 0) - 1 : null;
     let pct0 = 0, why = '';
-    if (!verify && (ev == null || ev < 0)) { why = 'aucune mise : pas d’avantage démontré à cette cote'; }
+    if (!verify && kind !== 'clément' && (ev == null || ev < 0)) { why = 'aucune mise : pas d’avantage démontré à cette cote'; }
+    else if (kind === 'clément' && (ev == null || ev < -0.04)) { why = 'aucune mise conseillée : cote trop basse'; }
     else if (kind === 'value' && !SP.isStrong(conf)) { const k = Math.max(0, ev / (odds - 1)); pct0 = Math.min(C.maxStakePct, C.kellyFrac * k); why = 'quart de Kelly plafonné (value)'; }
     else if (conf === 'très haute') { pct0 = Math.min(0.02, C.safeStakePct); why = 'confiance très haute : 1 à 2 %'; }
     else if (conf === 'haute') { pct0 = Math.min(0.01, C.safeStakePct); why = 'confiance haute : 1 % maximum'; }
     else if (conf === 'intéressante' && reliable) { pct0 = 0.005; why = 'environ 75 %, données fiables : 0,5 %'; }
+    else if (kind === 'clément' && p >= 0.55) { pct0 = p >= 0.72 ? 0.005 : 0.0025; why = p >= 0.72 ? 'bon pari sans toutes les garanties : 0,5 %' : 'pari correct : petite mise 0,25 %'; }
     else if (kind === 'value') { const k = Math.max(0, ev / (odds - 1)); pct0 = Math.min(C.maxStakePct, C.kellyFrac * k); why = 'quart de Kelly plafonné (value)'; }
     else { why = 'aucune mise : confiance insuffisante'; }
     if (pct0 > 0 && (uncert ?? 0) > 0.04) { pct0 *= 0.5; why += ' · réduite de moitié (incertitude forte)'; }
@@ -186,10 +188,11 @@
     if (!d) return `<section class="card nobet"><h3>AUCUN PRONOSTIC PRINCIPAL AUJOURD’HUI</h3><p>Les conditions de fiabilité ne sont pas réunies.</p>
       ${A.dailyAlt ? `<p class="muted">Pour information seulement (confiance ${esc(A.dailyAlt.conf)}, non recommandé) : ${esc(A.dailyAlt.match)} · ${esc(A.dailyAlt.label)} · ${pct(A.dailyAlt.p)}</p>` : ''}</section>`;
     const pk = d.pick, u = d.uncert ?? 0.03;
-    const si = stakeInfo({ conf: d.confidence, kind: d.kind === 'value' ? 'value' : 'sûr', p: pk.p, odds: pk.odds, pPush: pk.pPush, uncert: u, verify: pk.odds == null, reliable: !!pk.reliable });
+    const si = stakeInfo({ conf: d.confidence, kind: d.kind === 'value' ? 'value' : d.kind === 'clément' ? 'clément' : 'sûr', p: pk.p, odds: pk.odds, pPush: pk.pPush, uncert: u, verify: pk.odds == null, reliable: !!pk.reliable });
     const minOk = minAcceptable(pk.p, u, pk.pPush);
     const lo = Math.max(0, pk.p - 1.96 * u), hi = Math.min(1, pk.p + 1.96 * u);
-    const kindTag = { 'sûr-verif': '<span class="tag t-warn">cote à vérifier sur Winamax</span>', 'sûr': '<span class="tag t-ok">haute probabilité · cote correcte</span>', value: '<span class="tag t-ok">VALUE</span>' }[d.kind] || '';
+    const lvlTag = d.level === 'bon' ? '<span class="tag t-ok">bon pronostic</span>' : d.level === 'correct' ? '<span class="tag t-warn">pronostic correct</span>' : d.level === 'prudent' ? '<span class="tag t-na">pronostic prudent</span>' : '';
+    const kindTag = lvlTag + ({ 'sûr-verif': '<span class="tag t-warn">cote à vérifier sur Winamax</span>', 'sûr': '<span class="tag t-ok">haute probabilité · cote correcte</span>', value: '<span class="tag t-ok">VALUE</span>' }[d.kind] || '');
     const up = d.uncParts;
     return `<section class="card pick big daily">
       <div class="eyebrow">PRONOSTIC DU JOUR</div>
@@ -208,6 +211,7 @@
       </div>
       <p class="muted"><small>Mise : ${esc(si.why)}.</small></p>
       ${si.expo > 0.10 ? `<p class="notice">Plus de 10 % de votre bankroll serait exposée en même temps. Plafond strict : 15 %.</p>` : ''}
+      ${d.opinion ? `<div class="advice"><b>Mon avis :</b> ${esc(d.opinion.verdict)}${d.opinion.pour.length ? `<br><b>Pour :</b> ${d.opinion.pour.map(esc).join(' ')}` : ''}${d.opinion.contre.length ? `<br><b>Contre :</b> ${d.opinion.contre.map(esc).join(' ')}` : ''}<br><b>${esc(d.opinion.conseil)}</b></div>` : ''}
       <h4>Explication statistique</h4><ul>${d.why.map((w) => `<li>${esc(w)}</li>`).join('')}</ul>
       ${d.warnings?.length ? `<h4>Risques</h4><ul>${d.warnings.map((w) => `<li>${esc(w)}</li>`).join('')}</ul>` : '<h4>Risques</h4><ul><li>Aucun signal particulier dans les sources consultées. Le résultat reste aléatoire.</li></ul>'}
       ${up ? `<details><summary>Incertitude détaillée</summary><ul><li>Hasard des simulations : ±${pct(up.hasard, 1)}</li><li>Paramètres du modèle : ±${pct(up.parametres, 1)}</li><li>Qualité des données : ±${pct(up.donnees, 1)}</li><li>Informations sportives : ±${pct(up.informations, 1)}</li></ul></details>` : ''}
