@@ -144,6 +144,27 @@ near(ns.key.p, SP.normCdf(5 / 12.5), 0.015, 'MC NBA ≈ Φ(marge/σ)');
   near(btts.pWin, (1 - Math.exp(-1.5)) * (1 - Math.exp(-1.1)), 1e-6, 'BTTS analytique');
 }
 
+// --- hockey
+{
+  const reg = SP.scoreMatrix(3.1, 2.7, 0, 12);
+  const F = SP.hockeyFinal(reg, 0.55);
+  let draw = 0, tot = 0, pH = 0; F.forEach((r, i) => r.forEach((v, j) => { tot += v; if (i === j) draw += v; if (i > j) pH += v; }));
+  near(tot, 1, 1e-9, 'hockey : distribution finale normalisée');
+  near(draw, 0, 1e-12, 'hockey : aucun nul au score final');
+  const regH = SP.matrix1x2(reg);
+  near(pH, regH[0] + regH[1] * 0.55, 1e-9, 'hockey : victoire finale = victoire TR + nul × prolongation');
+  const R3 = SP.rng(5), teams = Array.from({ length: 16 }, (_, i) => 'H' + i), gs = []; let tt = Date.UTC(2025, 9, 1);
+  for (let k = 0; k < 900; k++) { const h = teams[Math.floor(R3() * 16)]; let a = h; while (a === h) a = teams[Math.floor(R3() * 16)];
+    let hs = SP.poissonDraw(R3, 3.2 + teams.indexOf(h) * 0.04), as = SP.poissonDraw(R3, 2.9 + teams.indexOf(a) * 0.04); if (hs === as) { if (R3() < 0.5) hs++; else as++; }
+    gs.push({ t: (tt += 3600e3 * 9), h, a, hs, as }); }
+  const hb = SP.hockeyBacktest(gs);
+  ok(hb && hb.n > 300, 'backtest hockey exécuté (' + (hb && hb.n) + ' matchs)');
+  const otg = gs.map((g, i) => ({ ...g, ot: i % 4 === 0 ? 1 : 0 }));
+  const dk = SP.hockeyDrawK(otg);
+  const m2 = SP.inflateDraws(SP.scoreMatrix(2.9, 2.9, 0, 12), dk.k); let d2 = 0; m2.forEach((r, i) => { d2 += r[i]; });
+  near(d2, 0.25, 0.03, 'nuls au temps réglementaire calés sur le taux de prolongations (25 %)');
+}
+
 // --- score qualité
 const q = SP.qualityScore({ edge: 0.04, priceEdge: 0.04, p: 0.6, fairMkt: 0.58, uncert: 0.015, modelGap: 0.02, dataQuality: 0.8, calib: 0.5, mcSpread: 0.05, simCI: 0.002, oddsAgeMin: 5, booksAtPrice: 2, riskPenalty: 0, odds: 1.85 });
 ok(SP.confidence({ p: 0.86, dataQuality: 0.7, gap: 0.02, risk: 0, uncert: 0.03 }) === 'très haute', 'confiance très haute');

@@ -74,12 +74,13 @@ onmessage = (e) => {
     'soccer_uefa_champs_league', 'soccer_uefa_europa_league', 'soccer_uefa_europa_conference_league',
     'soccer_france_ligue_two', 'soccer_efl_champ', 'soccer_netherlands_eredivisie', 'soccer_portugal_primeira_liga']);
   const BASKET_MAIN = new Set(['basketball_nba', 'basketball_euroleague']);
-  const groupOfSport = (s) => (s.group === 'Soccer' ? 'football' : s.group === 'Basketball' ? 'basket' : s.group === 'Tennis' ? 'tennis' : null);
+  const groupOfSport = (s) => (s.group === 'Soccer' ? 'football' : s.group === 'Basketball' ? 'basket' : s.group === 'Tennis' ? 'tennis' : s.group === 'Ice Hockey' ? 'hockey' : null);
   function isDefault(s, C) {
     const g = groupOfSport(s);
     if (g === 'football') return C.footballScope === 'toutes' || FOOT_MAIN.has(s.key);
     if (g === 'basket') return C.basketScope === 'toutes' || BASKET_MAIN.has(s.key);
     if (g === 'tennis') return !!C.tennis;
+    if (g === 'hockey') return C.hockey !== false && s.key === 'icehockey_nhl';
     return false;
   }
   function isWanted(s, C) {
@@ -413,6 +414,58 @@ onmessage = (e) => {
     for (let k = 1; k < tok.length; k++) { const hit = m.get(tok.slice(k).join(' ') + '|' + tok[0][0]); if (hit) return hit; }
     return null;
   }
+  // HOCKEY (NHL) : buts attendus par équipe (Poisson), résolution des égalités par la prolongation / tirs au but.
+  // Marché : victoire (prolongation incluse) et total ; statistiques : modèle attaque/défense sur les résultats NHL ESPN.
+  // Sans backtest contre des cotes historiques, le modèle statistique sert à détecter les divergences (poids marché 1).
+  function modelHockey(E, C, stats) {
+    const sH = E.mk.sels.find((s) => s.mkey === 'h2h' && s.type === 'home');
+    if (!sH || sH.fairMkt == null) return { error: 'cotes vainqueur incomplètes' };
+    const tot = E.mk.sels.filter((s) => s.mkey === 'totals' && s.type === 'over' && s.fairMkt != null).sort((a, b) => Math.abs(a.fairMkt - 0.5) - Math.abs(b.fairMkt - 0.5))[0];
+    const K = stats?.drawK?.k || 1;
+    const regOf = (lh, la) => SP.inflateDraws(SP.scoreMatrix(lh, la, 0, 12), K);
+    const finalOf = (lh, la) => SP.hockeyFinal(regOf(lh, la), SP.hockeyPOT(lh, la));
+    const stat = (F, line) => { let ph = 0, po = 0; F.forEach((r, i) => r.forEach((v, j) => { if (i > j) ph += v; if (line != null && i + j > line) po += v; })); return [ph, po]; };
+    // λ implicites du marché : moindres carrés sur P(victoire) et P(plus de la ligne)
+    let best = null;
+    for (let lh = 1.5; lh <= 5.01; lh += 0.1) for (let la = 1.5; la <= 5.01; la += 0.1) {
+      const [ph, po] = stat(finalOf(lh, la), tot?.point);
+      const err = (ph - sH.fairMkt) ** 2 + (tot ? (po - tot.fairMkt) ** 2 : 0) + (tot ? 0 : ((lh + la) - 6.1) ** 2 * 0.001);
+      if (!best || err < best.err) best = { lh, la, err };
+    }
+    const out = { models: [{ name: 'Marché (marge retirée)', pHome: sH.fairMkt, lh: best.lh, la: best.la }], statsNote: 'marché seul : résultats NHL indisponibles', nHist: stats?.n ?? 0 };
+    let gap = null;
+    if (stats?.ok && stats.fit) {
+      const mh = D.bestMatch(E.home, stats.fit.teams), ma = D.bestMatch(E.away, stats.fit.teams);
+      if (mh.name && ma.name) {
+        const l = SP.dcLambdas(stats.fit, mh.name, ma.name);
+        const [ps] = stat(finalOf(l.lh, l.la), null);
+        out.models.push({ name: 'Poisson attaque/défense (NHL, pondéré dans le temps)', pHome: ps, lh: l.lh, la: l.la });
+        gap = Math.abs(ps - sH.fairMkt);
+        out.st = { lh: l.lh, la: l.la, pHome: ps, match: [mh, ma] };
+        out.matched = [mh.name, ma.name];
+        out.statsNote = `${stats.n} matchs NHL ESPN, appariement ${(Math.min(mh.score, ma.score) * 100).toFixed(0)} % · modèle statistique utilisé pour repérer les divergences`;
+      } else out.statsNote = `équipe(s) non appariée(s) dans les résultats NHL (${E.home} / ${E.away})`;
+    }
+    const lh = best.lh, la = best.la, pOT = SP.hockeyPOT(lh, la);
+    out.final = { lh, la, rho: 0 }; out.pOT = pOT; out.drawK = K;
+    if (stats?.drawK) out.statsNote += ` · nuls au temps réglementaire calés sur le taux réel de prolongations (${Math.round(stats.drawK.rate * 100)} % sur ${stats.drawK.n} matchs)`;
+    const sigma = Math.sqrt(0.05 ** 2 + ((gap || 0) / 2) ** 2) + (out.st ? 0 : 0.03);
+    out.models.push({ name: 'Final (marché ; modèle stats en contrôle)', pHome: stat(finalOf(lh, la), null)[0], lh, la });
+    const F = finalOf(lh, la);
+    const pseudo = { kind: 'football', M: F.length, hist: F.flat() };
+    const Fs = out.st ? finalOf(out.st.lh, out.st.la) : null;
+    out.phase1 = (sel) => {
+      const ns = SP.normalizeSel({ type: sel.type, point: sel.point });
+      const r = SP.evalFromSim(pseudo, ns, sel.best.price);
+      const rs = Fs ? SP.evalFromSim({ kind: 'football', M: Fs.length, hist: Fs.flat() }, ns, 2).pWin : null;
+      return { pWin: r.pWin, pPush: r.pPush, ev: r.ev, pMkt: sel.fairMkt ?? r.pWin, pStats: rs };
+    };
+    out.simSpec = { kind: 'football', lh, la, rho: 0, sigma };
+    out.dataQuality = out.st ? 0.7 : 0.35;
+    out.calib = stats?.bt ? Math.max(0, (stats.bt.naive.logLoss - stats.bt.ensemble.logLoss) / 0.06) : null;
+    out.wSource = 'marché (pas de cotes historiques NHL pour valider un autre poids)';
+    return out;
+  }
   function modelTennis(E, C, T) {
     const h2h = E.mk.sels.filter((s) => s.mkey === 'h2h');
     const sA = h2h.find((s) => s.name === E.home);
@@ -498,9 +551,9 @@ onmessage = (e) => {
     const titles = Object.fromEntries(sp.data.map((s) => [s.key, s.title]));
     const hours = C.extendTo48 ? 48 : C.hours;
     // TOUTES les compétitions actives de foot, basket et tennis (liste gratuite), sauf celles exclues dans Réglages.
-    const groupOf = (s) => (s.group === 'Soccer' ? 'football' : s.group === 'Basketball' ? 'basket' : s.group === 'Tennis' ? 'tennis' : null);
+    const groupOf = groupOfSport;
     const wanted = active.filter((s) => isWanted(s, C));
-    const MAJOR = new Set([...Object.entries(D.FOOTBALL).filter(([, v]) => v.on).map(([k2]) => k2), 'basketball_nba', 'basketball_euroleague']);
+    const MAJOR = new Set([...Object.entries(D.FOOTBALL).filter(([, v]) => v.on).map(([k2]) => k2), 'basketball_nba', 'basketball_euroleague', 'icehockey_nhl']);
     const wmx = D.LS.get('sp:wmx', {}); // compétitions sans cotes chez le bookmaker cible (mémorisé 7 jours)
     // 1) liste des matchs : gratuite, en parallèle par 6
     const withCount = [];
@@ -557,6 +610,15 @@ onmessage = (e) => {
       try { fbStats[lk] = await footballStats(D.FOOTBALL[lk].espn, null, lk); } catch (e) { fbStats[lk] = { ok: false, error: String(e) }; }
       if (!fbStats[lk].ok) A.errors.push(`Stats ${D.FOOTBALL[lk].name}: ${fbStats[lk].error}`);
     }
+    let nhl = null;
+    if (raw.some((e) => e.sport_key.startsWith('icehockey'))) {
+      const gsH = (LD.nhl?.games || []).map((r) => ({ t: r[0], h: r[1], a: r[2], hs: r[3], as: r[4], ot: r[5] ?? null }));
+      if (gsH.length >= 200) {
+        await new Promise((res) => setTimeout(res, 0));
+        const fit = SP.fitDixonColes(gsH.map((x) => ({ t: x.t, h: x.h, a: x.a, hg: x.hs, ag: x.as })), { skipRho: true, xi: 0.004, ridge: 3 });
+        nhl = { ok: true, n: gsH.length, gs: gsH, fit, drawK: SP.hockeyDrawK(gsH), bt: SP.hockeyBacktest(gsH), source: `ESPN via collecte quotidienne (${gsH.length} matchs)` };
+      } else { nhl = { ok: false, error: 'résultats NHL indisponibles (collecte quotidienne)' }; A.errors.push('Stats NHL : ' + nhl.error); }
+    }
     let nba = null;
     if (raw.some((e) => e.sport_key === 'basketball_nba')) {
       S.progress(1, k, leaguesNeeded.length + 1, 'NBA');
@@ -566,6 +628,7 @@ onmessage = (e) => {
     A.backtests = {
       ...Object.fromEntries(Object.entries(fbStats).filter(([, v]) => v.ok && v.bt).map(([kk, v]) => [D.FOOTBALL[kk].name + ` (${v.source})`, { n: v.bt.n, models: { ...v.bt.models, ...(v.bt.market ? { [`marché (${v.refs || 'clôture'})`]: v.bt.market } : {}) }, ensemble: v.bt.blend || v.bt.ensemble, naive: v.bt.naive, weights: { ...v.bt.weights, ...(v.bt.wMarket != null ? { 'poids marché': v.bt.wMarket } : {}) }, calibration: v.bt.calibration }])),
       ...Object.fromEntries(Object.entries(LD.tennis?.tours || {}).map(([tour, t]) => [`Tennis ${tour} (Elo surface, ${LD.tennis.source || ''})`, { n: t.backtest.n || t.backtest.nElo || 0, models: { elo: { logLoss: t.backtest.eloLogLoss }, ...(t.backtest.pinnacleLogLoss != null ? { 'marché Pinnacle': { logLoss: t.backtest.pinnacleLogLoss } } : {}) }, ensemble: { logLoss: t.backtest.blendLogLoss ?? t.backtest.eloLogLoss }, naive: { logLoss: Math.log(2) }, weights: t.backtest.wMarket != null ? { 'poids marché': t.backtest.wMarket } : { 'poids marché': 1 } }])),
+      ...(nhl?.bt ? { 'NHL (Poisson, prolongation incluse)': nhl.bt } : {}),
       ...(nba?.bt ? { NBA: { n: nba.bt.n, models: nba.bt.models, ensemble: nba.bt.ensemble, weights: nba.bt.weights, calibration: nba.bt.calibration } } : {}),
     };
     const okStats = Object.values(fbStats).filter((v) => v.ok).length + (nba?.ok ? 1 : 0);
@@ -579,7 +642,7 @@ onmessage = (e) => {
 
     // préparation des événements
     const events = raw.map((e) => {
-      const sport = e.sport_key.startsWith('soccer') ? 'football' : e.sport_key === 'basketball_nba' ? 'nba' : e.sport_key.startsWith('basketball') ? 'basket' : 'tennis';
+      const sport = e.sport_key.startsWith('soccer') ? 'football' : e.sport_key === 'basketball_nba' ? 'nba' : e.sport_key.startsWith('basketball') ? 'basket' : e.sport_key.startsWith('icehockey') ? 'hockey' : 'tennis';
       const E = {
         id: e.id, sport, sportKey: e.sport_key, comp: D.FOOTBALL[e.sport_key]?.name || titles[e.sport_key] || e.sport_title,
         home: e.home_team, away: e.away_team, t: Date.parse(e.commence_time), fetched: e._fetched, staleOdds: e._stale,
@@ -627,7 +690,7 @@ onmessage = (e) => {
     // ---------------- 5. actualités
     S.start(4);
     const newsBy = {};
-    const feeds = [...new Set(events.map((E) => E.sport === 'football' ? `soccer|${D.FOOTBALL[E.sportKey]?.espn}` : E.sport === 'nba' ? 'basketball|nba' : (/wta/.test(E.sportKey) ? 'tennis|wta' : 'tennis|atp')))].filter((f) => !f.endsWith('undefined'));
+    const feeds = [...new Set(events.map((E) => E.sport === 'football' ? `soccer|${D.FOOTBALL[E.sportKey]?.espn}` : E.sport === 'nba' ? 'basketball|nba' : E.sport === 'hockey' ? 'hockey|nhl' : E.sport === 'basket' ? 'basketball|nba' : (/wta/.test(E.sportKey) ? 'tennis|wta' : 'tennis|atp')))].filter((f) => !f.endsWith('undefined'));
     for (let i = 0; i < feeds.length; i++) {
       S.progress(4, i, feeds.length, feeds[i]);
       const [s, l] = feeds[i].split('|');
@@ -636,7 +699,7 @@ onmessage = (e) => {
       if (!r.ok) A.errors.push(`Actualités ${l} : ${r.error}`);
     }
     for (const E of events) {
-      const f = E.sport === 'football' ? `soccer|${D.FOOTBALL[E.sportKey]?.espn}` : E.sport === 'nba' ? 'basketball|nba' : (/wta/.test(E.sportKey) ? 'tennis|wta' : 'tennis|atp');
+      const f = E.sport === 'football' ? `soccer|${D.FOOTBALL[E.sportKey]?.espn}` : E.sport === 'nba' ? 'basketball|nba' : E.sport === 'hockey' ? 'hockey|nhl' : E.sport === 'basket' ? 'basketball|nba' : (/wta/.test(E.sportKey) ? 'tennis|wta' : 'tennis|atp');
       const items = newsBy[f] || [];
       const keyTok = (n) => D.norm(n).split(' ').filter((x) => x.length > 3).sort((a, b) => b.length - a.length)[0] || D.norm(n);
       const kh = keyTok(E.home), ka = keyTok(E.away);
@@ -664,6 +727,7 @@ onmessage = (e) => {
         if (E.sport === 'football') M = modelFootball(E, C, fbStats[E.sportKey], LD.clubelo);
         else if (E.sport === 'nba') M = modelNBA(E, C, nba);
         else if (E.sport === 'basket') M = modelNBA(E, C, null);
+        else if (E.sport === 'hockey') M = modelHockey(E, C, nhl);
         else M = modelTennis(E, C, LD.tennis);
       } catch (err) { M = { error: String(err) }; }
       E.model = M;
@@ -712,10 +776,11 @@ onmessage = (e) => {
     top.forEach((c, i) => {
       const r = simRes[i]; if (!r || r.error) { c.E.simError = r?.error || 'échec'; return; }
       c.E.sim = r; totalSims += r.n;
+      const rEval = c.E.sport === 'hockey' ? SP.hockeyFinalSim(r, c.E.model.pOT) : r;
       for (const s of c.E.mk.sels) {
         const sel = c.E.sport === 'tennis' ? tennisSel(c.E, s) : { type: s.type, point: s.point };
         if (!sel || !s.p1) continue;
-        const e = SP.evalFromSim(r, SP.normalizeSel(sel), s.best.price);
+        const e = SP.evalFromSim(rEval, SP.normalizeSel(sel), s.best.price);
         s.p2 = c.E.sport === 'tennis' ? { ...tennisBlend(s, e, C, c.E), ci: e.ci95, n: r.n } : { pWin: e.pWin, pPush: e.pPush, ev: e.ev, ci: e.ci95, n: r.n };
       }
     });
@@ -771,7 +836,7 @@ onmessage = (e) => {
     // pronostics : pour chaque match, la lecture du moteur, même sans value
     for (const E of events) {
       if (E.skip) continue;
-      try { E.forecast = forecast(E, scored.filter((c) => c.E === E), E.sport === 'football' ? fbStats[E.sportKey] : E.sport === 'nba' ? nba : null); } catch (err) { E.forecast = null; }
+      try { E.forecast = forecast(E, scored.filter((c) => c.E === E), E.sport === 'football' ? fbStats[E.sportKey] : E.sport === 'nba' ? nba : E.sport === 'hockey' ? nhl : null); } catch (err) { E.forecast = null; }
     }
     const confRank = { 'très haute': 4, haute: 3, 'intéressante': 2, 'insuffisante': 1 };
     A.forecasts = events.filter((E) => E.forecast && E.forecast.pick && E.t - Date.now() <= Math.max(C.hours, 24) * 3600e3)
@@ -852,10 +917,10 @@ onmessage = (e) => {
       // la cote juste ≥ cote minimale, les données du match fiables (équipes appariées) et sans risque majeur.
       const derived = [];
       for (const E of events) {
-        if (E.sport !== 'football' || !E.forecast?.markets || !E.model?.st || E.risk >= 3 || E.staleOdds) continue;
+        if ((E.sport !== 'football' && E.sport !== 'hockey') || !E.forecast?.markets || !E.model?.st || E.risk >= 3 || E.staleOdds) continue;
         if (E.t <= Date.now() + 15 * 60e3 || E.t - Date.now() > Math.max(C.hours, 24) * 3600e3) continue;
         if (realSafe.some((s) => s.eventId === E.id && s.tier === 1)) continue;
-        const gap = Math.abs((E.model.st.p1x2?.[0] ?? 0) - (E.model.models[0].p1x2?.[0] ?? 0));
+        const gap = E.sport === 'hockey' ? Math.abs((E.model.st.pHome ?? 0) - (E.model.models[0].pHome ?? 0)) : Math.abs((E.model.st.p1x2?.[0] ?? 0) - (E.model.models[0].p1x2?.[0] ?? 0));
         if (gap > 0.08) continue;
         const m = E.forecast.markets.filter((x) => !x.real && !x.risky && x.p >= C.safeMinP && x.minSafe >= C.minOdds).sort((a, b) => b.p - a.p)[0];
         if (!m) continue;
@@ -920,7 +985,7 @@ onmessage = (e) => {
         const f = E.forecast;
         const why = [];
         why.push(`${f.headline} : ${E.sport === 'football' ? `1 ${(f.probs.home * 100).toFixed(0)} % · N ${(f.probs.draw * 100).toFixed(0)} % · 2 ${(f.probs.away * 100).toFixed(0)} %` : `${E.home} ${(f.probs.home * 100).toFixed(0)} % · ${E.away} ${(f.probs.away * 100).toFixed(0)} %`}.`);
-        if (E.sport === 'football') why.push(`Buts attendus ${f.expected.home.toFixed(2)} – ${f.expected.away.toFixed(2)}, score le plus probable ${f.score.h}-${f.score.a}.`);
+        if (E.sport === 'football' || E.sport === 'hockey') why.push(`Buts attendus ${f.expected.home.toFixed(2)} – ${f.expected.away.toFixed(2)}, score le plus probable ${f.score.h}-${f.score.a}${E.sport === 'hockey' ? ' (prolongation incluse)' : ''}.`);
         if (E.sport === 'nba' || E.sport === 'basket') why.push(`Score projeté ${Math.round(f.expected.home)}-${Math.round(f.expected.away)} (total ${f.expected.total.toFixed(1)}).`);
         if (f.form?.home && f.form?.away) why.push(`Forme récente : ${E.home} ${f.form.home.seq}, ${E.away} ${f.form.away.seq} (du plus ancien au plus récent).`);
         const sc = scored.find((c) => c.E === E && c.s.label === pick.label);
@@ -931,7 +996,7 @@ onmessage = (e) => {
           : kind === 'value' ? `La cote ${pick.odds.toFixed(2)} est supérieure à la cote juste (${(1 / pick.p).toFixed(2)}) : pari rentable sur la durée selon le modèle.`
           : pick.ev >= 0 ? `La cote ${pick.odds.toFixed(2)} est au moins égale à sa vraie valeur (${(1 / pick.p).toFixed(2)}).` : `La cote ${pick.odds.toFixed(2)} est sous la cote juste (${(1 / pick.p).toFixed(2)}) : pronostic probable mais sans value, mise réduite conseillée.`);
         const opinion = analystOpinion(E, pick, kind, scored.find((c) => c.E === E && c.s.label === pick.label));
-        A.daily = { opinion, level: pick.level || (SP.isStrong(confOf(E, pick.p, null)) ? 'fort' : null), kind, eventId: E.id, sport: E.sport, sportKey: E.sportKey, comp: E.comp, match: `${E.home} – ${E.away}`, home: E.home, away: E.away, t: E.t, day: E.day, quality: scored.find((c) => c.E === E && c.s.label === pick.label)?.q || null, reliability: scored.find((c) => c.E === E && c.s.label === pick.label)?.rel || SP.reliability({ dataQuality: E.model.dataQuality, dataNote: E.model.statsNote, nHist: E.model.nHist, calib: E.model.calib, mcSpread: 0.05, paramSd: pick.uncert ?? 0.03 }), uncert: scored.find((c) => c.E === E && c.s.label === pick.label)?.uncert ?? pick.uncert ?? 0.03, uncParts: scored.find((c) => c.E === E && c.s.label === pick.label)?.uncParts || null, edge: scored.find((c) => c.E === E && c.s.label === pick.label)?.edge ?? null, oddsAt: scored.find((c) => c.E === E && c.s.label === pick.label)?.best.last ?? null, confidence: confOf(E, pick.p, scored.find((c) => c.E === E && c.s.label === pick.label)?.modelGap ?? (kind === 'sûr-verif' ? Math.abs((E.model.st?.p1x2?.[0] ?? 0) - (E.model.models[0].p1x2?.[0] ?? 0)) : null)), headline: f.headline, pick, why, warnings: E.warnings, dataNote: f.dataNote };
+        A.daily = { opinion, level: pick.level || (SP.isStrong(confOf(E, pick.p, null)) ? 'fort' : null), kind, eventId: E.id, sport: E.sport, sportKey: E.sportKey, comp: E.comp, match: `${E.home} – ${E.away}`, home: E.home, away: E.away, t: E.t, day: E.day, quality: scored.find((c) => c.E === E && c.s.label === pick.label)?.q || null, reliability: scored.find((c) => c.E === E && c.s.label === pick.label)?.rel || SP.reliability({ dataQuality: E.model.dataQuality, dataNote: E.model.statsNote, nHist: E.model.nHist, calib: E.model.calib, mcSpread: 0.05, paramSd: pick.uncert ?? 0.03 }), uncert: scored.find((c) => c.E === E && c.s.label === pick.label)?.uncert ?? pick.uncert ?? 0.03, uncParts: scored.find((c) => c.E === E && c.s.label === pick.label)?.uncParts || null, edge: scored.find((c) => c.E === E && c.s.label === pick.label)?.edge ?? null, oddsAt: scored.find((c) => c.E === E && c.s.label === pick.label)?.best.last ?? null, confidence: confOf(E, pick.p, scored.find((c) => c.E === E && c.s.label === pick.label)?.modelGap ?? (kind === 'sûr-verif' ? (E.sport === 'hockey' ? Math.abs((E.model.st?.pHome ?? 0) - (E.model.models[0].pHome ?? 0)) : Math.abs((E.model.st?.p1x2?.[0] ?? 0) - (E.model.models[0].p1x2?.[0] ?? 0))) : null)), headline: f.headline, pick, why, warnings: E.warnings, dataNote: f.dataNote };
       } else A.daily = null;
     }
     A.events = events.map(slimEvent);
@@ -995,6 +1060,28 @@ onmessage = (e) => {
     return out;
   }
   const countFits = {};
+  // Marchés hockey calculés : prolongation incluse (score final) ou temps réglementaire (60 min)
+  function hockeyMarkets(reg, F, E) {
+    const C = cfg();
+    const evalOn = (mat, type, point) => SP.evalFromSim({ kind: 'football', M: mat.length, hist: mat.flat() }, SP.normalizeSel({ type, point }), 2);
+    const defs = [
+      [F, 'home', null, `${E.home} gagne (prolongation incluse)`, 'h2h'], [F, 'away', null, `${E.away} gagne (prolongation incluse)`, 'h2h'],
+      [reg, 'home', null, `${E.home} gagne dans le temps réglementaire`], [reg, 'draw', null, 'Nul à la fin du temps réglementaire'], [reg, 'away', null, `${E.away} gagne dans le temps réglementaire`],
+      [reg, 'dc1X', null, `${E.home} ou nul (temps réglementaire)`], [reg, 'dcX2', null, `Nul ou ${E.away} (temps réglementaire)`],
+      ...[4.5, 5.5, 6.5, 7.5].flatMap((l) => [[F, 'over', l, `Plus de ${String(l).replace('.', ',')} buts (prol. incluse)`, 'totals'], [F, 'under', l, `Moins de ${String(l).replace('.', ',')} buts (prol. incluse)`, 'totals']]),
+      [F, 'ahHome', -1.5, `${E.home} -1,5 (puck line)`, 'spreads'], [F, 'ahAway', 1.5, `${E.away} +1,5 (puck line)`, 'spreads'],
+      [F, 'ahAway', -1.5, `${E.away} -1,5 (puck line)`, 'spreads'], [F, 'ahHome', 1.5, `${E.home} +1,5 (puck line)`, 'spreads'],
+      [F, 'homeOver15', null, `${E.home} marque au moins 2 buts`], [F, 'awayOver15', null, `${E.away} marque au moins 2 buts`],
+      [F, 'bttsYes', null, 'Les deux équipes marquent'],
+    ];
+    return defs.map(([mat, type, point, label, mkey]) => {
+      const r = evalOn(mat, type, point), fair = (1 - r.pPush) / Math.max(1e-6, r.pWin);
+      let real = null;
+      if (mkey) { const s = E.mk.sels.find((x) => !x.noTarget && x.mkey === mkey && x.type === type && (point == null || x.point === point)); if (s) real = { odds: s.best.price, book: s.best.title, last: s.best.last }; }
+      const regulation = mat === reg;
+      return { key: type + (point ?? '') + (regulation ? 'TR' : ''), label, type: regulation ? 'reg_' + type : type, point, regulation, p: r.pWin, pPush: r.pPush, fair, minSafe: Math.ceil(fair * (1 + C.safeTolEV) * 100) / 100, minValue: Math.ceil(fair * (1 + C.minEV) * 100) / 100, real, ev: real ? r.pWin * real.odds + r.pPush - 1 : null };
+    });
+  }
   // Confiance d'un pari donné : « forte » seulement si très probable, données solides (modèle statistique
   // indépendant disponible), modèles d'accord avec le marché et aucun risque signalé sur le match.
   function confOf(E, p, gap, uncert) {
@@ -1023,7 +1110,7 @@ onmessage = (e) => {
       if (w(h) - w(a) >= 2) out.pour.push(`${E.home} est en meilleure forme (${h} contre ${a}).`);
       else if (w(a) - w(h) >= 2) out.pour.push(`${E.away} est en meilleure forme (${a} contre ${h}).`);
     }
-    if (E.sport === 'football' && f.expected) out.pour.push(`Buts attendus ${f.expected.home.toFixed(1)} – ${f.expected.away.toFixed(1)}.`);
+    if ((E.sport === 'football' || E.sport === 'hockey') && f.expected) out.pour.push(`Buts attendus ${f.expected.home.toFixed(1)} – ${f.expected.away.toFixed(1)}.`);
     if (pick.odds != null) (pick.odds >= fair ? out.pour : out.contre).push(pick.odds >= fair ? `La cote ${pick.odds.toFixed(2)} est au-dessus de sa vraie valeur (${fair.toFixed(2)}).` : `La cote ${pick.odds.toFixed(2)} est un peu sous sa vraie valeur (${fair.toFixed(2)}) : rentabilité faible sur la durée.`);
     for (const w of E.warnings || []) out.contre.push(w);
     if (E.sport === 'football' && !E.lineup) out.contre.push('Compositions pas encore publiées.');
@@ -1081,6 +1168,18 @@ onmessage = (e) => {
         const [mh, ma] = E.model.st.match.map((m) => m.name);
         f.form = { home: recentForm(stats.ms, mh, 5, 'hg', 'ag'), away: recentForm(stats.ms, ma, 5, 'hg', 'ag') };
       }
+    } else if (E.sport === 'hockey') {
+      const { lh, la } = E.model.final;
+      const reg = SP.inflateDraws(SP.scoreMatrix(lh, la, 0, 12), E.model.drawK || 1), F = SP.hockeyFinal(reg, E.model.pOT);
+      let ph = 0, best = [0, 0, 0]; F.forEach((r, i) => r.forEach((v, j) => { if (i > j) ph += v; if (v > best[2]) best = [i, j, v]; }));
+      const [rh, rd, ra] = SP.matrix1x2(reg);
+      f.probs = { home: ph, away: 1 - ph, regHome: rh, regDraw: rd, regAway: ra };
+      f.expected = { home: lh, away: la, total: lh + la };
+      f.score = { h: best[0], a: best[1], p: best[2] };
+      f.headline = Math.abs(ph - 0.5) < 0.07 ? 'Match serré' : ph > 0.5 ? `Victoire de ${E.home} probable` : `Victoire de ${E.away} probable`;
+      f.markets = hockeyMarkets(reg, F, E);
+      if (stats?.gs && E.model.matched) f.form = { home: recentForm(stats.gs, E.model.matched[0], 10, 'hs', 'as'), away: recentForm(stats.gs, E.model.matched[1], 10, 'hs', 'as') };
+      f.facts.push(`Prolongation / tirs au but en cas d'égalité : ${Math.round(rd * 100)} % de chances après 60 min`);
     } else if (E.sport === 'nba' || E.sport === 'basket') {
       const sp = E.model.simSpec;
       const pH = SP.normCdf((sp.ph - sp.pa) / Math.sqrt(sp.sdM ** 2 + sp.sigmaM ** 2));

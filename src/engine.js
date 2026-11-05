@@ -452,6 +452,65 @@ function SPEngineFactory() {
   };
   SP.applyPlatt = (c, p) => { const x = Math.log(Math.max(1e-6, p) / Math.max(1e-6, 1 - p)); return 1 / (1 + Math.exp(-(c.a + c.b * x))); };
 
+  // ---------------------------------------------------------------- Hockey (NHL)
+  // Matrice des scores au temps réglementaire -> score final : une égalité devient une victoire d'un but
+  // (prolongation ou tirs au but, qui comptent pour un but dans les marchés de paris). pOT = probabilité que
+  // l'équipe à domicile gagne la prolongation / les tirs au but.
+  SP.hockeyFinal = function (mat, pOT) {
+    const M = mat.length, F = Array.from({ length: M + 1 }, () => new Array(M + 1).fill(0));
+    for (let i = 0; i < M; i++) for (let j = 0; j < M; j++) {
+      const v = mat[i][j];
+      if (i !== j) F[i][j] += v; else { F[i + 1][j] += v * pOT; F[i][j + 1] += v * (1 - pOT); }
+    }
+    return F;
+  };
+  // Le Poisson indépendant sous-estime les nuls au temps réglementaire en NHL : on gonfle la diagonale d'un
+  // facteur k estimé sur le taux réel de prolongations (puis renormalisation).
+  SP.inflateDraws = function (mat, k) {
+    if (!k || Math.abs(k - 1) < 1e-6) return mat;
+    let s = 0; const out = mat.map((r, i) => r.map((v, j) => { const x = i === j ? v * k : v; s += x; return x; }));
+    return out.map((r) => r.map((v) => v / s));
+  };
+  SP.hockeyDrawK = function (games) {
+    const g = games.filter((x) => x.ot != null); if (g.length < 200) return null;
+    const rate = g.reduce((s, x) => s + x.ot, 0) / g.length;
+    const lam = g.reduce((s, x) => s + x.hs + x.as - x.ot, 0) / g.length / 2; // buts au temps réglementaire
+    const m = SP.scoreMatrix(lam, lam, 0, 12); let d = 0; m.forEach((r, i) => { d += r[i]; });
+    // k tel que k·d / (1 − d + k·d) = rate
+    const k = rate * (1 - d) / (d * (1 - rate));
+    return { k: Math.min(2, Math.max(1, k)), rate, n: g.length };
+  };
+  SP.hockeyPOT = (lh, la) => Math.min(0.62, Math.max(0.38, 0.5 + 0.5 * (lh - la) / (lh + la)));
+  // Histogramme Monte-Carlo (temps réglementaire, format football) -> pseudo-simulation au score final
+  SP.hockeyFinalSim = function (sim, pOT) {
+    const M = sim.M, mat = [];
+    for (let i = 0; i < M; i++) { mat.push([]); for (let j = 0; j < M; j++) mat[i].push(sim.hist[i * M + j]); }
+    const F = SP.hockeyFinal(mat, pOT);
+    return { ...sim, M: M + 1, hist: F.flat() };
+  };
+  // Backtest chronologique NHL : probabilité de victoire (prolongation incluse) d'un modèle de Poisson
+  // attaque/défense pondéré dans le temps, contre le modèle naïf (taux de victoire à domicile).
+  SP.hockeyBacktest = function (games) {
+    const gs = [...games].sort((a, b) => a.t - b.t);
+    const warm = Math.max(150, Math.floor(gs.length * 0.4));
+    const ys = gs.map((g) => (g.hs > g.as ? 1 : 0));
+    const base = ys.slice(0, warm).reduce((s, y) => s + y, 0) / warm;
+    let m = null, last = -Infinity, ll = 0, llN = 0, br = 0, n = 0;
+    const cal = [], obs = [];
+    for (let i = warm; i < gs.length; i++) {
+      const g = gs[i];
+      if (!m || g.t - last > 10 * 86400e3) { m = SP.fitDixonColes(gs.slice(0, i).map((x) => ({ t: x.t, h: x.h, a: x.a, hg: x.hs, ag: x.as })), { asOf: g.t, skipRho: true, xi: 0.004, ridge: 3 }); last = g.t; }
+      const l = SP.dcLambdas(m, g.h, g.a); if (!l) continue;
+      const F = SP.hockeyFinal(SP.scoreMatrix(l.lh, l.la, 0, 12), SP.hockeyPOT(l.lh, l.la));
+      let p = 0; F.forEach((r, a) => r.forEach((v, b) => { if (a > b) p += v; }));
+      const y = ys[i];
+      ll += -Math.log(Math.max(1e-9, y ? p : 1 - p)); llN += -Math.log(Math.max(1e-9, y ? base : 1 - base)); br += (p - y) ** 2; n++;
+      cal.push(p); obs.push(y);
+    }
+    if (n < 50) return null;
+    return { n, models: { poisson: { logLoss: ll / n, brier: br / n } }, naive: { logLoss: llN / n }, ensemble: { logLoss: ll / n }, weights: { poisson: 1 }, calibration: SP.calibrationBins(cal, obs) };
+  };
+
   SP.calibrationBins = function (ps, ys, nb = 10) {
     const bins = Array.from({ length: nb }, () => ({ n: 0, p: 0, y: 0 }));
     ps.forEach((p, i) => {

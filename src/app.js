@@ -12,7 +12,7 @@
   const dt = (t) => new Date(t).toLocaleString('fr-FR', { timeZone: TZ, weekday: 'short', day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' });
   const hm = (t) => new Date(t).toLocaleTimeString('fr-FR', { timeZone: TZ, hour: '2-digit', minute: '2-digit' });
   const ago = (t) => { const m = Math.round((Date.now() - t) / 60e3); return m < 1 ? 'à l’instant' : m < 60 ? `il y a ${m} min` : m < 1440 ? `il y a ${Math.round(m / 60)} h` : `il y a ${Math.round(m / 1440)} j`; };
-  const SPORT = { football: 'Football', tennis: 'Tennis', nba: 'NBA', basket: 'Basket' };
+  const SPORT = { football: 'Football', tennis: 'Tennis', nba: 'NBA', basket: 'Basket', hockey: 'NHL' };
   const MKT = { h2h: 'Vainqueur', totals: 'Total', spreads: 'Handicap' };
 
   const STEPS = ['Récupération des matchs', 'Collecte des statistiques', 'Analyse des blessures', 'Vérification des compositions', 'Analyse des actualités', 'Comparaison des cotes', 'Calcul des modèles', 'Simulations Monte-Carlo', 'Classement des opportunités', 'Validation finale'];
@@ -252,6 +252,7 @@
       <p class="headline"><b>${esc(f.headline)}</b> <span class="tag t-${f.confidence === 'forte' ? 'ok' : f.confidence === 'moyenne' ? 'warn' : 'na'}">confiance ${esc(f.confidence)}</span></p>
       ${bar}
       ${f.sport === 'football' ? `<p class="muted">Score le plus probable <b>${f.score.h}-${f.score.a}</b> (${pct(f.score.p, 0)}) · buts attendus ${num(f.expected.home, 2)} – ${num(f.expected.away, 2)} · +2,5 buts ${pct(f.probs.over25, 0)} · les deux marquent ${pct(f.probs.btts, 0)}</p>` : ''}
+      ${f.sport === 'hockey' ? `<p class="muted">Score le plus probable <b>${f.score.h}-${f.score.a}</b> (prolongation incluse) · buts attendus ${num(f.expected.home, 1)} – ${num(f.expected.away, 1)} · prolongation ${pct(f.probs.regDraw)}</p>` : ''}
       ${f.sport === 'nba' ? `<p class="muted">Score projeté <b>${Math.round(f.expected.home)}-${Math.round(f.expected.away)}</b> · total attendu ${num(f.expected.total, 1)} points</p>` : ''}
       ${f.form ? `<div class="formrow"><div><small>${esc(hn)}</small>${formChips(f.form.home)}</div><div><small>${esc(an)}</small>${formChips(f.form.away)}</div></div>` : ''}
       ${f.pick ? `<div class="advice"><b>Pari le plus probable :</b> ${esc(f.pick.label)} @ <b>${num(f.pick.odds)}</b> (${esc(f.pick.book)}) — probabilité ${pct(f.pick.p)}, EV ${sgn(f.pick.ev)} ${f.pick.value ? '<span class="tag t-ok">VALUE</span>' : '<span class="tag t-na">pas de value</span>'}</div>${betBtn({ source: 'prono', eventId: f.eventId, sport: f.sport, sportKey: f.sportKey, comp: f.comp, match: f.match, home: f.home, away: f.away, t: f.t, label: f.pick.label, type: f.pick.type, point: f.pick.point, market: f.pick.market, odds: f.pick.odds, book: f.pick.book, p: f.pick.p, value: f.pick.value, suggested: f.pick.value ? stakeFor(f.pick.p, f.pick.odds, f.pick.pPush) : null })}` : ''}
@@ -482,14 +483,14 @@
           <div class="g3">
             <label>Football <select id="c-fscope"><option value="principal" ${C.footballScope !== 'toutes' ? 'selected' : ''}>Compétitions principales (recommandé)</option><option value="toutes" ${C.footballScope === 'toutes' ? 'selected' : ''}>Toutes les compétitions</option></select></label>
             <label>Basket <select id="c-bscope"><option value="principal" ${C.basketScope !== 'toutes' ? 'selected' : ''}>NBA et Euroleague (recommandé)</option><option value="toutes" ${C.basketScope === 'toutes' ? 'selected' : ''}>Toutes les compétitions</option></select></label>
-            ${chk('c-tennis', C.tennis, 'Tennis : tournois ATP/WTA en cours')}</div>
+            ${chk('c-tennis', C.tennis, 'Tennis : tournois ATP/WTA en cours')}${chk('c-hockey', C.hockey !== false, 'Hockey : NHL')}</div>
           ${n('c-budget', C.creditBudget, 'Budget de crédits par analyse (≈ 2 à 3 par compétition)')}
           <p class="muted">À chaque analyse, l’application récupère gratuitement la liste de toutes les compétitions actives et ne paie que pour celles qui ont des matchs dans les 24 h. Les compétitions où ${C.targetBook === 'winamax_fr' ? 'Winamax' : 'votre bookmaker'} ne propose aucune cote sont mémorisées et ignorées pendant 7 jours. Priorité aux grands championnats, puis aux compétitions avec le plus de matchs.</p>
           ${(() => {
             const sp = D.LS.get('sp:c:odds:sports', null)?.data;
             if (!sp) return '<p class="muted">La liste détaillée apparaîtra après la première analyse.</p>';
             const wmx = D.LS.get('sp:wmx', {});
-            const grp = { Soccer: 'Football', Basketball: 'Basket', Tennis: 'Tennis' };
+            const grp = { Soccer: 'Football', Basketball: 'Basket', 'Ice Hockey': 'Hockey', Tennis: 'Tennis' };
             return Object.entries(grp).map(([g, lab]) => {
               const L = sp.filter((s) => s.group === g && s.active && !s.has_outrights).sort((x, y) => x.title.localeCompare(y.title));
               if (!L.length) return '';
@@ -637,7 +638,7 @@
         e.preventDefault();
         const C = P.cfg(), v = (id) => $('#' + id).value, c = (id) => $('#' + id).checked;
         C.oddsKey = v('c-odds').trim(); C.claudeKey = v('c-claude').trim(); C.regions = v('c-reg'); C.targetBook = v('c-target');
-        C.footballScope = v('c-fscope'); C.basketScope = v('c-bscope'); C.tennis = c('c-tennis'); C.nba = true;
+        C.footballScope = v('c-fscope'); C.basketScope = v('c-bscope'); C.tennis = c('c-tennis'); C.hockey = c('c-hockey'); C.nba = true;
         C.creditBudget = Math.max(3, parseFloat(v('c-budget')) || 45);
         const boxes = [...document.querySelectorAll('[data-comp]')];
         // une case cochée hors liste par défaut = ajout ; décochée dans la liste par défaut = exclusion

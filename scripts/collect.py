@@ -504,10 +504,44 @@ def espn_scorers():
     save("scorers.json", out)
 
 
+def espn_nhl():
+    rows, seen, errs = [], set(), 0
+    day = TODAY - dt.timedelta(days=430)
+    while day < TODAY:
+        try:
+            j = get(f"https://site.api.espn.com/apis/site/v2/sports/hockey/nhl/scoreboard?dates={day.strftime('%Y%m%d')}", tries=1).json()
+        except Exception:  # noqa: BLE001
+            errs += 1; day += dt.timedelta(days=1); continue
+        for ev in j.get("events", []):
+            c = (ev.get("competitions") or [{}])[0]
+            if not ((c.get("status") or ev.get("status") or {}).get("type") or {}).get("completed") or ev.get("id") in seen:
+                continue
+            h = next((x for x in c.get("competitors", []) if x.get("homeAway") == "home"), None)
+            a = next((x for x in c.get("competitors", []) if x.get("homeAway") == "away"), None)
+            if not h or not a:
+                continue
+            try:
+                t = int(dt.datetime.fromisoformat(ev["date"].replace("Z", "+00:00")).timestamp() * 1000)
+                st = (c.get("status") or ev.get("status") or {}).get("type") or {}
+                det = (str(st.get("shortDetail", "")) + " " + str(st.get("detail", ""))).upper()
+                ot = 1 if ("OT" in det or "SO" in det or (c.get("status") or {}).get("period", 3) > 3) else 0
+                rows.append([t, h["team"]["displayName"], a["team"]["displayName"], int(h["score"]), int(a["score"]), ot])
+                seen.add(ev.get("id"))
+            except (KeyError, ValueError, TypeError):
+                continue
+        day += dt.timedelta(days=1)
+        time.sleep(0.15)
+    rows.sort(key=lambda r: r[0])
+    if rows:
+        print(f"NHL : {sum(r[5] for r in rows)} prolongations sur {len(rows)} matchs ({100 * sum(r[5] for r in rows) / len(rows):.1f} %)", flush=True)
+    note("ESPN NHL", bool(rows), f"{len(rows)} matchs ({errs} jours en échec)")
+    save("nhl.json", {"source": "ESPN", "fetchedAt": META["generatedAt"], "cols": ["t", "h", "a", "hs", "as", "ot"], "games": rows})
+
+
 if __name__ == "__main__":
     # understat.com et tennis-data.co.uk refusent les serveurs GitHub (délai dépassé / 403) :
     # désactivés par défaut, réactivables avec ENABLE_BLOCKED_SOURCES=1 (par ex. sur un ordinateur personnel).
-    fns = [football_data, clubelo, espn_nba, espn_scorers] + ([understat, tennis] if os.environ.get("ENABLE_BLOCKED_SOURCES") == "1" else [espn_tennis])
+    fns = [football_data, clubelo, espn_nba, espn_nhl, espn_scorers] + ([understat, tennis] if os.environ.get("ENABLE_BLOCKED_SOURCES") == "1" else [espn_tennis])
     for k in ("understat", "tennis-data"):
         if os.environ.get("ENABLE_BLOCKED_SOURCES") != "1":
             note(k, False, "désactivé : la source refuse les serveurs GitHub Actions")

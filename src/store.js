@@ -57,7 +57,7 @@ const SPStore = (() => {
   function settle(p, hs, as) {
     const SP = SPPipeline.SP;
     let sel;
-    if (p.sport === 'tennis' || p.type === 'corners' || p.type === 'cards') return null; // pas de règlement automatique (score insuffisant)
+    if (p.sport === 'tennis' || p.type === 'corners' || p.type === 'cards' || String(p.type || '').startsWith('reg_')) return null; // pas de règlement automatique (score insuffisant)
     sel = SP.normalizeSel({ type: p.type, point: p.point });
     const sh = SP.settleShares(SP.selMargin(sel, hs, as), sel.line);
     const profit = sh.win * (p.odds - 1) - (1 - sh.win - sh.push);
@@ -69,7 +69,7 @@ const SPStore = (() => {
     let n = 0;
     const groups = new Map();
     for (const p of pend) {
-      const lg = p.sport === 'nba' ? ['basketball', 'nba'] : ['soccer', D.FOOTBALL[p.sportKey]?.espn];
+      const lg = p.sport === 'nba' ? ['basketball', 'nba'] : p.sport === 'hockey' ? ['hockey', 'nhl'] : ['soccer', D.FOOTBALL[p.sportKey]?.espn];
       if (!lg[1]) continue;
       const key = lg.join('|') + '|' + new Date(p.t).toISOString().slice(0, 10);
       if (!groups.has(key)) groups.set(key, { lg, t: p.t, list: [] });

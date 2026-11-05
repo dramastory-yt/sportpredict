@@ -46,6 +46,13 @@ function oddsEvents(sport) {
         bookmakers: [bk('pinnacle', 'Pinnacle', [1, 1, 1]), bk('unibet_eu', 'Unibet', [1.03, 0.97, 0.98]), bk('betclic', 'Betclic', [0.98, 1.0, 1.04]), bk('williamhill', 'William Hill', [0.99, 0.98, 1.0]), bk('winamax_fr', 'Winamax (FR)', [1.05, 0.95, 0.96])] };
     });
   }
+  if (sport === 'icehockey_nhl') {
+    const mk = (key, title, f) => ({ key, title, last_update: iso(now - 2 * 60e3), markets: [
+      { key: 'h2h', last_update: iso(now - 2 * 60e3), outcomes: [{ name: 'Colorado Avalanche', price: +(1.62 * f).toFixed(2) }, { name: 'Chicago Blackhawks', price: +(2.38 / f).toFixed(2) }] },
+      { key: 'totals', last_update: iso(now - 2 * 60e3), outcomes: [{ name: 'Over', price: 1.95, point: 6.5 }, { name: 'Under', price: 1.87, point: 6.5 }] },
+      { key: 'spreads', last_update: iso(now - 2 * 60e3), outcomes: [{ name: 'Colorado Avalanche', price: 2.45, point: -1.5 }, { name: 'Chicago Blackhawks', price: 1.55, point: 1.5 }] }] });
+    return [{ id: 'nhl0', sport_key: sport, sport_title: 'NHL', commence_time: iso(now + 7 * 3600e3), home_team: 'Colorado Avalanche', away_team: 'Chicago Blackhawks', bookmakers: [mk('pinnacle', 'Pinnacle', 1), mk('winamax_fr', 'Winamax (FR)', 1.02), mk('unibet_eu', 'Unibet', 0.99)] }];
+  }
   if (sport === 'basketball_euroleague') {
     const mk = (key, title, f) => ({ key, title, last_update: iso(now - 2 * 60e3), markets: [
       { key: 'h2h', last_update: iso(now - 2 * 60e3), outcomes: [{ name: 'Real Madrid', price: +(1.45 * f).toFixed(2) }, { name: 'Partizan', price: +(2.75 / f).toFixed(2) }] },
@@ -96,6 +103,7 @@ const handler = async (route) => {
     { key: 'basketball_nba', group: 'Basketball', title: 'NBA', active: true, has_outrights: false },
     { key: 'tennis_atp_paris_masters', group: 'Tennis', title: 'ATP Paris Masters', active: true, has_outrights: false },
     { key: 'basketball_euroleague', group: 'Basketball', title: 'Basketball Euroleague', active: true, has_outrights: false },
+    { key: 'icehockey_nhl', group: 'Ice Hockey', title: 'NHL', active: true, has_outrights: false },
     { key: 'soccer_turkey_super_league', group: 'Soccer', title: 'Turkey Super League', active: true, has_outrights: false },
     { key: 'soccer_poland_ekstraklasa', group: 'Soccer', title: 'Ekstraklasa - Poland', active: true, has_outrights: false },
     { key: 'soccer_fifa_world_cup_winner', group: 'Soccer', title: 'FIFA World Cup Winner', active: true, has_outrights: true }]);
@@ -112,6 +120,14 @@ const handler = async (route) => {
     return json({ fetchedAt: new Date().toISOString(), leagues: { soccer_epl: ev.map((e) => { const c = e.competitions[0].competitors; const hs = +c[0].score, as = +c[1].score; return [Date.parse(e.date), c[0].team.displayName, c[1].team.displayName, hs, as, 8 + hs * 2, 7 + as * 2, 3 + hs, 2 + as, 5, 4, 1, 2, 2.2, 3.4, 3.3, 1.9, 1.95, null, null, 'Betfair Exchange']; }) } });
   }
   if (url.includes('/data/tennis.json')) return json({ tours: { ATP: { players: { 'One P.': { elo: 1900, n: 60, surf: { hard_indoor: [1880, 12] } }, 'Two P.': { elo: 1820, n: 55, surf: { hard_indoor: [1850, 9] } } }, backtest: { n: 1200, eloLogLoss: 0.62, pinnacleLogLoss: 0.6, wMarket: 0.75, blendLogLoss: 0.598 } } } });
+  if (url.includes('/data/nhl.json')) {
+    const T = ['Colorado Avalanche', 'Chicago Blackhawks', 'Boston Bruins', 'Toronto Maple Leafs', 'Edmonton Oilers', 'Florida Panthers', 'New York Rangers', 'Dallas Stars'];
+    const games = []; let tt = now - 300 * 86400e3;
+    for (let k = 0; k < 700; k++) { const h = T[Math.floor(R() * T.length)]; let a = h; while (a === h) a = T[Math.floor(R() * T.length)];
+      let hs = SP.poissonDraw(R, 3.2 - T.indexOf(h) * 0.05), as = SP.poissonDraw(R, 2.9 - T.indexOf(a) * 0.05); if (hs === as) { if (R() < 0.5) hs++; else as++; }
+      games.push([(tt += 9 * 3600e3), h, a, hs, as, Math.abs(hs - as) === 1 && R() < 0.45 ? 1 : 0]); }
+    return json({ games });
+  }
   if (url.includes('/data/meta.json')) return json({ generatedAt: new Date().toISOString(), sources: {} });
   if (url.startsWith('http://127.0.0.1')) return route.continue();
   return route.fulfill({ status: 404, body: 'blocked in test' });
@@ -125,7 +141,7 @@ const t0 = Date.now();
 await page.click('#go');
 await page.waitForFunction(() => !document.body.classList.contains('busy'), null, { timeout: 180000 });
 console.log('analyse terminée en', ((Date.now() - t0) / 1000).toFixed(1), 's ; appels odds :', oddsCalls);
-const A = await page.evaluate(() => { const a = JSON.parse(localStorage.getItem('sp:analyses')).pop(); return { counts: a.counts, errors: a.errors, best: a.best && { book: a.best.book, any: a.best.bestAny, m: a.best.match, l: a.best.label, o: a.best.odds, ev: a.best.ev, s: a.best.score, sims: a.best.sims }, values: a.values.length, watch: a.watch.map((w) => w.match + ' ' + w.label + ' | ' + w.need.join('; ')), coverage: a.coverage, sportsList: a.events.map((x) => x.sport + ':' + x.comp).filter((v, i, s) => s.indexOf(v) === i), backtests: Object.keys(a.backtests || {}), safe: (a.safe || []).map((s) => s.match + ' ' + s.label + ' @' + s.odds + ' ' + (s.p * 100).toFixed(0) + '% t' + s.tier + ' ' + s.conf), dailyConf: a.daily && a.daily.confidence, dailyAlt: a.dailyAlt, opinion: a.daily && a.daily.opinion, level: a.daily && a.daily.level, daily: a.daily && (a.daily.kind + ' | ' + a.daily.match + ' | ' + a.daily.pick.label + ' @' + a.daily.pick.odds + ' value=' + a.daily.pick.value + ' | ' + a.daily.why.join(' / ')), pronos: (a.forecasts || []).map((f) => f.match + ' | ' + f.headline + ' | ' + f.confidence + ' | ' + (f.pick && f.pick.label + ' @' + f.pick.odds + ' ' + (f.pick.p * 100).toFixed(0) + '%')), tennisNote: a.events.find((e) => e.sport === 'tennis')?.statsNote, eplNote: a.events.find((e) => e.sport === 'football')?.statsNote, skips: a.events.filter((e) => e.skip).map((e) => e.skip) }; });
+const A = await page.evaluate(() => { const a = JSON.parse(localStorage.getItem('sp:analyses')).pop(); return { counts: a.counts, errors: a.errors, best: a.best && { book: a.best.book, any: a.best.bestAny, m: a.best.match, l: a.best.label, o: a.best.odds, ev: a.best.ev, s: a.best.score, sims: a.best.sims }, values: a.values.length, watch: a.watch.map((w) => w.match + ' ' + w.label + ' | ' + w.need.join('; ')), coverage: a.coverage, sportsList: a.events.map((x) => x.sport + ':' + x.comp).filter((v, i, s) => s.indexOf(v) === i), backtests: Object.keys(a.backtests || {}), safe: (a.safe || []).map((s) => s.match + ' ' + s.label + ' @' + s.odds + ' ' + (s.p * 100).toFixed(0) + '% t' + s.tier + ' ' + s.conf), dailyConf: a.daily && a.daily.confidence, dailyAlt: a.dailyAlt, opinion: a.daily && a.daily.opinion, level: a.daily && a.daily.level, daily: a.daily && (a.daily.kind + ' | ' + a.daily.match + ' | ' + a.daily.pick.label + ' @' + a.daily.pick.odds + ' value=' + a.daily.pick.value + ' | ' + a.daily.why.join(' / ')), hockey: (() => { const h = a.events.find((x) => x.sport === 'hockey'); return h && { note: h.statsNote, models: h.models.map((m) => m.name + ' ' + (m.pHome * 100).toFixed(0)), markets: (h.forecast?.markets || []).length, sample: (h.forecast?.markets || []).slice(0, 6).map((m) => m.label + ' ' + (m.p * 100).toFixed(0) + '%' + (m.real ? ' @' + m.real.odds : '')) }; })(), pronos: (a.forecasts || []).map((f) => f.match + ' | ' + f.headline + ' | ' + f.confidence + ' | ' + (f.pick && f.pick.label + ' @' + f.pick.odds + ' ' + (f.pick.p * 100).toFixed(0) + '%')), tennisNote: a.events.find((e) => e.sport === 'tennis')?.statsNote, eplNote: a.events.find((e) => e.sport === 'football')?.statsNote, skips: a.events.filter((e) => e.skip).map((e) => e.skip) }; });
 console.log(JSON.stringify(A, null, 1));
 await page.evaluate(() => { location.hash = '#pronos'; }); await page.waitForTimeout(150);
 await page.click('.prono details summary'); await page.waitForTimeout(100);

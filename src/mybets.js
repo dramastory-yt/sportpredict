@@ -10,7 +10,7 @@ const SPMyBets = (() => {
   const TZ = 'Europe/Paris';
   const dt = (t) => new Date(t).toLocaleString('fr-FR', { timeZone: TZ, day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' });
   const dayKey = (t) => new Date(t).toLocaleDateString('fr-CA', { timeZone: TZ }); // AAAA-MM-JJ
-  const SPORT = { football: 'Football', tennis: 'Tennis', nba: 'NBA', basket: 'Basket', autre: 'Autre' };
+  const SPORT = { football: 'Football', tennis: 'Tennis', nba: 'NBA', basket: 'Basket', hockey: 'NHL', autre: 'Autre' };
   const SRC = { daily: 'Pronostic du jour', best: 'Meilleur pari', value: 'Value', prono: 'Pronostic', check: 'Vérificateur', manuel: 'Pari perso' };
 
   const bets = () => D.LS.get(KEY, []);
@@ -83,10 +83,10 @@ const SPMyBets = (() => {
   }
   async function autoSettle() {
     const all = bets();
-    const pend = all.filter((b) => b.status === 'en attente' && b.type && b.home && b.t < Date.now() - 2.5 * 3600e3 && (b.sport === 'football' || b.sport === 'nba'));
+    const pend = all.filter((b) => b.status === 'en attente' && b.type && b.home && b.t < Date.now() - 2.5 * 3600e3 && (b.sport === 'football' || b.sport === 'nba' || b.sport === 'hockey') && !String(b.type).startsWith('reg_'));
     let n = 0;
     for (const b of pend) {
-      const lg = b.sport === 'nba' ? ['basketball', 'nba'] : ['soccer', D.FOOTBALL[b.sportKey]?.espn];
+      const lg = b.sport === 'nba' ? ['basketball', 'nba'] : b.sport === 'hockey' ? ['hockey', 'nhl'] : ['soccer', D.FOOTBALL[b.sportKey]?.espn];
       if (!lg[1]) continue;
       const sb = await D.espnScoreboard(lg[0], lg[1], b.t - 86400e3, b.t + 86400e3);
       if (!sb.ok) continue;

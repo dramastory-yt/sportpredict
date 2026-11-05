@@ -35,6 +35,11 @@ const SPChecker = (() => {
     ],
   };
   MARKETS.basket = MARKETS.nba;
+  MARKETS.hockey = [
+    ['home', 'Victoire domicile (prolongation incluse)', 'home', false, 'backtest'], ['away', 'Victoire extérieur (prolongation incluse)', 'away', false, 'backtest'],
+    ['over', 'Plus de X buts (prol. incluse)', 'over', true, 'modèle'], ['under', 'Moins de X buts (prol. incluse)', 'under', true, 'modèle'],
+    ['ahH', 'Puck line domicile (ex. -1.5)', 'ahHome', true, 'modèle'], ['ahA', 'Puck line extérieur (ex. +1.5)', 'ahAway', true, 'modèle'],
+  ];
   let lastResult = null;
 
   function render() {
