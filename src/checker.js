@@ -2,7 +2,7 @@
 const SPChecker = (() => {
   const D = SPData, P = SPPipeline, S = SPStore, SP = P.SP;
   const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
-  const pct = (x, d = 1) => (x == null || isNaN(x) ? '—' : (x * 100).toFixed(d) + ' %');
+  const pct = (x, d = 0) => (x == null || isNaN(x) ? '—' : (x * 100).toFixed(d) + ' %');
   const sgn = (x) => (x == null || isNaN(x) ? '—' : (x >= 0 ? '+' : '') + (x * 100).toFixed(1) + ' %');
   const TZ = 'Europe/Paris';
   const dt = (t) => new Date(t).toLocaleString('fr-FR', { timeZone: TZ, weekday: 'short', day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' });
@@ -90,27 +90,36 @@ const SPChecker = (() => {
     if (C.platt && validation === 'backtest') pWin = SP.applyPlatt(C.platt, pWin);
     const ev_ = pWin * odds + pPush - 1;
     const need = validation === 'backtest' ? C.minEV : Math.max(0.05, 2 * C.minEV);
-    const minOdds = Math.ceil(((1 + need - pPush) / Math.max(1e-6, pWin)) * 100) / 100;
+    // incertitude : erreur Monte-Carlo + incertitude de modèle (marché calculé = plus incertain) + qualité des données
+    const dq = ev.spec?.kind === 'football' ? (/football-data/.test(ev.statsNote || '') ? 0.7 : 0.4) : 0.45;
+    const uncert = Math.sqrt((ci || 0.005) ** 2 + (validation === 'backtest' ? 0.02 : 0.04) ** 2 + ((1 - dq) * 0.04) ** 2);
+    const minOdds = Math.ceil(((1 + need - pPush) / Math.max(0.01, pWin - uncert)) * 100) / 100;
+    const edge = pWin + pPush / odds - 1 / odds;
     const k = Math.max(0, ev_ / (odds - 1));
     const frac = Math.min(C.maxStakePct, C.kellyFrac * k);
     const B = (() => { try { return SPMyBets.stats().bankroll; } catch { return C.bankroll; } })();
     const stake = Math.round(B * frac * 100) / 100;
     const age = (Date.now() - (S.lastAnalysis()?.finishedAt || 0)) / 3600e3;
-    const ok = ev_ >= need && odds >= C.minOdds;
+    const insufficient = /marché seul|indisponible|non apparié|dérivé du marché/i.test(ev.statsNote || '') && validation !== 'backtest';
+    const ok = ev_ >= need && odds >= C.minOdds && edge > uncert;
+    const verdict = insufficient && type !== 'home' && type !== 'away' && type !== 'draw' ? 'DONNÉES INSUFFISANTES'
+      : ev_ >= need && odds >= C.minOdds && edge <= uncert ? 'VALUE INSUFFISAMMENT FIABLE'
+      : ok ? 'VALUE' : 'PAS DE VALUE';
     const warn = [];
     if (age > 6) warn.push(`L’analyse date de ${Math.round(age)} h : relancez-la pour intégrer les dernières cotes et blessures.`);
     if (validation === 'modèle') warn.push('Marché calculé par le modèle mais jamais comparé à des cotes réelles : exigence d’EV doublée (' + (need * 100).toFixed(0) + ' %).');
     if (boost) warn.push('Cote boostée : vérifiez la mise maximale autorisée par Winamax.');
     if (odds < C.minOdds) warn.push(`Cote inférieure au minimum (${C.minOdds}).`);
-    const html = `<section class="card ${ok ? 'pick big' : ''}">
-      <h3>${ok ? 'VALUE : ce pari est intéressant' : 'PAS DE VALUE : ne pariez pas'}</h3>
+    const html = `<section class="card ${verdict === 'VALUE' ? 'pick big' : ''}">
+      <h3>${{ VALUE: 'VALUE : ce pari est intéressant', 'PAS DE VALUE': 'PAS DE VALUE : ne pariez pas', 'VALUE INSUFFISAMMENT FIABLE': 'VALUE INSUFFISAMMENT FIABLE : l’avantage disparaît dans l’incertitude', 'DONNÉES INSUFFISANTES': 'DONNÉES INSUFFISANTES : impossible de conclure' }[verdict]}</h3>
       <p><b>${esc(ev.home)} – ${esc(ev.away)}</b> · ${esc(label.replace('joueur 1', ev.home).replace('joueur 2', ev.away))}${needLine && fixedPoint == null ? ` · ligne ${point}` : ''} @ <b>${odds.toFixed(2)}</b>${boost ? ' (boostée)' : ''}</p>
       <div class="kpis">
         <div><small>Probabilité estimée</small><b>${pct(pWin)}</b><span>${ci != null ? 'IC95 ±' + pct(ci, 2) : ''}${pPush ? ' · remb. ' + pct(pPush) : ''}</span></div>
         <div><small>Cote juste</small><b>${((1 - pPush) / Math.max(1e-6, pWin)).toFixed(2)}</b><span>sans marge</span></div>
         <div><small>EV</small><b class="${ev_ > 0 ? 'pos' : 'neg'}">${sgn(ev_)}</b><span>seuil ${(need * 100).toFixed(0)} %</span></div>
-        <div><small>Cote minimale</small><b>${minOdds.toFixed(2)}</b><span>pour valider</span></div>
-        <div><small>Mise indicative</small><b>${ok ? stake.toFixed(2) + ' €' : '0 €'}</b><span>${ok ? (frac * 100).toFixed(1) + ' % de ' + B.toFixed(2) + ' €' : 'aucune'}</span></div>
+        <div><small>Cote minimale acceptable</small><b>${minOdds.toFixed(2)}</b><span>incertitude incluse</span></div>
+        <div><small>Edge</small><b class="${edge > 0 ? 'pos' : 'neg'}">${sgn(edge)}</b><span>incertitude ±${pct(uncert, 1)}</span></div>
+        <div><small>Mise indicative</small><b>${verdict === 'VALUE' ? stake.toFixed(2) + ' €' : '0 €'}</b><span>${ok ? (frac * 100).toFixed(1) + ' % de ' + B.toFixed(2) + ' €' : 'aucune'}</span></div>
       </div>
       ${warn.length ? `<ul class="muted">${warn.map((w) => `<li>${esc(w)}</li>`).join('')}</ul>` : ''}
       <p class="muted">Source : ${esc(source)}.</p></section>`;

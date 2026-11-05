@@ -63,7 +63,7 @@ const SPMyBets = (() => {
         match: draft.manual ? g('b-match').value.trim() : draft.match, home: draft.home || null, away: draft.away || null,
         t: draft.manual ? Date.parse(g('b-date').value) || Date.now() : draft.t, label: draft.manual ? g('b-label').value.trim() : draft.label,
         type: draft.type || null, point: draft.point ?? null, market: draft.market || null,
-        odds, stake, book: g('b-book').value.trim() || 'Winamax', pApp: draft.p ?? null, oddsApp: draft.odds ?? null, value: !!draft.value,
+        odds, stake, book: g('b-book').value.trim() || 'Winamax', conf: draft.conf || null, pApp: draft.p ?? null, oddsApp: draft.odds ?? null, value: !!draft.value,
         status: 'en attente', profit: null,
       };
       const all = bets(); all.push(bet); saveBets(all);
@@ -136,6 +136,7 @@ const SPMyBets = (() => {
       byWeek: group((x) => weekKey(x.t)), byDay: group((x) => dayKey(x.t)), bySport: group((x) => SPORT[x.sport] || x.sport),
       bySource: group((x) => SRC[x.source] || x.source), byMarket: group((x) => x.label?.match(/corner/i) ? 'Corners' : x.label?.match(/carton/i) ? 'Cartons' : ({ h2h: 'Vainqueur', totals: 'Total', spreads: 'Handicap' }[x.market] || 'Autre')),
       byValue: group((x) => (x.value ? 'Avec value' : 'Sans value')),
+      byOdds: group((x) => S.oddsBand(x.odds)), byConf: group((x) => x.conf || 'non renseignée'),
     };
   }
 
@@ -198,7 +199,7 @@ const SPMyBets = (() => {
         ${k('Perte max. depuis un sommet', pct(all.maxDD, 0), 'drawdown')}
         ${k('Profit attendu', eurS(st.expected), 'selon les probabilités du moteur')}
       </div>
-      ${all.atRisk > 0.15 * all.bankroll ? `<p class="notice">Vous avez ${eur(all.atRisk)} en jeu, soit plus de 15 % de votre bankroll : c’est risqué.</p>` : ''}
+      ${all.atRisk > 0.10 * all.bankroll ? `<p class="notice">${eur(all.atRisk)} en jeu, soit ${pct(all.atRisk / all.bankroll, 0)} de votre bankroll : au-delà de 10 %, c’est risqué (plafond conseillé : 15 %).</p>` : ''}
       ${all.streakType === 'D' && all.streak >= 4 ? `<p class="notice">${all.streak} paris perdus d’affilée : c’est normal statistiquement de temps en temps. N’augmentez pas vos mises pour « vous refaire ».</p>` : ''}
       <div class="grid2">
         <section class="card"><h3>Évolution de la bankroll</h3>${lineSVG(all.curve, start)}</section>
@@ -210,6 +211,8 @@ const SPMyBets = (() => {
         <section class="card"><h3>Par sport</h3>${table(st.bySport, 'Sport')}</section>
         <section class="card"><h3>Par type de pari</h3>${table(st.bySource, 'Origine')}</section>
         <section class="card"><h3>Par marché</h3>${table(st.byMarket, 'Marché')}</section>
+        <section class="card"><h3>Par tranche de cotes</h3>${table(st.byOdds, 'Cotes')}</section>
+        <section class="card"><h3>Par niveau de confiance</h3>${table(st.byConf, 'Confiance')}</section>
         <section class="card"><h3>Avec ou sans value</h3>${table(st.byValue, 'Value')}<p class="muted">Sur la durée, seuls les paris « avec value » devraient être rentables.</p></section>
       </div>
       <section class="card"><h3>Tous mes paris</h3><div class="tw"><table class="t hist"><thead><tr><th>Match</th><th>Pari</th><th>Cote</th><th>Mise</th><th>Origine</th><th>Résultat</th><th>Profit</th><th></th></tr></thead><tbody>

@@ -88,6 +88,7 @@ const SPStore = (() => {
     return n;
   }
 
+  const oddsBand = (o) => (o < 1.3 ? '1,15 – 1,29' : o < 1.46 ? '1,30 – 1,45' : o < 1.81 ? '1,46 – 1,80' : o < 2.21 ? '1,81 – 2,20' : '2,21 et plus');
   // Performance : mise fixe d'une unité par pronostic publié.
   function perf(days) {
     const R = results(), CL = clv();
@@ -126,10 +127,26 @@ const SPStore = (() => {
       profit, yield: settled.length ? profit / settled.length : null, roiBank: profit / 100, avgOdds: settled.length ? sum(settled, (p) => p.odds) / settled.length : null,
       brier, logloss, brierMkt, clv: clvAvg, nClv: clvs.length,
       bySport: group((p) => p.sport), byMarket: group((p) => p.market), byMonth: group((p) => new Date(p.t).toISOString().slice(0, 7)),
+      byOdds: group((p) => oddsBand(p.odds)), byConf: group((p) => p.conf || 'non renseignée'),
       curve, calibration: SPPipeline.SP.calibrationBins(bin.map((p) => p.p), bin.map((p) => R[p.pid].win)), wSuggest,
     };
   }
 
+  // Analyse des erreurs : pronostics perdus et surestimation éventuelle par marché, tranche de cotes, confiance.
+  function errors() {
+    const R = results();
+    const settled = picks().filter((p) => R[p.pid] && R[p.pid].push !== 1 && R[p.pid].status !== 'annulé');
+    const lost = settled.filter((p) => R[p.pid].win === 0).map((p) => ({ ...p, res: R[p.pid], surprise: p.p }));
+    const by = (f) => {
+      const m = {};
+      for (const p of settled) { const k = f(p); (m[k] = m[k] || { n: 0, pred: 0, obs: 0 }); m[k].n++; m[k].pred += p.p; m[k].obs += R[p.pid].win; }
+      return Object.fromEntries(Object.entries(m).map(([k, v]) => {
+        const pred = v.pred / v.n, obs = v.obs / v.n, se = Math.sqrt(Math.max(1e-6, pred * (1 - pred) / v.n));
+        return [k, { n: v.n, pred, obs, z: (obs - pred) / se, flag: v.n >= 15 && (obs - pred) / se < -2 }];
+      }));
+    };
+    return { n: settled.length, lost: lost.sort((a, b) => b.surprise - a.surprise), byMarket: by((p) => p.market), byOdds: by((p) => oddsBand(p.odds)), byConf: by((p) => p.conf || 'non renseignée'), bySport: by((p) => p.sport) };
+  }
   function exportAll() {
     return JSON.stringify({ format: 'sportpredict-v1', exportedAt: new Date().toISOString(), analyses: analyses(), picks: picks(), results: results(), clv: clv(), mybets: D.LS.get('sp:mybets', []), bank: D.LS.get('sp:bank', null) });
   }
@@ -146,5 +163,5 @@ const SPStore = (() => {
     const ha = new Set(analyses().map((a) => a.id));
     D.LS.set(K.analyses, [...d.analyses.filter((a) => !ha.has(a.id)).map((a) => ({ ...a, events: [] })), ...analyses()].slice(-30));
   }
-  return { saveAnalysis, analyses, lastAnalysis, picks, results, clv, setResult, recordCLV, autoSettle, perf, exportAll, importAll, settle };
+  return { errors, oddsBand, saveAnalysis, analyses, lastAnalysis, picks, results, clv, setResult, recordCLV, autoSettle, perf, exportAll, importAll, settle };
 })();

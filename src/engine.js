@@ -59,6 +59,17 @@ function SPEngineFactory() {
     const s2 = p.reduce((a, b) => a + b, 0);
     return p.map((x) => x / s2);
   };
+  // Méthode de Shin (1992/1993) : modélise une part z de parieurs « informés » ; corrige le biais
+  // favori/outsider des marchés à 3 issues (1N2) mieux qu'une normalisation proportionnelle.
+  SP.devigShin = function (odds) {
+    const q = odds.map((o) => 1 / o), B = q.reduce((a, b) => a + b, 0);
+    if (!(B > 1)) return q.map((x) => x / (B || 1));
+    const probs = (z) => q.map((x) => (Math.sqrt(z * z + 4 * (1 - z) * x * x / B) - z) / (2 * (1 - z)));
+    let lo = 0, hi = 0.4;
+    for (let i = 0; i < 80; i++) { const z = (lo + hi) / 2; const s = probs(z).reduce((a, b) => a + b, 0); if (s > 1) lo = z; else hi = z; }
+    const p = probs((lo + hi) / 2), s = p.reduce((a, b) => a + b, 0);
+    return p.map((x) => x / s);
+  };
   SP.median = function (a) {
     if (!a.length) return NaN;
     const s = [...a].sort((x, y) => x - y);
@@ -852,33 +863,46 @@ function SPEngineFactory() {
 
   // ---------------------------------------------------------------- Score de qualité
   // Score explicable sur 100 (≠ probabilité de réussite). Chaque composante est renvoyée.
+  // SCORE DE QUALITÉ DE SÉLECTION (/100, 8 composantes du cahier des charges). Ce n'est PAS une probabilité.
   SP.qualityScore = function (c) {
     const parts = [];
     const add = (name, pts, max, why) => parts.push({ name, pts: Math.max(0, Math.min(max, pts)), max, why });
-    // 1. value rapportée à l'incertitude (z-score de l'edge)
-    const z = c.edge / Math.max(0.005, c.uncert);
-    add('Value / incertitude', 25 * Math.min(1, Math.max(0, z) / 3), 25, `edge ${(c.edge * 100).toFixed(1)} pts, z=${z.toFixed(2)}`);
-    // 2. accord entre modèles
-    add('Accord des modèles', c.modelGap == null ? 6 : 15 * Math.max(0, 1 - c.modelGap / 0.08), 15,
-      c.modelGap == null ? 'un seul modèle disponible' : `écart max ${(c.modelGap * 100).toFixed(1)} pts`);
-    // 3. qualité des données
-    add('Qualité des données', c.dataQuality * 15, 15, c.dataNote || '');
-    // 4. calibration
-    add('Calibration', c.calib == null ? 4 : 10 * Math.max(0, Math.min(1, c.calib)), 10,
-      c.calib == null ? 'pas de backtest disponible' : `gain log-loss vs naïf ${(c.calib * 100).toFixed(0)}%`);
-    // 5. stabilité des simulations
-    add('Stabilité simulations', 10 * Math.max(0, 1 - c.mcSpread / 0.15), 10, `écart scénarios ${(c.mcSpread * 100).toFixed(1)} pts`);
-    // 6. disponibilité/fraîcheur des cotes
-    const fresh = Math.max(0, 1 - c.oddsAgeMin / 60);
-    add('Disponibilité des cotes', 10 * (0.6 * fresh + 0.4 * Math.min(1, c.booksAtPrice / 3)), 10,
-      `${Math.round(c.oddsAgeMin)} min, ${c.booksAtPrice} bookmaker(s) ≥ cote`);
-    // 7. risques contextuels / informations
-    add('Risques contextuels', 10 - c.riskPenalty, 10, c.riskNote || 'aucun signal');
-    // 8. zone de cote privilégiée
-    add('Zone de cote', c.odds >= 1.4 && c.odds <= 2.2 ? 5 : c.odds < 1.4 ? 2 : 3, 5, `cote ${c.odds.toFixed(2)}`);
+    add('1. Fiabilité des données', 15 * (c.dataQuality ?? 0.3), 15, c.dataNote || '');
+    add('2. Qualité historique du modèle', c.calib == null ? 3 : 10 * Math.max(0, Math.min(1, c.calib)), 10,
+      c.calib == null ? 'pas de backtest disponible' : `gain de log-loss vs modèle naïf : ${(c.calib * 100).toFixed(0)} %`);
+    add('3. Accord entre modèles indépendants', c.modelGap == null ? 3 : 15 * Math.max(0, 1 - c.modelGap / 0.08), 15,
+      c.modelGap == null ? 'aucun modèle indépendant du marché' : `écart ${(c.modelGap * 100).toFixed(1)} pts`);
+    add('4. Stabilité statistique', 10 * Math.max(0, 1 - c.mcSpread / 0.15) * (c.simCI != null && c.simCI < 0.005 ? 1 : 0.7), 10, `écart entre scénarios ${(c.mcSpread * 100).toFixed(1)} pts`);
+    add('5. Fraîcheur des informations', 10 * Math.max(0, 1 - c.oddsAgeMin / 60) - (c.lineupUnknown ? 3 : 0), 10, `cote relevée il y a ${Math.round(c.oddsAgeMin)} min${c.lineupUnknown ? ', compositions non publiées' : ''}`);
+    add('6. Cohérence avec le marché', c.fairMkt == null ? 5 : 10 * Math.max(0, 1 - Math.abs(c.p - c.fairMkt) / 0.08), 10,
+      c.fairMkt == null ? 'pas de référence de marché' : `écart avec le marché sans marge ${((c.p - c.fairMkt) * 100).toFixed(1)} pts`);
+    add('7. Absence de risque contextuel', 10 - (c.riskPenalty || 0) * 2, 10, c.riskNote || 'aucun signal');
+    const z = (c.priceEdge ?? 0) / Math.max(0.005, c.uncert);
+    add('8. Robustesse de la value et de la cote', 20 * (0.75 * Math.min(1, Math.max(0, z) / 2) + 0.25 * Math.min(1, (c.booksAtPrice || 1) / 2)), 20,
+      `avantage de prix ${((c.priceEdge ?? 0) * 100).toFixed(1)} pts / incertitude ${(c.uncert * 100).toFixed(1)} pts`);
     const total = parts.reduce((s, p) => s + p.pts, 0);
     return { total: Math.round(total), parts };
   };
+  // FIABILITÉ DU MODÈLE (/100) pour un match : données, quantité, performance historique, calibration, stabilité.
+  SP.reliability = function (r) {
+    const parts = [];
+    const add = (name, pts, max, why) => parts.push({ name, pts: Math.max(0, Math.min(max, pts)), max, why });
+    add('Qualité des données', 25 * (r.dataQuality ?? 0.3), 25, r.dataNote || '');
+    add('Quantité de données', r.nHist ? 20 * Math.min(1, r.nHist / 600) : 0, 20, r.nHist ? `${r.nHist} matchs historiques` : 'aucun historique propre');
+    add('Performance hors échantillon', r.calib == null ? 0 : 25 * Math.max(0, Math.min(1, r.calib)), 25, r.calib == null ? 'non mesurée' : 'backtest chronologique');
+    add('Stabilité des prédictions', 15 * Math.max(0, 1 - (r.mcSpread ?? 0.1) / 0.15), 15, '');
+    add('Incertitude des paramètres', 15 * Math.max(0, 1 - (r.paramSd ?? 0.05) / 0.08), 15, `±${((r.paramSd ?? 0.05) * 100).toFixed(1)} pts`);
+    return { total: Math.round(parts.reduce((s, p) => s + p.pts, 0)), parts };
+  };
+  // NIVEAU DE CONFIANCE : seuils de probabilité + conditions de fiabilité (jamais la probabilité seule).
+  SP.confidence = function (x) {
+    const reliable = x.dataQuality >= 0.55 && x.gap != null && x.gap <= 0.05 && (x.risk || 0) < 2 && x.uncert <= 0.06 && !x.badCalib;
+    if (x.p >= 0.85 && reliable) return 'très haute';
+    if (x.p >= 0.78 && reliable) return 'haute';
+    if (x.p >= 0.70 && x.dataQuality >= 0.35) return 'intéressante';
+    return 'insuffisante';
+  };
+  SP.isStrong = (conf) => conf === 'très haute' || conf === 'haute';
 
   return SP;
 }

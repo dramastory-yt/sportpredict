@@ -55,7 +55,7 @@ try {
   if (A.best && (!A.daily || A.daily.eventId !== A.best.eventId)) parts.push('<b>Meilleur pari value</b>\n' + line(A.best));
   if (!A.best) parts.push('Aucune value validée aujourd’hui.');
   if (A.values?.length) parts.push('<b>Autres values</b>\n' + A.values.map(line).join('\n\n'));
-  if (A.safe?.length > 1) parts.push('<b>Autres paris sûrs</b>\n' + A.safe.filter((s) => s.eventId !== A.daily?.eventId).map((s) => `${esc(s.match)} : ${esc(s.label)} @ ${s.odds != null ? s.odds.toFixed(2) : '≥ ' + s.minOdds.toFixed(2) + ' (à vérifier)'} · ${(s.p * 100).toFixed(0)} %`).join('\n'));
+  if (A.safe?.length > 1) parts.push('<b>Sélections haute confiance</b>\n' + A.safe.filter((s) => s.eventId !== A.daily?.eventId).map((s) => `${esc(s.match)} : ${esc(s.label)} @ ${s.odds != null ? s.odds.toFixed(2) : '≥ ' + s.minOdds.toFixed(2) + ' (à vérifier)'} · ${(s.p * 100).toFixed(0)} %`).join('\n'));
   if (A.forecasts?.length) parts.push('<b>Pronostics les plus solides</b>\n' + A.forecasts.slice(0, 5).map((f) => `${esc(f.match)} : ${esc(f.headline)} (confiance ${esc(f.confidence)})${f.pick ? `\n  ${esc(f.pick.label)} @ ${f.pick.odds.toFixed(2)} · ${(f.pick.p * 100).toFixed(0)} %${f.pick.value ? ' · VALUE' : ''}` : ''}`).join('\n'));
   if (A.watch?.length) parts.push('<b>À surveiller</b>\n' + A.watch.slice(0, 3).map((w) => `${esc(w.match)} — ${esc(w.label)} : ${esc(w.need[0] || '')}`).join('\n'));
   if (A.errors?.length) parts.push('⚠️ ' + esc(A.errors.slice(0, 3).join(' ; ')));

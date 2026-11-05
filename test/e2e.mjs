@@ -131,7 +131,7 @@ await page.evaluate(() => { location.hash = '#pronos'; }); await page.waitForTim
 await page.click('.prono details summary'); await page.waitForTimeout(100);
 console.log('marchés :', (await page.textContent('.prono details')).replace(/\s+/g, ' ').slice(0, 900));
 await page.screenshot({ path: process.argv[2] + '/markets.png', fullPage: true });
-for (const h of ['#bets', '#pronos', '#best', '#values', '#watch', '#calendar', '#history', '#perf', '#config', '#dashboard']) {
+for (const h of ['#safe', '#backtests', '#models', '#errors', '#health', '#bets', '#pronos', '#best', '#values', '#watch', '#calendar', '#history', '#perf', '#config', '#dashboard']) {
   await page.evaluate((x) => { location.hash = x; }, h);
   await page.waitForTimeout(150);
   if (h === '#calendar') { await page.click('.ev'); await page.waitForTimeout(100); await page.screenshot({ path: process.argv[2] + '/detail.png' }); await page.keyboard.press('Escape'); }

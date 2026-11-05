@@ -206,7 +206,7 @@ const SPData = (() => {
     if (local) return local;
     local = {};
     if (location.protocol === 'file:') { setStatus('Données quotidiennes', false, 'indisponibles en fichier local (ouvrez la version en ligne)'); return local; }
-    for (const f of ['meta', 'football', 'xg', 'clubelo', 'tennis', 'nba', 'scorers']) {
+    for (const f of ['meta', 'football', 'xg', 'clubelo', 'tennis', 'nba', 'scorers', 'backtest']) {
       try {
         const r = await fetch(`./data/${f}.json`, { cache: 'no-cache' });
         if (r.ok) local[f] = await r.json();
@@ -303,6 +303,6 @@ Règles :
     LS, log, apiStatus, setStatus, meta, purgeCache, FOOTBALL,
     oddsSports, oddsFor, oddsEvent, oddsScores, oddsEventsList,
     espnResults, espnScoreboard, espnSummary, espnNews, nbaInjuries,
-    norm, sim, bestMatch, claudeAnalyze, localData,
+    norm, sim, bestMatch, claudeAnalyze, localData, localCache: () => local,
   };
 })();

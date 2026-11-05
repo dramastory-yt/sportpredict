@@ -13,6 +13,10 @@ near(SP.ev(0.65, 1.80), 0.17, 1e-9, 'EV exemple du cahier des charges');
 const dv = SP.devig([1.9, 3.6, 4.2]);
 near(dv.reduce((a, b) => a + b, 0), 1, 1e-9, 'devig somme à 1');
 ok(dv[0] > 1 / 1.9 / (1 / 1.9 + 1 / 3.6 + 1 / 4.2) - 0.02, 'devig power cohérent');
+const sh = SP.devigShin([1.9, 3.6, 4.2]);
+near(sh.reduce((a, b) => a + b, 0), 1, 1e-9, 'Shin somme à 1');
+ok(sh[0] > 1 / 1.9 / (1 / 1.9 + 1 / 3.6 + 1 / 4.2), 'Shin favorise le favori (biais favori/outsider)');
+near(SP.devigShin([2, 2])[0], 0.5, 1e-9, 'Shin symétrique');
 // lignes asiatiques
 near(SP.settleLine(1, -0.5, 2), 2, 1e-9, 'AH -0.5 gagné');
 near(SP.settleLine(0, -0.5, 2), 0, 1e-9, 'AH -0.5 perdu');
@@ -141,7 +145,11 @@ near(ns.key.p, SP.normCdf(5 / 12.5), 0.015, 'MC NBA ≈ Φ(marge/σ)');
 }
 
 // --- score qualité
-const q = SP.qualityScore({ edge: 0.04, uncert: 0.015, modelGap: 0.02, dataQuality: 0.8, calib: 0.5, mcSpread: 0.05, oddsAgeMin: 5, booksAtPrice: 2, riskPenalty: 0, odds: 1.85 });
+const q = SP.qualityScore({ edge: 0.04, priceEdge: 0.04, p: 0.6, fairMkt: 0.58, uncert: 0.015, modelGap: 0.02, dataQuality: 0.8, calib: 0.5, mcSpread: 0.05, simCI: 0.002, oddsAgeMin: 5, booksAtPrice: 2, riskPenalty: 0, odds: 1.85 });
+ok(SP.confidence({ p: 0.86, dataQuality: 0.7, gap: 0.02, risk: 0, uncert: 0.03 }) === 'très haute', 'confiance très haute');
+ok(!SP.isStrong(SP.confidence({ p: 0.86, dataQuality: 0.3, gap: null, risk: 0, uncert: 0.03 })), 'pas de confiance haute sans modèle indépendant');
+ok(SP.confidence({ p: 0.80, dataQuality: 0.7, gap: 0.09, risk: 0, uncert: 0.03 }) === 'intéressante', 'désaccord des modèles : confiance réduite');
+ok(SP.reliability({ dataQuality: 0.8, nHist: 600, calib: 0.6, mcSpread: 0.03, paramSd: 0.02 }).total > 60, 'fiabilité modèle');
 ok(q.total > 50 && q.total <= 100 && q.parts.length === 8, 'score qualité ' + q.total);
 
 console.log(`\n${passes} tests réussis, ${fails} échec(s)`);
