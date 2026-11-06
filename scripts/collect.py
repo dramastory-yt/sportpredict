@@ -538,10 +538,46 @@ def espn_nhl():
     save("nhl.json", {"source": "ESPN", "fetchedAt": META["generatedAt"], "cols": ["t", "h", "a", "hs", "as", "ot"], "games": rows})
 
 
+# ---------------------------------------------------------------- sgodds.com (cotes Singapore Pools, 1N2)
+# robots.txt autorise (seul /cdn-cgi/ interdit) ; une seule page lue par jour. Cotes retardées (~10 min) :
+# utilisées comme indicateur de mouvement de marché (ouverture -> actuel), pas comme probabilité.
+def sgodds():
+    out = {"source": "sgodds.com (cotes Singapore Pools)", "fetchedAt": META["generatedAt"], "matches": []}
+    try:
+        html = get("https://sgodds.com/football/current-odds", tries=1).text
+    except Exception as e:  # noqa: BLE001
+        note("sgodds", False, str(e)[:160]); save("sgodds.json", out); return
+    day = None
+    for blk in re.split(r'(?=<div class="row (?:table-active|border-bottom) py-1 m-0">)', html):
+        m = re.match(r'<div class="row table-active py-1 m-0"><div class="col-12 lead font-weight-bold">([^<]+)</div>', blk)
+        if m:
+            day = m.group(1).strip(); continue
+        if not blk.startswith('<div class="row border-bottom py-1 m-0">') or "tbl-h3" not in blk:
+            continue
+        try:
+            cols = re.findall(r'<div class="col(?:-sm-4)? py-1">(.*?)</div>(?=<div class="col|</div>$|$)', blk, re.S)
+            tm = re.sub(r"<[^>]+>", "", cols[0]).strip()
+            league = re.sub(r"<[^>]+>", "", cols[1]).strip()
+            fx = re.search(r'title="For opening odds and all bet types">([^<]+)</a>', blk).group(1)
+            home, away = [x.strip() for x in fx.split(" vs ", 1)]
+            odds = []
+            for cell in re.findall(r"<strong>([\d.]+)</strong>(.*?)(?=<div class=\"col|$)", blk, re.S):
+                cur = float(cell[0]); ch = re.search(r"([+-]\d+(?:\.\d+)?)%", cell[1])
+                chg = float(ch.group(1)) / 100 if ch else 0.0
+                odds.append({"cur": cur, "open": round(cur / (1 + chg), 2), "chg": chg})
+            if len(odds) != 3:
+                continue
+            out["matches"].append({"day": day, "time": tm, "league": league, "home": home, "away": away, "odds": odds})
+        except Exception:  # noqa: BLE001
+            continue
+    note("sgodds", bool(out["matches"]), f"{len(out['matches'])} matchs (1N2 Singapore Pools, ouverture et actuel)")
+    save("sgodds.json", out)
+
+
 if __name__ == "__main__":
     # understat.com et tennis-data.co.uk refusent les serveurs GitHub (délai dépassé / 403) :
     # désactivés par défaut, réactivables avec ENABLE_BLOCKED_SOURCES=1 (par ex. sur un ordinateur personnel).
-    fns = [football_data, clubelo, espn_nba, espn_nhl, espn_scorers] + ([understat, tennis] if os.environ.get("ENABLE_BLOCKED_SOURCES") == "1" else [espn_tennis])
+    fns = [football_data, clubelo, espn_nba, espn_nhl, espn_scorers, sgodds] + ([understat, tennis] if os.environ.get("ENABLE_BLOCKED_SOURCES") == "1" else [espn_tennis])
     for k in ("understat", "tennis-data"):
         if os.environ.get("ENABLE_BLOCKED_SOURCES") != "1":
             note(k, False, "désactivé : la source refuse les serveurs GitHub Actions")

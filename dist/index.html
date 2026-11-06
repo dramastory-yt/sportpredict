@@ -1376,7 +1376,7 @@ const SPData = (() => {
     if (local) return local;
     local = {};
     if (location.protocol === 'file:') { setStatus('Données quotidiennes', false, 'indisponibles en fichier local (ouvrez la version en ligne)'); return local; }
-    for (const f of ['meta', 'football', 'xg', 'clubelo', 'tennis', 'nba', 'nhl', 'scorers', 'backtest']) {
+    for (const f of ['meta', 'football', 'xg', 'clubelo', 'tennis', 'nba', 'nhl', 'scorers', 'backtest', 'sgodds']) {
       try {
         const r = await fetch(`./data/${f}.json`, { cache: 'no-cache' });
         if (r.ok) local[f] = await r.json();
@@ -2315,6 +2315,16 @@ onmessage = (e) => {
       }
     }
 
+    // Mouvements de cotes Singapore Pools (sgodds.com, collecte du matin) : indicateur, sans effet sur la probabilité
+    const SG = LD.sgodds?.matches || [];
+    if (SG.length) for (const E of events.filter((x) => x.sport === 'football')) {
+      const hit = SG.map((m) => ({ m, s: Math.min(D.sim(m.home, E.home), D.sim(m.away, E.away)) })).filter((x) => x.s >= 0.5).sort((a, b) => b.s - a.s)[0];
+      if (!hit) continue;
+      E.sg = hit.m.odds; // [1, X, 2] : { open, cur, chg }
+      const lab = ['1', 'N', '2'];
+      E.info.push({ kind: 'composition', status: 'probable', note: `Singapore Pools (sgodds.com, ${LD.sgodds.fetchedAt ? 'relevé du ' + new Date(LD.sgodds.fetchedAt).toLocaleString('fr-FR', { timeZone: 'Europe/Paris', day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' }) : ''}) : ${E.sg.map((o, i) => `${lab[i]} ${o.open.toFixed(2)} → ${o.cur.toFixed(2)}${o.chg ? ` (${o.chg > 0 ? '+' : ''}${Math.round(o.chg * 100)} %)` : ''}`).join(' · ')}`, source: 'sgodds.com' });
+    }
+
     // ---------------- 4. compositions
     S.start(3);
     let lineupsChecked = 0;
@@ -2480,6 +2490,12 @@ onmessage = (e) => {
           mcSpread, oddsAgeMin: (Date.now() - s.best.last) / 60e3, booksAtPrice: c.booksAtPrice, riskPenalty: E.risk, riskNote: riskNote.join(' ; '), odds: s.best.price,
         });
         c.check = assess(c, C, E);
+        const sgIdx = { home: 0, draw: 1, away: 2 }[s.type] ?? (s.type === 'ahHome' && s.point === 0 ? 0 : s.type === 'ahAway' && s.point === 0 ? 2 : null);
+        if (E.sg && sgIdx != null) {
+          const ch = E.sg[sgIdx].chg;
+          c.sgMove = ch;
+          if (ch >= 0.08) { c.check.warn.push(`Singapore Pools : cote de cette issue en hausse de ${Math.round(ch * 100)} % depuis l'ouverture (le marché s'en éloigne)`); c.uncParts.informations += 0.02; c.uncert = Math.sqrt(Object.values(c.uncParts).reduce((a2, x) => a2 + x * x, 0)); c.reliable = false; }
+        }
         scored.push(c);
       }
     }
@@ -2763,6 +2779,12 @@ onmessage = (e) => {
     }
     if ((E.sport === 'football' || E.sport === 'hockey') && f.expected) out.pour.push(`Buts attendus ${f.expected.home.toFixed(1)} – ${f.expected.away.toFixed(1)}.`);
     if (pick.odds != null) (pick.odds >= fair ? out.pour : out.contre).push(pick.odds >= fair ? `La cote ${pick.odds.toFixed(2)} est au-dessus de sa vraie valeur (${fair.toFixed(2)}).` : `La cote ${pick.odds.toFixed(2)} est un peu sous sa vraie valeur (${fair.toFixed(2)}) : rentabilité faible sur la durée.`);
+    const sgI = { home: 0, draw: 1, away: 2 }[pick.type] ?? (pick.type === 'ahHome' && pick.point === 0 ? 0 : pick.type === 'ahAway' && pick.point === 0 ? 2 : pick.type === 'dc1X' ? 0 : pick.type === 'dcX2' ? 2 : null);
+    if (E.sg && sgI != null) {
+      const o = E.sg[sgI];
+      if (o.chg <= -0.05) out.pour.push(`Singapore Pools : cote passée de ${o.open.toFixed(2)} à ${o.cur.toFixed(2)} (${Math.round(o.chg * 100)} %) : l’argent va dans ce sens.`);
+      else if (o.chg >= 0.05) out.contre.push(`Singapore Pools : cote passée de ${o.open.toFixed(2)} à ${o.cur.toFixed(2)} (+${Math.round(o.chg * 100)} %) : le marché s’éloigne de ce pari.`);
+    }
     for (const w of E.warnings || []) out.contre.push(w);
     if (E.sport === 'football' && !E.lineup) out.contre.push('Compositions pas encore publiées.');
     const minOk = Math.ceil(((1 + cfg().minEV - (pick.pPush || 0)) / Math.max(0.01, pick.p - (pick.uncert ?? 0.03))) * 100) / 100;
