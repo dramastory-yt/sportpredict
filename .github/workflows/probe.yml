@@ -5,6 +5,7 @@ on:
     inputs:
       base: { description: 'Site', required: true, default: 'https://sgodds.com' }
       path: { description: 'Page', required: true, default: '/football/current-odds' }
+      extra: { description: 'Autres pages', required: false, default: '/terms-privacy /terms-and-privacy /privacy /help' }
 jobs:
   probe:
     runs-on: ubuntu-latest
@@ -13,4 +14,4 @@ jobs:
       - uses: actions/setup-python@v5
         with: { python-version: '3.12' }
       - run: pip install requests
-      - run: python scripts/probe_site.py "${{ inputs.base }}" "${{ inputs.path }}"
+      - run: python scripts/probe_site.py "${{ inputs.base }}" "${{ inputs.path }}" ${{ inputs.extra }}
