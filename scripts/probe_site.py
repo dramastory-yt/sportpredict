@@ -16,7 +16,9 @@ for u in [base + "/robots.txt", base + path] + [base + x for x in extra]:
         print("liens :", hrefs[:80])
         if path in u:
             # extrait d'un tableau de cotes pour connaître la structure
-            i = t.find('1X2'); print("extrait HTML :", re.sub(r'\s+', ' ', t[max(0, i - 1500):i + 2500]))
+            m = re.search(r'current-odds/[A-Za-z0-9-]+-\d+', t)
+            i = m.start() if m else t.find('1X2')
+            print("extrait HTML :", re.sub(r'\s+', ' ', t[max(0, i - 2500):i + 3500]))
         print("scripts/API :", sorted(set(re.findall(r'["\'](/(?:api|_next|data|json)[^"\']{0,120})["\']', t)))[:30])
         print("mots clés :", {k: t.lower().count(k) for k in ["singapore pools", "1x2", "handicap", "over", "under", "total goals", "odds", "scrap", "copyright", "prohibit", "automated"]})
         txt = re.sub(r"<script.*?</script>|<style.*?</style>", " ", t, flags=re.S)
