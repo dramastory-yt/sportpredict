@@ -240,6 +240,7 @@
     if (!fm) return '<span class="muted">forme indisponible</span>';
     return `<span class="form" title="du plus ancien au plus récent (à droite)">${fm.seq.split('').map((r) => `<i class="r-${r}">${r}</i>`).join('')}</span> <small class="muted">${num(fm.gf, 1)} marqués / ${num(fm.ga, 1)} encaissés${fm.xgf != null ? ` · xG ${num(fm.xgf, 2)} / ${num(fm.xga, 2)}` : ''}</small>`;
   }
+  let A_DAILY_ID = null;
   function pronoCard(f) {
     const pr = f.probs || {};
     const bar = f.sport === 'football'
@@ -256,6 +257,7 @@
       ${f.sport === 'nba' ? `<p class="muted">Score projeté <b>${Math.round(f.expected.home)}-${Math.round(f.expected.away)}</b> · total attendu ${num(f.expected.total, 1)} points</p>` : ''}
       ${f.form ? `<div class="formrow"><div><small>${esc(hn)}</small>${formChips(f.form.home)}</div><div><small>${esc(an)}</small>${formChips(f.form.away)}</div></div>` : ''}
       ${f.pick ? `<div class="advice"><b>Pari le plus probable :</b> ${esc(f.pick.label)} @ <b>${num(f.pick.odds)}</b> (${esc(f.pick.book)}) — probabilité ${pct(f.pick.p)}, EV ${sgn(f.pick.ev)} ${f.pick.value ? '<span class="tag t-ok">VALUE</span>' : '<span class="tag t-na">pas de value</span>'}</div>${betBtn({ source: 'prono', eventId: f.eventId, sport: f.sport, sportKey: f.sportKey, comp: f.comp, match: f.match, home: f.home, away: f.away, t: f.t, label: f.pick.label, type: f.pick.type, point: f.pick.point, market: f.pick.market, odds: f.pick.odds, book: f.pick.book, p: f.pick.p, value: f.pick.value, suggested: f.pick.value ? stakeFor(f.pick.p, f.pick.odds, f.pick.pPush) : null })}` : ''}
+      ${f.excluded ? `<p class="notice"><small>Pas retenu comme pronostic du jour : ${esc(f.excluded)}.</small></p>` : (A_DAILY_ID === f.eventId ? '<p><span class="tag t-ok">pronostic du jour</span></p>' : '')}
       ${f.facts?.length ? `<ul class="muted">${f.facts.map((x) => `<li>${esc(x)}</li>`).join('')}</ul>` : ''}
       ${f.markets ? `<details><summary>Tous les marchés (${f.markets.length})</summary><div class="tw"><table class="t"><thead><tr><th>Pari</th><th>Prob.</th><th>Cote juste</th><th>Jouer si ≥</th><th>Winamax</th></tr></thead><tbody>
         ${f.markets.map((m) => `<tr><td>${esc(m.label)}${m.risky ? ' <span class="tag t-warn">risqué</span>' : m.p >= P.cfg().safeMinP && m.minSafe >= P.cfg().minOdds ? ' <span class="tag t-ok">sûr</span>' : ''}</td><td class="n">${pct(m.p, 0)}${m.pPush ? ` <small class="muted">(remb. ${pct(m.pPush, 0)})</small>` : ''}</td><td class="n">${num(m.fair)}</td><td class="n">${num(m.p >= P.cfg().safeMinP && !m.risky ? m.minSafe : m.minValue)}</td><td class="n">${m.real ? `${num(m.real.odds)} <span class="${m.ev >= 0 ? 'pos' : 'neg'}">${sgn(m.ev)}</span>` : '<small class="muted">à vérifier</small>'}</td></tr>`).join('')}
@@ -335,7 +337,7 @@
       const list = A.forecasts || [];
       return `<h2>Pronostics du jour</h2>
         <p class="muted">La lecture du moteur pour chaque match : résultat le plus probable et pari le plus probable sur ${esc(P.cfg().targetBook === 'winamax_fr' ? 'Winamax' : 'votre bookmaker')}. Un pronostic probable n’est pas forcément rentable : seuls ceux marqués <span class="tag t-ok">VALUE</span> battent la cote juste.</p>
-        ${list.length ? `<div class="grid">${list.map(pronoCard).join('')}</div>` : '<section class="card empty"><p>Aucun pronostic : relancez une analyse.</p></section>'}`;
+        ${list.length ? `<div class="grid">${(A_DAILY_ID = A.daily?.eventId || null, list.map(pronoCard).join(''))}</div>` : '<section class="card empty"><p>Aucun pronostic : relancez une analyse.</p></section>'}`;
     },
     dashboard() {
       const A = S.lastAnalysis(), C = P.cfg();

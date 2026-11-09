@@ -1155,7 +1155,7 @@ function SPEngineFactory() {
     const reliable = x.dataQuality >= 0.55 && x.gap != null && x.gap <= 0.05 && (x.risk || 0) < 2 && x.uncert <= 0.06 && !x.badCalib;
     if (x.p >= 0.85 && reliable) return 'très haute';
     if (x.p >= 0.78 && reliable) return 'haute';
-    if (x.p >= 0.70 && x.dataQuality >= 0.35) return 'intéressante';
+    if (x.p >= 0.70 && x.dataQuality >= 0.35 && (x.gap == null || x.gap <= 0.10) && (x.risk || 0) < 3) return 'intéressante';
     return 'insuffisante';
   };
   SP.isStrong = (conf) => conf === 'très haute' || conf === 'haute';
@@ -2507,7 +2507,7 @@ onmessage = (e) => {
     }
     const confRank = { 'très haute': 4, haute: 3, 'intéressante': 2, 'insuffisante': 1 };
     A.forecasts = events.filter((E) => E.forecast && E.forecast.pick && E.t - Date.now() <= Math.max(C.hours, 24) * 3600e3)
-      .sort((a, b) => confRank[b.forecast.confidence] - confRank[a.forecast.confidence] || b.forecast.pick.p - a.forecast.pick.p)
+      .sort((a, b) => (!!a.forecast.excluded - !!b.forecast.excluded) || confRank[b.forecast.confidence] - confRank[a.forecast.confidence] || b.forecast.pick.p - a.forecast.pick.p)
       .slice(0, 20).map((E) => ({ eventId: E.id, sport: E.sport, sportKey: E.sportKey, home: E.home, away: E.away, comp: E.comp, match: `${E.home} – ${E.away}`, t: E.t, day: E.day, ...E.forecast }));
     S.done(8, `${scored.length} sélections notées ; ${scored.filter((c) => c.check.ok).length} passent les filtres`);
 
@@ -2630,9 +2630,23 @@ onmessage = (e) => {
           const tiers = [
             ['bon', (c) => c.p >= 0.70 && c.ev >= -0.02 && dq(c) >= 0.45 && (c.modelGap == null ? dq(c) >= 0.55 : c.modelGap <= 0.08) && (c.E.risk || 0) < 3],
             ['correct', (c) => c.p >= 0.65 && c.ev >= -0.04 && dq(c) >= 0.35 && (c.modelGap == null || c.modelGap <= 0.10)],
-            ['prudent', (c) => c.p >= 0.55 && c.ev >= -0.06 && (c.modelGap == null || c.modelGap <= 0.12) && !c.check.reasons.some((r) => /isolée|ancienne/.test(r))],
+            ['prudent', (c) => c.p >= 0.55 && c.ev >= -0.06 && (c.modelGap == null || c.modelGap <= 0.12) && !c.check.reasons.some((r) => /isolée/.test(r))],
           ];
-          for (const [lvl, ok] of tiers) {
+          // 1) d'abord le meilleur de l'onglet Pronostics (même classement : confiance puis probabilité),
+          //    pour que le pronostic du jour soit cohérent avec ce que l'utilisateur voit dans la liste
+          const CR = { 'très haute': 4, haute: 3, 'intéressante': 2, 'insuffisante': 1 };
+          const fromList = events.filter((x) => x.forecast?.pick && x.t > Date.now() + 15 * 60e3 && x.t - Date.now() <= Math.max(C.hours, 24) * 3600e3 && !x.staleOdds)
+            .map((x) => ({ x, c: scored.find((cc) => cc.E === x && cc.s.label === x.forecast.pick.label) }))
+            .filter(({ x, c }) => c && !x.forecast.excluded && x.forecast.pick.p >= 0.55)
+            .sort((a, b) => (CR[b.x.forecast.confidence] || 0) - (CR[a.x.forecast.confidence] || 0) || b.x.forecast.pick.p - a.x.forecast.pick.p)[0];
+          if (fromList) {
+            const c = fromList.c, conf = fromList.x.forecast.confidence;
+            const lvl = SP.isStrong(conf) ? 'bon' : c.p >= 0.65 ? 'correct' : 'prudent';
+            E = fromList.x; kind = 'clément'; A.dailyLevel = lvl;
+            pick = { label: c.s.label, type: c.s.type, point: c.s.point, market: c.s.mkey, odds: c.best.price, book: c.best.title, p: c.p, pPush: c.pPush, ev: c.ev, value: c.check.ok, uncert: c.uncert, reliable: c.reliable, level: lvl };
+          }
+          // 2) sinon, paliers de secours
+          for (const [lvl, ok] of (E ? [] : tiers)) {
             const best = cand.filter(ok).sort((a, b) => (b.p + Math.min(0, b.ev)) - (a.p + Math.min(0, a.ev)))[0];
             if (best) {
               E = best.E; kind = 'clément'; A.dailyLevel = lvl;
@@ -2879,6 +2893,11 @@ onmessage = (e) => {
     const gap = cands.find((x) => x === c)?.modelGap;
     f.confidence = c ? (c.conf || confOf(E, c.p, gap, c.uncert)) : 'insuffisante';
     f.dataNote = E.model.statsNote;
+    // raison pour laquelle ce pronostic ne peut pas devenir le pronostic du jour (affichée dans la liste)
+    if (c) f.excluded = gap != null && gap > 0.12 ? 'désaccord important entre modèles et marché'
+      : c.ev < -0.08 ? 'cote Winamax trop basse par rapport à la vraie valeur'
+      : c.best.price > 2.2 ? 'cote trop haute pour un pronostic principal'
+      : E.staleOdds ? 'cotes non actualisées' : null;
     return f;
   }
   function tennisSel(E, s) {
@@ -3608,6 +3627,7 @@ const SPMyBets = (() => {
     if (!fm) return '<span class="muted">forme indisponible</span>';
     return `<span class="form" title="du plus ancien au plus récent (à droite)">${fm.seq.split('').map((r) => `<i class="r-${r}">${r}</i>`).join('')}</span> <small class="muted">${num(fm.gf, 1)} marqués / ${num(fm.ga, 1)} encaissés${fm.xgf != null ? ` · xG ${num(fm.xgf, 2)} / ${num(fm.xga, 2)}` : ''}</small>`;
   }
+  let A_DAILY_ID = null;
   function pronoCard(f) {
     const pr = f.probs || {};
     const bar = f.sport === 'football'
@@ -3624,6 +3644,7 @@ const SPMyBets = (() => {
       ${f.sport === 'nba' ? `<p class="muted">Score projeté <b>${Math.round(f.expected.home)}-${Math.round(f.expected.away)}</b> · total attendu ${num(f.expected.total, 1)} points</p>` : ''}
       ${f.form ? `<div class="formrow"><div><small>${esc(hn)}</small>${formChips(f.form.home)}</div><div><small>${esc(an)}</small>${formChips(f.form.away)}</div></div>` : ''}
       ${f.pick ? `<div class="advice"><b>Pari le plus probable :</b> ${esc(f.pick.label)} @ <b>${num(f.pick.odds)}</b> (${esc(f.pick.book)}) — probabilité ${pct(f.pick.p)}, EV ${sgn(f.pick.ev)} ${f.pick.value ? '<span class="tag t-ok">VALUE</span>' : '<span class="tag t-na">pas de value</span>'}</div>${betBtn({ source: 'prono', eventId: f.eventId, sport: f.sport, sportKey: f.sportKey, comp: f.comp, match: f.match, home: f.home, away: f.away, t: f.t, label: f.pick.label, type: f.pick.type, point: f.pick.point, market: f.pick.market, odds: f.pick.odds, book: f.pick.book, p: f.pick.p, value: f.pick.value, suggested: f.pick.value ? stakeFor(f.pick.p, f.pick.odds, f.pick.pPush) : null })}` : ''}
+      ${f.excluded ? `<p class="notice"><small>Pas retenu comme pronostic du jour : ${esc(f.excluded)}.</small></p>` : (A_DAILY_ID === f.eventId ? '<p><span class="tag t-ok">pronostic du jour</span></p>' : '')}
       ${f.facts?.length ? `<ul class="muted">${f.facts.map((x) => `<li>${esc(x)}</li>`).join('')}</ul>` : ''}
       ${f.markets ? `<details><summary>Tous les marchés (${f.markets.length})</summary><div class="tw"><table class="t"><thead><tr><th>Pari</th><th>Prob.</th><th>Cote juste</th><th>Jouer si ≥</th><th>Winamax</th></tr></thead><tbody>
         ${f.markets.map((m) => `<tr><td>${esc(m.label)}${m.risky ? ' <span class="tag t-warn">risqué</span>' : m.p >= P.cfg().safeMinP && m.minSafe >= P.cfg().minOdds ? ' <span class="tag t-ok">sûr</span>' : ''}</td><td class="n">${pct(m.p, 0)}${m.pPush ? ` <small class="muted">(remb. ${pct(m.pPush, 0)})</small>` : ''}</td><td class="n">${num(m.fair)}</td><td class="n">${num(m.p >= P.cfg().safeMinP && !m.risky ? m.minSafe : m.minValue)}</td><td class="n">${m.real ? `${num(m.real.odds)} <span class="${m.ev >= 0 ? 'pos' : 'neg'}">${sgn(m.ev)}</span>` : '<small class="muted">à vérifier</small>'}</td></tr>`).join('')}
@@ -3703,7 +3724,7 @@ const SPMyBets = (() => {
       const list = A.forecasts || [];
       return `<h2>Pronostics du jour</h2>
         <p class="muted">La lecture du moteur pour chaque match : résultat le plus probable et pari le plus probable sur ${esc(P.cfg().targetBook === 'winamax_fr' ? 'Winamax' : 'votre bookmaker')}. Un pronostic probable n’est pas forcément rentable : seuls ceux marqués <span class="tag t-ok">VALUE</span> battent la cote juste.</p>
-        ${list.length ? `<div class="grid">${list.map(pronoCard).join('')}</div>` : '<section class="card empty"><p>Aucun pronostic : relancez une analyse.</p></section>'}`;
+        ${list.length ? `<div class="grid">${(A_DAILY_ID = A.daily?.eventId || null, list.map(pronoCard).join(''))}</div>` : '<section class="card empty"><p>Aucun pronostic : relancez une analyse.</p></section>'}`;
     },
     dashboard() {
       const A = S.lastAnalysis(), C = P.cfg();

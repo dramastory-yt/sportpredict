@@ -958,7 +958,7 @@ function SPEngineFactory() {
     const reliable = x.dataQuality >= 0.55 && x.gap != null && x.gap <= 0.05 && (x.risk || 0) < 2 && x.uncert <= 0.06 && !x.badCalib;
     if (x.p >= 0.85 && reliable) return 'très haute';
     if (x.p >= 0.78 && reliable) return 'haute';
-    if (x.p >= 0.70 && x.dataQuality >= 0.35) return 'intéressante';
+    if (x.p >= 0.70 && x.dataQuality >= 0.35 && (x.gap == null || x.gap <= 0.10) && (x.risk || 0) < 3) return 'intéressante';
     return 'insuffisante';
   };
   SP.isStrong = (conf) => conf === 'très haute' || conf === 'haute';

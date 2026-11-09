@@ -856,7 +856,7 @@ onmessage = (e) => {
     }
     const confRank = { 'très haute': 4, haute: 3, 'intéressante': 2, 'insuffisante': 1 };
     A.forecasts = events.filter((E) => E.forecast && E.forecast.pick && E.t - Date.now() <= Math.max(C.hours, 24) * 3600e3)
-      .sort((a, b) => confRank[b.forecast.confidence] - confRank[a.forecast.confidence] || b.forecast.pick.p - a.forecast.pick.p)
+      .sort((a, b) => (!!a.forecast.excluded - !!b.forecast.excluded) || confRank[b.forecast.confidence] - confRank[a.forecast.confidence] || b.forecast.pick.p - a.forecast.pick.p)
       .slice(0, 20).map((E) => ({ eventId: E.id, sport: E.sport, sportKey: E.sportKey, home: E.home, away: E.away, comp: E.comp, match: `${E.home} – ${E.away}`, t: E.t, day: E.day, ...E.forecast }));
     S.done(8, `${scored.length} sélections notées ; ${scored.filter((c) => c.check.ok).length} passent les filtres`);
 
@@ -979,9 +979,23 @@ onmessage = (e) => {
           const tiers = [
             ['bon', (c) => c.p >= 0.70 && c.ev >= -0.02 && dq(c) >= 0.45 && (c.modelGap == null ? dq(c) >= 0.55 : c.modelGap <= 0.08) && (c.E.risk || 0) < 3],
             ['correct', (c) => c.p >= 0.65 && c.ev >= -0.04 && dq(c) >= 0.35 && (c.modelGap == null || c.modelGap <= 0.10)],
-            ['prudent', (c) => c.p >= 0.55 && c.ev >= -0.06 && (c.modelGap == null || c.modelGap <= 0.12) && !c.check.reasons.some((r) => /isolée|ancienne/.test(r))],
+            ['prudent', (c) => c.p >= 0.55 && c.ev >= -0.06 && (c.modelGap == null || c.modelGap <= 0.12) && !c.check.reasons.some((r) => /isolée/.test(r))],
           ];
-          for (const [lvl, ok] of tiers) {
+          // 1) d'abord le meilleur de l'onglet Pronostics (même classement : confiance puis probabilité),
+          //    pour que le pronostic du jour soit cohérent avec ce que l'utilisateur voit dans la liste
+          const CR = { 'très haute': 4, haute: 3, 'intéressante': 2, 'insuffisante': 1 };
+          const fromList = events.filter((x) => x.forecast?.pick && x.t > Date.now() + 15 * 60e3 && x.t - Date.now() <= Math.max(C.hours, 24) * 3600e3 && !x.staleOdds)
+            .map((x) => ({ x, c: scored.find((cc) => cc.E === x && cc.s.label === x.forecast.pick.label) }))
+            .filter(({ x, c }) => c && !x.forecast.excluded && x.forecast.pick.p >= 0.55)
+            .sort((a, b) => (CR[b.x.forecast.confidence] || 0) - (CR[a.x.forecast.confidence] || 0) || b.x.forecast.pick.p - a.x.forecast.pick.p)[0];
+          if (fromList) {
+            const c = fromList.c, conf = fromList.x.forecast.confidence;
+            const lvl = SP.isStrong(conf) ? 'bon' : c.p >= 0.65 ? 'correct' : 'prudent';
+            E = fromList.x; kind = 'clément'; A.dailyLevel = lvl;
+            pick = { label: c.s.label, type: c.s.type, point: c.s.point, market: c.s.mkey, odds: c.best.price, book: c.best.title, p: c.p, pPush: c.pPush, ev: c.ev, value: c.check.ok, uncert: c.uncert, reliable: c.reliable, level: lvl };
+          }
+          // 2) sinon, paliers de secours
+          for (const [lvl, ok] of (E ? [] : tiers)) {
             const best = cand.filter(ok).sort((a, b) => (b.p + Math.min(0, b.ev)) - (a.p + Math.min(0, a.ev)))[0];
             if (best) {
               E = best.E; kind = 'clément'; A.dailyLevel = lvl;
@@ -1228,6 +1242,11 @@ onmessage = (e) => {
     const gap = cands.find((x) => x === c)?.modelGap;
     f.confidence = c ? (c.conf || confOf(E, c.p, gap, c.uncert)) : 'insuffisante';
     f.dataNote = E.model.statsNote;
+    // raison pour laquelle ce pronostic ne peut pas devenir le pronostic du jour (affichée dans la liste)
+    if (c) f.excluded = gap != null && gap > 0.12 ? 'désaccord important entre modèles et marché'
+      : c.ev < -0.08 ? 'cote Winamax trop basse par rapport à la vraie valeur'
+      : c.best.price > 2.2 ? 'cote trop haute pour un pronostic principal'
+      : E.staleOdds ? 'cotes non actualisées' : null;
     return f;
   }
   function tennisSel(E, s) {
