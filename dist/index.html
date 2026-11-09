@@ -679,9 +679,17 @@ function SPEngineFactory() {
   };
   SP.hockeyPOT = (lh, la) => Math.min(0.62, Math.max(0.38, 0.5 + 0.5 * (lh - la) / (lh + la)));
   // Histogramme Monte-Carlo (temps réglementaire, format football) -> pseudo-simulation au score final
-  SP.hockeyFinalSim = function (sim, pOT) {
+  SP.hockeyRegSim = function (sim, k) {
     const M = sim.M, mat = [];
     for (let i = 0; i < M; i++) { mat.push([]); for (let j = 0; j < M; j++) mat[i].push(sim.hist[i * M + j]); }
+    const tot = sim.hist.reduce((a, b) => a + b, 0);
+    const R = SP.inflateDraws(mat.map((r) => r.map((v) => v / tot)), k || 1);
+    return { ...sim, hist: R.flat().map((v) => v * tot) };
+  };
+  SP.hockeyFinalSim = function (sim, pOT, k) {
+    const reg = SP.hockeyRegSim(sim, k);
+    const M = reg.M, mat = [];
+    for (let i = 0; i < M; i++) { mat.push([]); for (let j = 0; j < M; j++) mat[i].push(reg.hist[i * M + j]); }
     const F = SP.hockeyFinal(mat, pOT);
     return { ...sim, M: M + 1, hist: F.flat() };
   };
@@ -1743,11 +1751,14 @@ onmessage = (e) => {
 
   // ------------------------------------------------------------ marchés
   function buildMarkets(ev) {
-    const mk = { h2h: new Map(), totals: new Map(), spreads: new Map() };
+    const mk = { h2h: new Map(), h2h_reg: new Map(), totals: new Map(), spreads: new Map() };
+    const isHockey = String(ev.sport_key || '').startsWith('icehockey');
     let sharp = null;
     for (const b of ev.bookmakers || []) {
       for (const m of b.markets || []) {
         if (!mk[m.key]) continue;
+        // NHL : un vainqueur avec « nul » est un marché 60 minutes, distinct du vainqueur prolongation incluse
+        const mkKey = isHockey && m.key === 'h2h' && m.outcomes.some((o) => o.name === 'Draw') ? 'h2h_reg' : m.key;
         // regroupe par ligne : h2h -> 'main' ; totals -> point ; spreads -> point du domicile/joueur A
         const groups = new Map();
         for (const o of m.outcomes) {
@@ -1758,8 +1769,8 @@ onmessage = (e) => {
           groups.get(g).push(o);
         }
         for (const [g, outs] of groups) {
-          if (!mk[m.key].has(g)) mk[m.key].set(g, { line: g, books: [] });
-          mk[m.key].get(g).books.push({ book: b.key, title: b.title, last: Date.parse(m.last_update || b.last_update), outs });
+          if (!mk[mkKey].has(g)) mk[mkKey].set(g, { line: g, books: [] });
+          mk[mkKey].get(g).books.push({ book: b.key, title: b.title, last: Date.parse(m.last_update || b.last_update), outs });
         }
       }
       if (b.key === 'pinnacle' || (b.key === 'betfair_ex_eu' && !sharp)) sharp = b.key;
@@ -1767,14 +1778,15 @@ onmessage = (e) => {
     // sélections
     const sels = [];
     const label = (mkey, o, g) => {
-      if (mkey === 'h2h') return o.name === 'Draw' ? 'Match nul' : `${o.name} gagne`;
+      if (mkey === 'h2h') return o.name === 'Draw' ? 'Match nul' : `${o.name} gagne${isHockey ? ' (prolongation incluse)' : ''}`;
+      if (mkey === 'h2h_reg') return o.name === 'Draw' ? 'Nul à 60 minutes' : `${o.name} gagne à 60 minutes`;
       if (mkey === 'totals') return `${o.name === 'Over' ? 'Plus' : 'Moins'} de ${o.point}`;
       return `${o.name} ${o.point > 0 ? '+' : ''}${o.point}`;
     };
-    for (const mkey of ['h2h', 'totals', 'spreads']) {
+    for (const mkey of ['h2h', 'h2h_reg', 'totals', 'spreads']) {
       for (const [g, grp] of mk[mkey]) {
         const names = [...new Set(grp.books.flatMap((b) => b.outs.map((o) => o.name)))];
-        const nOut = mkey === 'h2h' ? (names.includes('Draw') ? 3 : 2) : 2;
+        const nOut = mkey === 'h2h_reg' ? 3 : mkey === 'h2h' ? (names.includes('Draw') ? 3 : 2) : 2;
         // probabilité juste par livre (marge retirée), uniquement si le livre couvre toutes les issues
         const fairByBook = [];
         for (const b of grp.books) {
@@ -1799,6 +1811,7 @@ onmessage = (e) => {
           const o0 = offers[0];
           let type;
           if (mkey === 'h2h') type = name === 'Draw' ? 'draw' : (name === ev.home_team ? 'home' : 'away');
+          if (mkey === 'h2h_reg') type = 'reg_' + (name === 'Draw' ? 'draw' : (name === ev.home_team ? 'home' : 'away'));
           if (mkey === 'totals') type = name === 'Over' ? 'over' : 'under';
           if (mkey === 'spreads') type = name === ev.home_team ? 'ahHome' : 'ahAway';
           sels.push({
@@ -2105,10 +2118,13 @@ onmessage = (e) => {
     const F = finalOf(lh, la);
     const pseudo = { kind: 'football', M: F.length, hist: F.flat() };
     const Fs = out.st ? finalOf(out.st.lh, out.st.la) : null;
+    const R = regOf(lh, la), pseudoR = { kind: 'football', M: R.length, hist: R.flat() };
+    const Rs = out.st ? regOf(out.st.lh, out.st.la) : null;
     out.phase1 = (sel) => {
-      const ns = SP.normalizeSel({ type: sel.type, point: sel.point });
-      const r = SP.evalFromSim(pseudo, ns, sel.best.price);
-      const rs = Fs ? SP.evalFromSim({ kind: 'football', M: Fs.length, hist: Fs.flat() }, ns, 2).pWin : null;
+      const isReg = sel.mkey === 'h2h_reg';
+      const ns = SP.normalizeSel({ type: String(sel.type).replace(/^reg_/, ''), point: sel.point });
+      const r = SP.evalFromSim(isReg ? pseudoR : pseudo, ns, sel.best.price);
+      const rs = (isReg ? Rs : Fs) ? SP.evalFromSim({ kind: 'football', M: (isReg ? Rs : Fs).length, hist: (isReg ? Rs : Fs).flat() }, ns, 2).pWin : null;
       return { pWin: r.pWin, pPush: r.pPush, ev: r.ev, pMkt: sel.fairMkt ?? r.pWin, pStats: rs };
     };
     out.simSpec = { kind: 'football', lh, la, rho: 0, sigma };
@@ -2161,6 +2177,7 @@ onmessage = (e) => {
     if (c.t <= Date.now() + 15 * 60e3) reasons.push('événement commencé ou trop proche du coup d’envoi');
     const ageMin = (Date.now() - c.best.last) / 60e3;
     if (!(ageMin <= C.maxOddsAgeMin)) reasons.push(`cote trop ancienne (${Math.round(ageMin)} min)`);
+    if (c.ev > 0.15 && ['h2h', 'h2h_reg', 'totals', 'spreads'].includes(c.s.mkey)) reasons.push(`écart anormal avec le marché (EV ${Math.round(c.ev * 100)} %) : probable erreur de données ou marché différent, à vérifier`);
     if (c.ev <= 0) reasons.push('espérance négative');
     else if (c.ev < C.minEV) reasons.push(`EV ${(c.ev * 100).toFixed(1)}% < seuil ${(C.minEV * 100).toFixed(1)}%`);
     if (c.priceEdge < c.uncert) reasons.push(`avantage (${(c.priceEdge * 100).toFixed(1)} pts) inférieur à l’incertitude (${(c.uncert * 100).toFixed(1)} pts)`);
@@ -2429,7 +2446,7 @@ onmessage = (e) => {
     }
     const top = [...byEvent.values()].filter((c) => c.ev1 > -0.04).sort((a, b) => b.ev1 - a.ev1).slice(0, C.phase2Events);
     const tasks = top.map((c) => {
-      const sel = c.E.sport === 'tennis' ? tennisSel(c.E, c.s) : { type: c.s.type, point: c.s.point };
+      const sel = c.E.sport === 'tennis' ? tennisSel(c.E, c.s) : { type: String(c.s.type).replace(/^reg_/, ''), point: c.s.point };
       return { spec: { ...c.E.model.simSpec, seed: hashSeed(c.E.id + c.s.id), minN: C.minSims, maxN: C.maxSims, tol: C.tol }, sel: SP.normalizeSel(sel) };
     });
     const simRes = await runSims(tasks, (d, n, sims) => S.progress(7, d, n, `${fmtInt(sims)} simulations`));
@@ -2437,11 +2454,12 @@ onmessage = (e) => {
     top.forEach((c, i) => {
       const r = simRes[i]; if (!r || r.error) { c.E.simError = r?.error || 'échec'; return; }
       c.E.sim = r; totalSims += r.n;
-      const rEval = c.E.sport === 'hockey' ? SP.hockeyFinalSim(r, c.E.model.pOT) : r;
+      const rEval = c.E.sport === 'hockey' ? SP.hockeyFinalSim(r, c.E.model.pOT, c.E.model.drawK) : r;
+      const rReg = c.E.sport === 'hockey' ? SP.hockeyRegSim(r, c.E.model.drawK) : r;
       for (const s of c.E.mk.sels) {
-        const sel = c.E.sport === 'tennis' ? tennisSel(c.E, s) : { type: s.type, point: s.point };
+        const sel = c.E.sport === 'tennis' ? tennisSel(c.E, s) : { type: String(s.type).replace(/^reg_/, ''), point: s.point };
         if (!sel || !s.p1) continue;
-        const e = SP.evalFromSim(rEval, SP.normalizeSel(sel), s.best.price);
+        const e = SP.evalFromSim(s.mkey === 'h2h_reg' ? rReg : rEval, SP.normalizeSel(sel), s.best.price);
         s.p2 = c.E.sport === 'tennis' ? { ...tennisBlend(s, e, C, c.E), ci: e.ci95, n: r.n } : { pWin: e.pWin, pPush: e.pPush, ev: e.ev, ci: e.ci95, n: r.n };
       }
     });
@@ -2490,6 +2508,7 @@ onmessage = (e) => {
           mcSpread, oddsAgeMin: (Date.now() - s.best.last) / 60e3, booksAtPrice: c.booksAtPrice, riskPenalty: E.risk, riskNote: riskNote.join(' ; '), odds: s.best.price,
         });
         c.check = assess(c, C, E);
+        c.anomaly = c.ev > 0.15 && ['h2h', 'h2h_reg', 'totals', 'spreads'].includes(s.mkey);
         const sgIdx = { home: 0, draw: 1, away: 2 }[s.type] ?? (s.type === 'ahHome' && s.point === 0 ? 0 : s.type === 'ahAway' && s.point === 0 ? 2 : null);
         if (E.sg && sgIdx != null) {
           const ch = E.sg[sgIdx].chg;
@@ -2568,7 +2587,7 @@ onmessage = (e) => {
       const byEv = new Map();
       for (const c of scored) {
         const E = c.E;
-        if (c.s.noTarget || c.p == null || c.p < C.safeMinP) continue;
+        if (c.s.noTarget || c.anomaly || c.p == null || c.p < C.safeMinP) continue;
         if (c.best.price < C.minOdds || c.best.price > C.safeMaxOdds) continue;
         if (E.t <= Date.now() + 15 * 60e3 || E.t - Date.now() > Math.max(C.hours, 24) * 3600e3) continue;
         if (c.ev < C.safeTolEV || (c.modelGap != null && c.modelGap > 0.08) || E.risk >= 3 || E.staleOdds) continue;
@@ -2625,7 +2644,7 @@ onmessage = (e) => {
         if (!E) {
           // CLÉMENCE : toujours un pronostic du jour s'il existe des matchs, en prenant la meilleure sélection
           // disponible par paliers ; le niveau réel (bon, correct, prudent) est affiché honnêtement.
-          const cand = scored.filter((c) => !c.s.noTarget && c.p != null && c.best.price >= C.minOdds && c.best.price <= 2.2 && c.E.t > Date.now() + 15 * 60e3 && c.E.t - Date.now() <= Math.max(C.hours, 24) * 3600e3 && !c.E.staleOdds);
+          const cand = scored.filter((c) => !c.s.noTarget && !c.anomaly && c.p != null && c.best.price >= C.minOdds && c.best.price <= 2.2 && c.E.t > Date.now() + 15 * 60e3 && c.E.t - Date.now() <= Math.max(C.hours, 24) * 3600e3 && !c.E.staleOdds);
           const dq = (c) => c.E.model?.dataQuality ?? 0.3;
           const tiers = [
             ['bon', (c) => c.p >= 0.70 && c.ev >= -0.02 && dq(c) >= 0.45 && (c.modelGap == null ? dq(c) >= 0.55 : c.modelGap <= 0.08) && (c.E.risk || 0) < 3],
@@ -2747,7 +2766,7 @@ onmessage = (e) => {
     const evalOn = (mat, type, point) => SP.evalFromSim({ kind: 'football', M: mat.length, hist: mat.flat() }, SP.normalizeSel({ type, point }), 2);
     const defs = [
       [F, 'home', null, `${E.home} gagne (prolongation incluse)`, 'h2h'], [F, 'away', null, `${E.away} gagne (prolongation incluse)`, 'h2h'],
-      [reg, 'home', null, `${E.home} gagne dans le temps réglementaire`], [reg, 'draw', null, 'Nul à la fin du temps réglementaire'], [reg, 'away', null, `${E.away} gagne dans le temps réglementaire`],
+      [reg, 'home', null, `${E.home} gagne dans le temps réglementaire`, 'h2h_reg'], [reg, 'draw', null, 'Nul à la fin du temps réglementaire', 'h2h_reg'], [reg, 'away', null, `${E.away} gagne dans le temps réglementaire`, 'h2h_reg'],
       [reg, 'dc1X', null, `${E.home} ou nul (temps réglementaire)`], [reg, 'dcX2', null, `Nul ou ${E.away} (temps réglementaire)`],
       ...[4.5, 5.5, 6.5, 7.5].flatMap((l) => [[F, 'over', l, `Plus de ${String(l).replace('.', ',')} buts (prol. incluse)`, 'totals'], [F, 'under', l, `Moins de ${String(l).replace('.', ',')} buts (prol. incluse)`, 'totals']]),
       [F, 'ahHome', -1.5, `${E.home} -1,5 (puck line)`, 'spreads'], [F, 'ahAway', 1.5, `${E.away} +1,5 (puck line)`, 'spreads'],
@@ -2758,7 +2777,7 @@ onmessage = (e) => {
     return defs.map(([mat, type, point, label, mkey]) => {
       const r = evalOn(mat, type, point), fair = (1 - r.pPush) / Math.max(1e-6, r.pWin);
       let real = null;
-      if (mkey) { const s = E.mk.sels.find((x) => !x.noTarget && x.mkey === mkey && x.type === type && (point == null || x.point === point)); if (s) real = { odds: s.best.price, book: s.best.title, last: s.best.last }; }
+      if (mkey) { const s = E.mk.sels.find((x) => !x.noTarget && x.mkey === mkey && String(x.type).replace(/^reg_/, '') === type && (point == null || x.point === point)); if (s) real = { odds: s.best.price, book: s.best.title, last: s.best.last }; }
       const regulation = mat === reg;
       return { key: type + (point ?? '') + (regulation ? 'TR' : ''), label, type: regulation ? 'reg_' + type : type, point, regulation, p: r.pWin, pPush: r.pPush, fair, minSafe: Math.ceil(fair * (1 + C.safeTolEV) * 100) / 100, minValue: Math.ceil(fair * (1 + C.minEV) * 100) / 100, real, ev: real ? r.pWin * real.odds + r.pPush - 1 : null };
     });
@@ -2885,7 +2904,7 @@ onmessage = (e) => {
     }
     f.facts.push(...E.warnings);
     // pari conseillé : le plus probable parmi ceux proposés par le bookmaker cible, avec une cote ≥ 1,30
-    const pool = cands.filter((c) => !c.s.noTarget && c.best.price >= 1.2 && c.best.price <= 3.5 && c.p != null);
+    const pool = cands.filter((c) => !c.s.noTarget && !c.anomaly && c.best.price >= 1.2 && c.best.price <= 3.5 && c.p != null);
     pool.sort((a, b) => b.p - a.p);
     const c = pool[0];
     if (c) f.pick = { label: c.s.label, type: c.s.type, point: c.s.point, market: c.s.mkey, odds: c.best.price, book: c.best.title, p: c.p, pPush: c.pPush, ev: c.ev, value: c.check.ok, fair: c.fairMkt };
@@ -3400,7 +3419,7 @@ const SPMyBets = (() => {
   const hm = (t) => new Date(t).toLocaleTimeString('fr-FR', { timeZone: TZ, hour: '2-digit', minute: '2-digit' });
   const ago = (t) => { const m = Math.round((Date.now() - t) / 60e3); return m < 1 ? 'à l’instant' : m < 60 ? `il y a ${m} min` : m < 1440 ? `il y a ${Math.round(m / 60)} h` : `il y a ${Math.round(m / 1440)} j`; };
   const SPORT = { football: 'Football', tennis: 'Tennis', nba: 'NBA', basket: 'Basket', hockey: 'NHL' };
-  const MKT = { h2h: 'Vainqueur', totals: 'Total', spreads: 'Handicap' };
+  const MKT = { h2h: 'Vainqueur', h2h_reg: 'Vainqueur 60 min', totals: 'Total', spreads: 'Handicap' };
 
   const STEPS = ['Récupération des matchs', 'Collecte des statistiques', 'Analyse des blessures', 'Vérification des compositions', 'Analyse des actualités', 'Comparaison des cotes', 'Calcul des modèles', 'Simulations Monte-Carlo', 'Classement des opportunités', 'Validation finale'];
   let running = false;

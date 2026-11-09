@@ -482,9 +482,17 @@ function SPEngineFactory() {
   };
   SP.hockeyPOT = (lh, la) => Math.min(0.62, Math.max(0.38, 0.5 + 0.5 * (lh - la) / (lh + la)));
   // Histogramme Monte-Carlo (temps réglementaire, format football) -> pseudo-simulation au score final
-  SP.hockeyFinalSim = function (sim, pOT) {
+  SP.hockeyRegSim = function (sim, k) {
     const M = sim.M, mat = [];
     for (let i = 0; i < M; i++) { mat.push([]); for (let j = 0; j < M; j++) mat[i].push(sim.hist[i * M + j]); }
+    const tot = sim.hist.reduce((a, b) => a + b, 0);
+    const R = SP.inflateDraws(mat.map((r) => r.map((v) => v / tot)), k || 1);
+    return { ...sim, hist: R.flat().map((v) => v * tot) };
+  };
+  SP.hockeyFinalSim = function (sim, pOT, k) {
+    const reg = SP.hockeyRegSim(sim, k);
+    const M = reg.M, mat = [];
+    for (let i = 0; i < M; i++) { mat.push([]); for (let j = 0; j < M; j++) mat[i].push(reg.hist[i * M + j]); }
     const F = SP.hockeyFinal(mat, pOT);
     return { ...sim, M: M + 1, hist: F.flat() };
   };
