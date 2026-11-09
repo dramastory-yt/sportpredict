@@ -3322,7 +3322,9 @@ const SPMyBets = (() => {
       </tbody></table></div></section>
       ${b ? `<section class="card"><h3>Dépôts et retraits</h3><form id="movef" class="row"><input id="mv-amt" type="number" step="any" inputmode="decimal" placeholder="+50 ou −20" required aria-label="Montant"><input id="mv-note" placeholder="note (facultatif)" aria-label="Note"><button class="btn-sec" type="submit">Ajouter</button></form>
         <ul class="muted">${(b.moves || []).map((m) => `<li>${new Date(m.t).toLocaleDateString('fr-FR')} : ${eurS(m.amount)} ${esc(m.note || '')}</li>`).join('') || '<li>Aucun mouvement.</li>'}</ul>
-        <p><button id="resetbank" class="linkbtn">Changer la bankroll de départ</button></p></section>` : ''}`;
+        <p><button id="resetbank" class="linkbtn">Changer la bankroll de départ</button></p></section>` : ''}
+      <section class="card"><h3>Repartir de zéro</h3><p class="muted">Efface tous vos paris enregistrés, les dépôts et retraits, puis repart d’une nouvelle bankroll. Pensez à faire « Historique → Exporter » avant si vous voulez garder une copie. Les pronostics publiés par le moteur (onglet Historique et Stats) ne sont pas touchés.</p>
+        <form id="resetall" class="row"><input id="ra-start" type="number" step="any" min="1" inputmode="decimal" placeholder="nouvelle bankroll (€)" required aria-label="Nouvelle bankroll de départ"><button class="btn-sec" type="submit">Tout remettre à zéro</button></form></section>`;
   }
 
   function bind(rerender) {
@@ -3342,6 +3344,17 @@ const SPMyBets = (() => {
     $('#movef')?.addEventListener('submit', (e) => {
       e.preventDefault(); const v = parseFloat(String($('#mv-amt').value).replace(',', '.')); if (!v) return;
       const b = bank(); b.moves = [...(b.moves || []), { t: Date.now(), amount: v, note: $('#mv-note').value.trim() }]; D.LS.set(BKEY, b); rerender();
+    });
+    $('#resetall')?.addEventListener('submit', (e) => {
+      e.preventDefault();
+      const v = parseFloat(String($('#ra-start').value).replace(',', '.'));
+      if (!(v > 0)) return;
+      if (!window.confirm(`Effacer vos ${bets().length} pari(s) enregistré(s) et repartir avec ${v} € ?`)) return;
+      saveBets([]);
+      D.LS.set(BKEY, { start: v, since: Date.now(), moves: [] });
+      const C = P.cfg(); C.bankroll = v; P.saveCfg(C);
+      if (window.SPToast) window.SPToast(`Remis à zéro : bankroll de départ ${v} €`);
+      rerender();
     });
     $('#resetbank')?.addEventListener('click', () => {
       const b = bank(); const v = parseFloat(window.prompt('Nouvelle bankroll de départ (€) :', b?.start ?? ''));

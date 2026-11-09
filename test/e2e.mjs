@@ -165,6 +165,10 @@ if (await page.$('[data-bet]')) {
   await page.evaluate(() => { location.hash = '#dashboard'; }); await page.waitForTimeout(150);
   console.log('mise conseillée après gain :', (await page.textContent('.daily .kpis')).replace(/\s+/g, ' '));
   await page.evaluate(() => { location.hash = '#bets'; }); await page.waitForTimeout(150);
+  page.once('dialog', (dlg) => dlg.accept());
+  await page.fill('#ra-start', '40'); await page.click('#resetall button');
+  await page.waitForTimeout(150);
+  console.log('après remise à zéro :', (await page.textContent('.kpirow')).replace(/\s+/g, ' ').slice(0, 120), '| paris restants :', await page.evaluate(() => JSON.parse(localStorage.getItem('sp:mybets') || '[]').length));
   console.log('mes paris :', (await page.textContent('.kpirow')).replace(/\s+/g, ' ').slice(0, 200));
   await page.screenshot({ path: process.argv[2] + '/bets.png', fullPage: true });
 }
