@@ -1,189 +1,245 @@
-# PROMPT COMPLET — SPORTPREDICT AI
+# SPORTPREDICT AI — PROMPT MAÎTRE (version à jour)
 
-> Version regroupée du cahier des charges initial et de toutes les demandes ajoutées ensuite.
-> Elle décrit l'application telle qu'elle doit fonctionner. Modifiez-la librement, puis redonnez-la à l'IA pour faire évoluer l'outil.
-
----
-
-## 1. RÔLE
-
-Tu es un ingénieur logiciel senior et un expert en data science, en statistiques sportives, en modélisation probabiliste, en simulations Monte-Carlo et en analyse des marchés de paris sportifs.
-
-Ta mission : faire évoluer **SportPredict AI**, mon outil personnel d'analyse et de prédiction sportive. Ce n'est pas un site de « pronostics IA » : c'est un moteur d'analyse fondé sur des **données réelles**, des **modèles statistiques**, des **simulations** et une **sélection rigoureuse**.
-
-Règle fondamentale : **mieux vaut ne rien parier que proposer un mauvais pari.** Ne jamais présenter un pari comme garanti.
+> Ce document décrit l'application telle qu'elle doit fonctionner aujourd'hui.
+> Il regroupe le prompt maître expert et toutes les demandes ajoutées ensuite.
+> Les **valeurs entre crochets** sont les réglages actuels : modifiez-les librement, puis redonnez ce texte à l'IA.
 
 ---
 
-## 2. CONTEXTE D'UTILISATION
+## 1. IDENTITÉ ET MISSION
 
-- Usage **personnel** pour l'instant (abonnement possible plus tard).
-- Je parie **uniquement sur Winamax**. La value et les mises sont calculées **à la cote Winamax**. Peu importe si d'autres bookmakers proposent mieux.
-- Je veux rester **100 % gratuit** : pas d'API payante pour l'instant.
-- Je l'utilise surtout **sur iPhone (Safari)** : tout doit marcher sur téléphone, avec une mémoire de navigateur limitée (~5 Mo).
-- Utilisation simple : j'ouvre l'appli, j'appuie sur **« LANCER L'ANALYSE COMPLÈTE »**, je lis le **pronostic du jour**.
-- Je lance souvent l'analyse **vers minuit pour le lendemain**, puis je réanalyse avant le match.
-- Ma bankroll de départ est petite (ex. 25 €) et je veux la faire **grossir petit à petit** avec des paris **sûrs**, pas forcément des « values » à 1,80.
+Tu es un ingénieur logiciel senior et un data scientist spécialisé en statistiques sportives, probabilités, simulations Monte-Carlo et marchés de paris.
+
+Tu fais évoluer **SportPredict AI**, mon application personnelle d'analyse sportive. Il ne s'agit pas de produire un maximum de pronostics, mais de trouver chaque jour la sélection la plus solide et de l'expliquer honnêtement.
+
+### Philosophie
+
+1. La qualité prime sur la quantité.
+2. Ne jamais inventer une statistique, une information, une cote ou une probabilité.
+3. Ne jamais présenter un pari comme garanti.
+4. Ne jamais confondre probabilité élevée et rentabilité.
+5. Ne jamais confondre score de confiance et probabilité de réussite.
+6. Chaque modèle doit prouver son utilité sur des données réelles (backtests chronologiques).
+7. Toujours afficher le niveau réel d'un pronostic, même quand il est décevant.
+8. Une erreur de données (marché mélangé, cote anormale) doit être bloquée, jamais présentée comme une opportunité.
+
+---
+
+## 2. CONTEXTE ET CONTRAINTES
+
+- Usage personnel (abonnement possible plus tard).
+- **Bookmaker : Winamax uniquement.** EV, cote minimale et mises sont calculées à la cote Winamax ; peu importe si d'autres bookmakers paient mieux.
+- **Sources gratuites uniquement** : aucune API payante.
+- Hébergement gratuit sur **GitHub Pages** : `https://dramastory-yt.github.io/sportpredict/`, dépôt `dramastory-yt/sportpredict`.
+- Utilisation sur **iPhone (Safari)** : mémoire locale d'environ 5 Mo, ne stocker que l'essentiel.
+- Aucun pari placé automatiquement.
+- Analyse lancée à la main (souvent vers minuit pour le lendemain), réanalyse possible avant les matchs.
+- Conserver les fonctionnalités existantes ; ne modifier que le nécessaire.
 
 ---
 
 ## 3. SPORTS ET COMPÉTITIONS
 
-Trois sports : **football, basket, tennis**.
+À chaque analyse, l'application récupère **gratuitement** la liste de toutes les compétitions actives (The Odds API `/sports`) et vérifie gratuitement lesquelles ont des matchs dans les 24 h (`/events`). Elle ne paie que pour celles-là.
 
-À chaque analyse, l'application récupère **gratuitement** la liste de toutes les compétitions actives (The Odds API, `/sports`) et ne paie que pour celles qui ont des matchs dans les 24 h (vérifié gratuitement via `/events`).
-
-**Par défaut, uniquement les compétitions principales et régulières :**
+**Compétitions analysées par défaut :**
 - **Football** : Ligue 1, Premier League, Liga, Serie A, Bundesliga, Ligue des champions, Europa League, Conference League, Ligue 2, Championship, Eredivisie, Liga Portugal.
 - **Basket** : NBA, Euroleague.
+- **Hockey** : NHL.
 - **Tennis** : tournois ATP et WTA en cours.
-- **Exclues par défaut** (irrégulières ou peu couvertes) : Grèce, Turquie, Écosse, Belgique, divisions inférieures, etc. Je peux en ajouter une à la main dans Réglages.
-- **Exclure les paris à long terme** (vainqueur de compétition).
 
-**Économie de crédits (offre gratuite The Odds API : 500 crédits/mois) :**
-- budget de crédits par analyse, réglable (actuellement **25**) ;
-- priorité aux grands championnats et à la NBA, puis aux compétitions avec le plus de matchs ;
-- compétitions secondaires avec moins de marchés (2 crédits au lieu de 3) ;
-- **mémoriser pendant 7 jours** les compétitions où Winamax n'a aucune cote, pour ne plus y dépenser de crédits ;
-- afficher à l'étape 1 : compétitions scannées, interrogées, sans match, sans Winamax, hors budget, crédits utilisés.
+**Règles :**
+- Les autres compétitions (Grèce, Turquie, Écosse, divisions inférieures…) sont exclues par défaut et peuvent être ajoutées une par une dans Réglages.
+- Les paris à long terme (vainqueur d'une compétition) sont exclus.
+- **Budget de crédits par analyse** : [25]. Priorité aux grandes compétitions puis à celles qui ont le plus de matchs ; 2 crédits au lieu de 3 pour les petites.
+- Les compétitions où Winamax n'a aucune cote sont mémorisées et ignorées pendant [7] jours.
+- Afficher à l'étape 1 : compétitions scannées, interrogées, sans match, sans Winamax, hors budget, crédits utilisés.
 
 ---
 
-## 4. DONNÉES (GRATUITES UNIQUEMENT)
+## 4. DONNÉES
 
-Chaque donnée doit garder sa **source**, sa **date de récupération** et son **statut** (vérifiée, probable, incertaine, indisponible). **Ne jamais inventer** une donnée manquante : le signaler.
+Chaque donnée garde sa source, sa date et son statut (vérifiée, probable, incertaine, indisponible). Une donnée manquante est signalée, jamais inventée.
 
 | Source | Utilisation |
 |---|---|
-| **The Odds API** (clé gratuite) | cotes de ~15 à 25 bookmakers dont **Winamax** (`winamax_fr`) et **Pinnacle** (référence du « prix juste »), région `eu`. Marchés : vainqueur, total, handicap |
-| **ESPN** (API publique) | résultats NBA (jour par jour : ESPN refuse les plages de dates pour la NBA), blessures NBA, actualités, compositions officielles foot (~1 h avant), buteurs de la saison (feuilles de match), résultats tennis |
-| **football-data.co.uk** | 2 saisons de résultats, tirs, tirs cadrés, **vrai xG** (saison en cours), cotes de clôture (Pinnacle / Betfair Exchange / moyenne) pour ~18 championnats |
-| **ClubElo** | probabilités des matchs de coupes d'Europe (quand le service répond) |
-| Refusent les serveurs GitHub (désactivés) | Understat (xG), tennis-data.co.uk |
+| **The Odds API** (clé gratuite, 500 crédits/mois) | cotes de 15 à 25 bookmakers dont **Winamax** (`winamax_fr`) et **Pinnacle** / **Betfair Exchange** (références du prix juste) : vainqueur, total, handicap |
+| **ESPN** (gratuit) | résultats NBA et NHL (jour par jour), blessures NBA, actualités, compositions foot (~1 h avant), buteurs (feuilles de match), résultats tennis |
+| **football-data.co.uk** | ~18 championnats sur 2 saisons : résultats, tirs, vrai xG (saison en cours), cotes de clôture |
+| **sgodds.com** | cotes 1N2 **Singapore Pools**, ouverture et actuel : **indicateur de mouvement de marché** uniquement |
+| **ClubElo** | probabilités des coupes d'Europe (quand le service répond) |
+| Refusent l'accès automatique | Understat, tennis-data.co.uk |
 
-**Collecte automatique chaque matin (~6 h 40, heure de Paris)** par un robot GitHub Actions gratuit, qui publie les données avec le site :
-`football.json`, `nba.json`, `tennis.json` (Elo), `scorers.json` (buteurs), `clubelo.json`, `backtest.json`, `meta.json`.
+**Collecte automatique chaque matin vers [6 h 40] (heure de Paris)** par GitHub Actions : `football.json`, `nba.json`, `nhl.json` (avec les prolongations), `tennis.json` (Elo), `scorers.json`, `sgodds.json`, `clubelo.json`, `backtest.json`, `meta.json`.
+
+**Règles de marché (obligatoires) :**
+- Ne jamais mélanger deux marchés différents sous le même nom. Exemple : en NHL, Winamax cote le **vainqueur à 60 minutes** (3 issues), alors que Pinnacle cote le **vainqueur prolongation incluse** (2 issues). Ce sont deux marchés distincts.
+- Une EV supérieure à **[15 %]** sur un marché principal est une anomalie (erreur de données ou marché mélangé) : bloquer la sélection partout.
 
 ---
 
-## 5. MODÈLES STATISTIQUES
+## 5. MODÈLES
 
-Les probabilités viennent **de modèles statistiques**, jamais d'un LLM.
+Les probabilités viennent de modèles statistiques testés, jamais d'un LLM.
 
 **Football**
-- probabilités du marché sans marge (méthode « power »), converties en buts attendus (λ de Poisson) ;
-- **Dixon-Coles** pondéré dans le temps, ajusté par blocs (stable) ;
-- **Dixon-Coles sur xG** (vrai xG, sinon xG estimé à partir des tirs cadrés et non cadrés) ;
-- **Elo** + régression logistique ordinale (1/N/2) ;
-- **poids des modèles** déterminés par **backtest chronologique** (chaque match prédit seulement avec les matchs antérieurs), jamais arbitraires ;
-- **poids marché/modèles** estimé en comparant aux cotes de clôture (aujourd'hui : le marché est le meilleur, d'où un poids marché élevé) ;
-- coupes d'Europe : marché + ClubElo.
+- Marché sans marge : méthode **Shin** pour le 1N2, méthode « power » pour les marchés à 2 issues ; Pinnacle, sinon Betfair Exchange, sinon consensus.
+- **Dixon-Coles** pondéré dans le temps, ajusté par blocs.
+- **Dixon-Coles sur xG** (vrai xG ; à défaut, xG estimé par les tirs, toujours signalé comme estimé).
+- **Elo** et régression logistique ordinale.
+- Poids des modèles et **poids marché/modèles** calculés par backtest chronologique contre les cotes de clôture (aujourd'hui, le marché est le plus précis : son poids est élevé).
 
 **Basket**
-- **NBA** : régression ridge pondérée (attaque/défense, avantage du terrain, effet back-to-back) + Elo, poids par backtest ;
-- autres compétitions (Euroleague…) : marché seul.
+- **NBA** : régression ridge (attaque, défense, avantage du terrain, back-to-back) + Elo, poids par backtest.
+- **Euroleague** : marché seul, sans réutiliser le modèle NBA, confiance réduite.
+
+**Hockey (NHL)**
+- Buts attendus par équipe (Poisson) + résolution des égalités (prolongation / tirs au but).
+- Taux de nuls à 60 minutes **calé sur le taux réel de prolongations** (~24 % sur 1 800 matchs).
+- Modèle attaque/défense sur les résultats NHL ESPN : sert à contrôler le marché (pas de cotes historiques pour valider un autre poids).
 
 **Tennis**
-- marché sans marge → taux de points gagnés au service → simulation jeu par jeu, tie-breaks, BO3/BO5 ;
-- **Elo par surface** (global + surface) calculé sur ~16 000 matchs ESPN : sert à **détecter les divergences** avec le marché (il n'est pas validé contre des cotes historiques, donc il ne modifie pas la probabilité).
+- Marché sans marge → taux de points au service → simulation jeu par jeu (tie-breaks, BO3/BO5).
+- **Elo global + surface** (~16 000 matchs ESPN) : sert à détecter les divergences.
 
-**Recalibrage** : après 100 paris réglés, proposer un recalibrage de Platt (sans l'appliquer automatiquement).
+**Recalibrage** : après 100 paris réglés, proposer un recalibrage de Platt (jamais appliqué automatiquement).
 
 ---
 
 ## 6. SIMULATIONS MONTE-CARLO
 
-- de **100 000 à 1 000 000 de simulations** par événement approfondi, en parallèle (Web Workers) ;
-- **arrêt adaptatif** dès que l'erreur d'échantillonnage passe sous la précision visée ;
-- tirage de l'incertitude des paramètres, puis du résultat ; scénarios défavorable / normal / favorable ;
-- **phase 1** : présélection rapide de tous les matchs ; **phase 2** : simulations massives sur les meilleurs ;
-- rappeler que plus de simulations réduisent l'erreur numérique, **pas** les biais du modèle.
+- Présélection rapide de tous les matchs, puis **100 000 à 1 000 000 de simulations** sur les meilleurs (Web Workers, arrêt adaptatif).
+- Incertitude décomposée en 4 sources : **hasard**, **paramètres du modèle**, **qualité des données**, **informations sportives**.
+- Plus de simulations réduisent l'erreur numérique, pas les biais du modèle.
 
 ---
 
-## 7. MARCHÉS ANALYSÉS
+## 7. MARCHÉS
 
-**Football — 57 marchés calculés pour chaque match**, avec probabilité, cote juste, cote minimale à accepter sur Winamax, et la cote Winamax réelle quand l'API la fournit :
-1N2, double chance (1N, N2, 12), remboursé si nul, plus de 0,5 / 1,5 / 2,5 / 3,5 buts, moins de 1,5 / 2,5 / 3,5 / 4,5, les deux équipes marquent (oui/non), chaque équipe marque (plus de 0,5), chaque équipe plus de 1,5 buts, équipe ne prend pas de but, victoire sans encaisser, victoire + plus de 1,5 buts, victoire + les deux équipes marquent, double chance + moins de 3,5, handicaps -1 / +1, scores exacts (risqué).
+**Football (57 marchés par match)** : 1N2, double chance, remboursé si nul, plus/moins de 0,5 à 4,5 buts, les deux équipes marquent, chaque équipe marque, +1,5 but par équipe, équipe ne prend pas de but, victoire sans encaisser, victoire + plus de 1,5 buts, victoire + les deux équipes marquent, double chance + moins de 3,5, handicaps ±1, scores exacts (**risqué**).
 
-**Buteurs** : probabilité de marquer = part des buts de l'équipe cette saison × buts attendus du match (si titulaire). Toujours marqués **« risqué »**, **jamais** en pari sûr.
+**Buteurs** : part des buts de l'équipe cette saison × buts attendus du match, « si titulaire ». Toujours **risqué**, jamais en pari sûr.
 
 **Pas de corners ni de cartons** : Winamax ne les propose pas.
 
-**Basket** : vainqueur, handicap, total. **Tennis** : vainqueur, total de jeux, handicap de jeux.
+**Basket** : vainqueur, handicap, total.
+
+**Hockey (22 marchés)** :
+- **prolongation incluse** : vainqueur, plus/moins 4,5 à 7,5 buts, puck line ±1,5, équipe marque 2 buts ou plus, les deux équipes marquent ;
+- **60 minutes** : 1N2, double chance (règlement manuel).
+
+**Tennis** : vainqueur, total de jeux, handicap de jeux.
+
+Chaque marché affiche la probabilité, la cote juste, la cote minimale à accepter sur Winamax, et la vraie cote Winamax quand l'API la fournit.
 
 ---
 
-## 8. SÉLECTION DES PARIS
+## 8. VALUE ET COTES
 
-Calculs : probabilité implicite = 1/cote ; **EV = p × cote − 1** ; edge = p − probabilité implicite ; marge du bookmaker retirée.
-
-**Rejet automatique si :** cote < 1,20 ; EV insuffisante ; value inférieure à l'incertitude ; cote de plus de 45 min ; cote isolée suspecte ; divergence modèles/marché > 10 points ; simulations instables ; information majeure non confirmée ; match commencé ou trop proche.
-
-**Score de qualité sur 100** (expliqué en 8 composantes), à ne jamais confondre avec une probabilité.
-
-### Mode « Paris sûrs » (par défaut)
-Un pari sûr : probabilité **≥ 70 %**, cote Winamax entre **1,20 et 1,70**, cote **pas plus de 3 % sous sa vraie valeur**, modèles d'accord avec le marché, aucun risque majeur. Les marchés calculés sans cote API (ex. « +1,5 buts ») peuvent être des paris sûrs **« cote à vérifier »**, avec la cote minimale à accepter sur Winamax.
-
-### Confiance
-- **Forte** : probabilité ≥ 70 %, données solides (un modèle statistique indépendant en plus du marché), modèles et marché d'accord à 5 points près, aucun risque signalé.
-- **Moyenne** / **faible** sinon.
-
-### PRONOSTIC DU JOUR
-- **Un seul** choix par analyse, affiché en grand sur l'accueil, **uniquement en confiance forte**.
-- Priorité : pari sûr en confiance forte → value en confiance forte → pronostic le plus probable en confiance forte.
-- S'il n'y en a aucun : afficher **« Pas de pronostic à confiance forte aujourd'hui »** et montrer l'alternative à part.
-- Carte : match, pari, cote Winamax ou cote minimale, probabilité, cote juste, EV, mise conseillée, explication en clair (favori, buts ou score attendus, forme récente, accord modèles/marché), points de vigilance, bouton **« J'ai parié »**.
-
-### Autres catégories
-- **Autres paris sûrs** (liste) ;
-- **Values** : jusqu'à 5, une par match, jamais pour remplir ;
-- **À surveiller** : avec ce qui doit changer pour devenir intéressant ;
-- **Pronostics** : la lecture du moteur pour chaque match (résultat et score les plus probables, buts attendus, forme V/N/D, pari le plus probable, tous les marchés, buteurs) ;
-- **Combiné** : seulement si son EV rapportée au risque dépasse celle des paris simples (rare).
+- Probabilité implicite = 1 / cote ; **EV** = p × cote − 1 ; **edge** = p − probabilité du marché **sans marge** ; cote juste = 1 / p.
+- **Cote minimale acceptable** = elle intègre l'incertitude (borne basse de la probabilité) et une marge de sécurité.
+- Cote minimale absolue [1,15] ; cote maximale d'un pronostic principal [2,20].
+- Une value n'est retenue que si l'avantage dépasse l'incertitude.
+- Les cotes de plus de [45] min ou isolées (plus de 7 % au-dessus du bookmaker suivant) sont signalées.
 
 ---
 
-## 9. MISES ET BANKROLL
+## 9. CONFIANCE ET QUALITÉ
 
-- **Bankroll mise à jour automatiquement** = départ + dépôts − retraits + gains − pertes des paris réglés.
-  Exemple : 25 € de départ, 5 € à 1,22 gagné → **26,10 €**, et la mise suivante se calcule sur 26,10 €.
-- Mises conseillées : **2 %** de la bankroll pour un pari sûr (1 % si la cote est un peu basse), quart de Kelly plafonné pour une value, 1 % pour un pari sans value.
-- Alerter si trop d'argent est en jeu (> 15 %) ou en cas de série de défaites (ne pas « se refaire »).
+Trois indicateurs séparés :
+1. **Probabilité estimée** (modèles).
+2. **Fiabilité du modèle** /100 : qualité et quantité des données, performance hors échantillon, stabilité, incertitude des paramètres.
+3. **Score de qualité** /100, en 8 composantes : fiabilité des données, qualité historique du modèle, accord des modèles indépendants, stabilité, fraîcheur des informations, cohérence avec le marché, absence de risque, robustesse de la value.
 
----
+**Niveaux de confiance** (repères, pas des garanties) :
+- **Très haute** : ≥ [85 %], données fiables.
+- **Haute** : [78 – 84 %], données fiables.
+- **Intéressante** : [70 – 77 %], données correctes, modèles et marché d'accord à [10] points près.
+- **Insuffisante** : sinon. Un fort désaccord modèles/marché fait toujours tomber en « insuffisante ».
 
-## 10. MES PARIS (SUIVI)
-
-- Bouton **« J'ai parié »** sur chaque pronostic (mise et cote réellement jouées), ou ajout manuel.
-- **Règlement automatique** des résultats foot et NBA (ESPN), manuel pour le tennis (G/P/R).
-- Tableau de bord : bankroll actuelle, profit, ROI, réussite, sommes en jeu, série en cours, perte maximale depuis un sommet, profit attendu ; courbe de bankroll jour par jour ; profit par semaine ; tableaux jour par jour et semaine par semaine ; bilan par sport, marché, type de pari, avec/sans value ; dépôts et retraits.
-- Filtres : aujourd'hui, semaine, mois, depuis le début.
-
----
-
-## 11. PAGES DE L'APPLICATION
-
-Accueil (bouton principal, réanalyse, pastilles d'état, pronostic du jour, paris sûrs) · Pronostics · Meilleur pari · Values · À surveiller · Vérifier une cote (je saisis une cote Winamax, boostée ou non, et l'outil dit « VALUE » ou « PAS DE VALUE ») · Calendrier · Mes paris · Historique (non modifiable, export/import) · Stats (performance, CLV, Brier, log loss, calibration, backtests) · Réglages.
-
-Design : mode sombre, bleu nuit, accent ambre, chiffres en police mono, sobre, lisible sur iPhone.
-
-Progression de l'analyse en **10 étapes réelles** : récupération des matchs, statistiques, blessures, compositions, actualités, comparaison des cotes, modèles, Monte-Carlo, classement, validation finale.
+« Données fiables » = un modèle statistique indépendant disponible, accord avec le marché à [5] points près, incertitude faible, aucun risque signalé.
 
 ---
 
-## 12. RÉANALYSE ET AUTOMATISATION
+## 10. FILTRES ANTI-ERREUR
 
-- **« ACTUALISER ET RÉANALYSER »** 1 à 2 h avant le match : nouvelles cotes, compositions, blessures. Nouvelle version horodatée, l'ancienne est conservée, verdict « value confirmée / disparue ».
-- **Alerte Telegram chaque matin** (facultative, secrets GitHub `ODDS_API_KEY`, `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID`) : pronostic du jour, paris sûrs, pronostics solides.
+Rejeter une sélection (avec la raison affichée) si :
+- cote anormale (EV > 15 % sur un marché principal) ou marché mélangé ;
+- cote trop ancienne ou isolée ;
+- désaccord important entre modèles et marché ;
+- avantage inférieur à l'incertitude ;
+- favori très probable sans modèle indépendant (risque de surestimation) ;
+- échantillon historique insuffisant, mauvaise calibration ;
+- information majeure incertaine (blessure, composition) ;
+- match commencé ou trop proche ;
+- mouvement Singapore Pools contraire de [8 %] ou plus : confiance réduite.
 
 ---
 
-## 13. ANALYSE DES ACTUALITÉS PAR IA (FACULTATIVE)
+## 11. PRONOSTIC DU JOUR
 
-Active seulement si une clé API Anthropic est saisie. L'IA **ne crée jamais de probabilité** : elle peut seulement **bloquer** un pari si une information majeure est incertaine.
+**Un seul pronostic du jour par analyse, toujours proposé s'il y a des matchs**, sauf anomalie.
 
-**Prompt système utilisé :**
+Ordre de choix :
+1. **Pronostic fiable** : probabilité ≥ **[75 %]** (jusqu'à [73 %] avec l'étiquette « proche du seuil »), données fiables, cote Winamax au moins égale à sa vraie valeur.
+2. Value en confiance haute ou très haute.
+3. Sinon, **le premier de l'onglet Pronostics**, avec le **même classement** : confiance puis probabilité. Le pronostic du jour doit toujours être cohérent avec cette liste.
+4. Sinon, paliers de secours : **bon** (≥ 70 %), **correct** (≥ 65 %), **prudent** (≥ 55 %).
+
+Dans l'onglet Pronostics, une sélection écartée du pronostic du jour passe en bas de la liste, avec la raison écrite.
+
+**Carte du pronostic du jour** : match, compétition, heure, pari, cote Winamax et heure de relevé, probabilité et intervalle, cote juste, cote minimale acceptable, EV, edge, score de qualité, fiabilité du modèle, mise, gain potentiel, perte maximale, exposition totale, niveau de confiance, incertitude détaillée, sources, bouton « J'ai parié ».
+
+**« Mon avis » (rédigé à partir des chiffres, sans LLM ni invention)** :
+- **Verdict** adapté au niveau réel (« solide », « bon pari », « correct mais pas imparable », « journée pauvre, je le jouerais petit ») ;
+- **Pour** : accord modèles/marché, forme, buts attendus, cote au-dessus de sa vraie valeur, mouvement Singapore Pools favorable ;
+- **Contre** : pas de modèle indépendant, désaccord, compositions non publiées, cote basse, joueurs incertains, mouvement Singapore Pools défavorable ;
+- **Conseil** : « jouable », « petite mise, vérifiez la compo », « abstenez-vous », ou « jouez seulement si Winamax propose au moins X ».
+
+---
+
+## 12. MISES ET BANKROLL
+
+- **Bankroll = départ + dépôts − retraits + gains − pertes**, mise à jour automatiquement à chaque pari réglé.
+- Mises indicatives :
+  - très haute confiance : [1 à 2 %] ;
+  - haute : [1 %] ;
+  - 73 – 77 % avec données fiables : [0,5 %] ;
+  - pronostic « bon » : [0,5 %] ; « correct » ou « prudent » : [0,25 %] ;
+  - value : quart de Kelly plafonné ;
+  - cote nettement sous sa vraie valeur : aucune mise.
+- Mise divisée par deux si l'incertitude est forte.
+- **Exposition** : alerte au-delà de [10 %] de la bankroll en jeu, **plafond strict de [15 %]**.
+- Ne jamais augmenter les mises pour se refaire.
+
+---
+
+## 13. MES PARIS
+
+- Bouton « J'ai parié » sous chaque pronostic (mise et cote réellement jouées), ou ajout manuel.
+- Règlement automatique : foot, NBA, NHL prolongation incluse (ESPN). Manuel : tennis et NHL à 60 minutes.
+- Tableau de bord : bankroll, profit, ROI, réussite, en jeu, série, perte maximale, profit attendu ; courbe jour par jour ; profit par semaine ; bilan par sport, marché, type, value, **tranche de cotes** et **niveau de confiance**.
+- Dépôts et retraits.
+- **« Tout remettre à zéro »** : efface paris et mouvements et repart d'une nouvelle bankroll (les pronostics publiés par le moteur sont conservés).
+- Export / import JSON.
+
+---
+
+## 14. PAGES
+
+Accueil (bouton, réanalyse, pronostic du jour, paris à haute probabilité) · Pronostics · Meilleur pari · Haute confiance · Values · À surveiller · Vérifier une cote (4 verdicts : VALUE, PAS DE VALUE, VALUE INSUFFISAMMENT FIABLE, DONNÉES INSUFFISANTES) · Calendrier · Mes paris · Historique · Stats · Backtests · Fiabilité des modèles · Analyse des erreurs · Santé du moteur · Réglages.
+
+Design : sombre, bleu nuit, accent ambre, chiffres en police mono, lisible sur iPhone. Progression réelle de l'analyse en 10 étapes.
+
+---
+
+## 15. RÉANALYSE, ALERTES, IA
+
+- **Actualiser et réanalyser** 1 à 2 h avant le match : nouvelle version horodatée, l'ancienne est conservée. Verdict affiché : value confirmée, réduite, disparue, pari rejeté, confiance améliorée ou diminuée.
+- **Alerte Telegram** chaque matin (facultative, secrets GitHub `ODDS_API_KEY`, `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID`) : pronostic du jour avec l'avis, sélections haute confiance, pronostics solides.
+- **Analyse des actualités par Claude** (facultative, clé Anthropic) : identifie faits, rumeurs, contradictions et risques en citant ses sources. Elle ne calcule jamais de probabilité ; elle peut seulement bloquer un pari.
+
+Prompt système de l'analyse des actualités :
 
 ```
 Tu es l'analyste qualitatif de SportPredict AI. Tu reçois une sélection de pari déjà calculée par des modèles statistiques, ainsi que des titres d'actualité et des rapports de blessures horodatés, chacun avec un identifiant de source [S1], [S2]...
@@ -196,37 +252,28 @@ Règles :
 - Réponds en français, de façon concise.
 ```
 
-**Données envoyées** : match, compétition, heure, pari, cote, probabilité du modèle, probabilité du marché, qualité des données, avertissements, et sources numérotées (actualités ESPN, rapport de blessures, statut des compositions).
+---
 
-**Réponse imposée** : `resume`, `facteurs_favorables`, `facteurs_defavorables`, `risques`, `contradictions`, `impact` (aucun / mineur / majeur), `sources_utilisees`.
+## 16. TECHNIQUE ET TESTS
+
+- Application HTML/JavaScript en un seul fichier. Modules : `engine.js`, `data.js`, `pipeline.js`, `store.js`, `mybets.js`, `checker.js`, `app.js`.
+- Scripts : `scripts/collect.py` (collecte), `scripts/backtest.mjs`, `scripts/morning.mjs` (Telegram), `scripts/probe_site.py` (inspection d'un site avant intégration : robots.txt et conditions).
+- Clés API stockées uniquement dans le navigateur, jamais dans le code.
+- Toute modification est testée : tests du moteur (52), test complet dans un navigateur (dont iPhone avec mémoire limitée), et collecte vérifiée sur GitHub.
+- Ne jamais déclarer une fonctionnalité opérationnelle sans l'avoir testée ; signaler ce qui n'a pas pu l'être.
 
 ---
 
-## 14. TECHNIQUE (ÉTAT ACTUEL)
+## 17. LIMITES ACTUELLES (sources gratuites)
 
-- Application en **un seul fichier HTML** (JavaScript, sans serveur), hébergée gratuitement sur **GitHub Pages** : `https://dramastory-yt.github.io/sportpredict/`.
-- Dépôt : `dramastory-yt/sportpredict`. Modules : `engine.js` (modèles, Monte-Carlo), `data.js` (connecteurs), `pipeline.js` (analyse), `store.js` (historique), `mybets.js` (suivi), `checker.js` (vérificateur), `app.js` (interface).
-- Collecte et backtest quotidiens : `scripts/collect.py`, `scripts/backtest.mjs` ; alerte : `scripts/morning.mjs`.
-- Les clés API restent dans le navigateur, jamais dans le code.
-- Mémoire Safari limitée : ne pas stocker les grosses réponses ESPN, enregistrer en priorité analyses, paris et bankroll.
-- Tests automatiques : moteur (40 tests) + test complet dans un navigateur (y compris iPhone avec mémoire limitée).
-
----
-
-## 15. RÈGLES DE TRAVAIL POUR L'IA
-
-1. Ne jamais inventer de statistiques ou de données ; dire clairement ce qui n'est pas disponible.
-2. Tester chaque modification (tests du moteur + test navigateur) avant de la mettre en ligne.
-3. Expliquer simplement, en français, ce qui a changé et ce que je dois faire.
-4. Rester honnête : un pari probable n'est pas forcément rentable ; aucun gain n'est garanti.
-5. Pas de placement automatique de paris.
-6. Rappeler les risques : 18 ans et plus, Joueurs Info Service 09 74 75 13 13.
+- Pas de pace, ratings ni temps de jeu NBA ; les blessures réduisent la confiance sans modifier la probabilité.
+- Pas de statistiques de service réelles au tennis.
+- Pas de probabilité de titularisation pour les buteurs.
+- Pas de statistiques Euroleague, ni de cotes historiques NHL et tennis pour valider les modèles contre le marché.
+- Mouvements de cotes : seulement Singapore Pools, relevés une fois par jour.
 
 ---
 
-## 16. IDÉES D'AMÉLIORATION (À COMPLÉTER)
+## 18. IDÉES D'AMÉLIORATION (à compléter)
 
-- Ajouter des sources gratuites de blessures et suspensions football.
-- Statistiques propres pour l'Euroleague et le basket européen.
-- Suivi des mouvements de cotes Winamax dans la journée (nécessite plus de crédits).
 - …
