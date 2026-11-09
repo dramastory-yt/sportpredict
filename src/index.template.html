@@ -182,14 +182,50 @@ label.chk { display: flex; align-items: center; gap: .4rem; color: var(--fg); fo
 }
 [hidden] { display: none !important; }
 @media (prefers-reduced-motion: reduce) { * { animation: none !important; transition: none !important; } }
+
+/* ---- interface simplifiée : 4 onglets (barre du bas sur téléphone), filtres en pastilles ---- */
+body { font-size: 16px; }
+.tabs { gap: .3rem; margin-left: auto; }
+.tabs a { display: inline-flex; align-items: center; gap: .45rem; padding: .45rem .8rem; font-size: .95rem; }
+.tabs svg { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+.tabs a.on svg { stroke: var(--accent-ink); }
+@media (max-width: 720px) {
+  .top { backdrop-filter: none; -webkit-backdrop-filter: none; background: var(--bg); }
+  .top .in { justify-content: center; padding-block: .55rem; }
+  .tabs { position: fixed; left: 0; right: 0; bottom: 0; z-index: 25; margin: 0; justify-content: space-around; gap: 0;
+    background: color-mix(in srgb, var(--surface) 96%, transparent); backdrop-filter: blur(10px); border-top: 1px solid var(--line);
+    padding: .35rem max(8px, env(safe-area-inset-left, 0px)) calc(.35rem + env(safe-area-inset-bottom, 0px)); overflow: visible; }
+  .tabs a { flex: 1; flex-direction: column; gap: .15rem; font-size: .7rem; padding: .35rem .2rem; border-radius: 10px; }
+  .tabs a.on { background: transparent; color: var(--accent); }
+  .tabs a.on svg { stroke: var(--accent); }
+  main { padding-bottom: calc(6rem + env(safe-area-inset-bottom, 0px)); }
+  h2 { font-size: 1.45rem; }
+}
+.filters { display: flex; flex-wrap: nowrap; gap: .4rem; overflow-x: auto; scrollbar-width: none; padding-bottom: .1rem; margin: 0 -2px; }
+.filters a { flex: none; text-decoration: none; color: var(--fg); background: var(--surface); border: 1px solid var(--line); border-radius: 99px; padding: .4rem .9rem; font-size: .88rem; font-weight: 500; }
+.filters a.on { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
+.home-meta { display: flex; flex-wrap: wrap; gap: .3rem 1rem; color: var(--muted); font-size: .88rem; }
+.home-meta b { color: var(--fg); font-weight: 600; }
+.more { display: grid; gap: 1rem; }
+.more h3 { font-size: .8rem; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); margin: .2rem 0 .4rem; font-family: var(--f-body); }
+.mlist { display: grid; background: var(--surface); border: 1px solid var(--line); border-radius: var(--r); overflow: hidden; }
+.mlist a { display: grid; grid-template-columns: 1fr auto; gap: .1rem 1rem; padding: .85rem 1rem; text-decoration: none; color: var(--fg); border-top: 1px solid var(--line); }
+.mlist a:first-child { border-top: 0; }
+.mlist a:hover { background: var(--surface2); }
+.mlist a b { font-weight: 600; } .mlist a small { grid-column: 1; } .mlist a::after { content: "›"; grid-row: 1 / span 2; grid-column: 2; align-self: center; color: var(--muted); font-size: 1.3rem; }
+.fold > summary { cursor: pointer; color: var(--muted); padding: .4rem 0; }
+.fold[open] > summary { margin-bottom: .6rem; }
+.more-link { text-align: center; } .more-link a { font-weight: 600; text-decoration: none; }
 </style>
 </head>
 <body>
 <header class="top"><div class="in">
   <div class="brand"><i aria-hidden="true"></i>SportPredict <span>AI</span></div>
-  <nav aria-label="Pages">
-    <a href="#dashboard">Accueil</a><a href="#pronos">Analyse du jour</a><a href="#best">Meilleur pari</a><a href="#safe">Haute probabilité</a><a href="#values">Value</a><a href="#football">Football</a><a href="#tennis">Tennis</a><a href="#watch">À surveiller</a><a href="#check">Vérifier une cote</a>
-    <a href="#calendar">Calendrier</a><a href="#bets">Mes paris</a><a href="#history">Historique</a><a href="#perf">Stats</a><a href="#backtests">Backtests</a><a href="#models">Fiabilité</a><a href="#errors">Erreurs</a><a href="#health">Santé</a><a href="#credits">Crédits</a><a href="#config">Réglages</a>
+  <nav aria-label="Pages" class="tabs">
+    <a href="#dashboard" data-tab="home"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 11l9-7 9 7v9a1 1 0 0 1-1 1h-5v-6H9v6H4a1 1 0 0 1-1-1z"/></svg><span>Accueil</span></a>
+    <a href="#pronos" data-tab="pronos"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 19h16M7 16V9m5 7V5m5 11v-4"/></svg><span>Pronostics</span></a>
+    <a href="#bets" data-tab="bets"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16v12H4zM4 7l2-3h12l2 3M9 12h6"/></svg><span>Mes paris</span></a>
+    <a href="#more" data-tab="more"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h.01M12 12h.01M19 12h.01"/></svg><span>Plus</span></a>
   </nav>
 </div></header>
 <main id="main"></main>

@@ -182,14 +182,50 @@ label.chk { display: flex; align-items: center; gap: .4rem; color: var(--fg); fo
 }
 [hidden] { display: none !important; }
 @media (prefers-reduced-motion: reduce) { * { animation: none !important; transition: none !important; } }
+
+/* ---- interface simplifiée : 4 onglets (barre du bas sur téléphone), filtres en pastilles ---- */
+body { font-size: 16px; }
+.tabs { gap: .3rem; margin-left: auto; }
+.tabs a { display: inline-flex; align-items: center; gap: .45rem; padding: .45rem .8rem; font-size: .95rem; }
+.tabs svg { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+.tabs a.on svg { stroke: var(--accent-ink); }
+@media (max-width: 720px) {
+  .top { backdrop-filter: none; -webkit-backdrop-filter: none; background: var(--bg); }
+  .top .in { justify-content: center; padding-block: .55rem; }
+  .tabs { position: fixed; left: 0; right: 0; bottom: 0; z-index: 25; margin: 0; justify-content: space-around; gap: 0;
+    background: color-mix(in srgb, var(--surface) 96%, transparent); backdrop-filter: blur(10px); border-top: 1px solid var(--line);
+    padding: .35rem max(8px, env(safe-area-inset-left, 0px)) calc(.35rem + env(safe-area-inset-bottom, 0px)); overflow: visible; }
+  .tabs a { flex: 1; flex-direction: column; gap: .15rem; font-size: .7rem; padding: .35rem .2rem; border-radius: 10px; }
+  .tabs a.on { background: transparent; color: var(--accent); }
+  .tabs a.on svg { stroke: var(--accent); }
+  main { padding-bottom: calc(6rem + env(safe-area-inset-bottom, 0px)); }
+  h2 { font-size: 1.45rem; }
+}
+.filters { display: flex; flex-wrap: nowrap; gap: .4rem; overflow-x: auto; scrollbar-width: none; padding-bottom: .1rem; margin: 0 -2px; }
+.filters a { flex: none; text-decoration: none; color: var(--fg); background: var(--surface); border: 1px solid var(--line); border-radius: 99px; padding: .4rem .9rem; font-size: .88rem; font-weight: 500; }
+.filters a.on { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
+.home-meta { display: flex; flex-wrap: wrap; gap: .3rem 1rem; color: var(--muted); font-size: .88rem; }
+.home-meta b { color: var(--fg); font-weight: 600; }
+.more { display: grid; gap: 1rem; }
+.more h3 { font-size: .8rem; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); margin: .2rem 0 .4rem; font-family: var(--f-body); }
+.mlist { display: grid; background: var(--surface); border: 1px solid var(--line); border-radius: var(--r); overflow: hidden; }
+.mlist a { display: grid; grid-template-columns: 1fr auto; gap: .1rem 1rem; padding: .85rem 1rem; text-decoration: none; color: var(--fg); border-top: 1px solid var(--line); }
+.mlist a:first-child { border-top: 0; }
+.mlist a:hover { background: var(--surface2); }
+.mlist a b { font-weight: 600; } .mlist a small { grid-column: 1; } .mlist a::after { content: "›"; grid-row: 1 / span 2; grid-column: 2; align-self: center; color: var(--muted); font-size: 1.3rem; }
+.fold > summary { cursor: pointer; color: var(--muted); padding: .4rem 0; }
+.fold[open] > summary { margin-bottom: .6rem; }
+.more-link { text-align: center; } .more-link a { font-weight: 600; text-decoration: none; }
 </style>
 </head>
 <body>
 <header class="top"><div class="in">
   <div class="brand"><i aria-hidden="true"></i>SportPredict <span>AI</span></div>
-  <nav aria-label="Pages">
-    <a href="#dashboard">Accueil</a><a href="#pronos">Analyse du jour</a><a href="#best">Meilleur pari</a><a href="#safe">Haute probabilité</a><a href="#values">Value</a><a href="#football">Football</a><a href="#tennis">Tennis</a><a href="#watch">À surveiller</a><a href="#check">Vérifier une cote</a>
-    <a href="#calendar">Calendrier</a><a href="#bets">Mes paris</a><a href="#history">Historique</a><a href="#perf">Stats</a><a href="#backtests">Backtests</a><a href="#models">Fiabilité</a><a href="#errors">Erreurs</a><a href="#health">Santé</a><a href="#credits">Crédits</a><a href="#config">Réglages</a>
+  <nav aria-label="Pages" class="tabs">
+    <a href="#dashboard" data-tab="home"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 11l9-7 9 7v9a1 1 0 0 1-1 1h-5v-6H9v6H4a1 1 0 0 1-1-1z"/></svg><span>Accueil</span></a>
+    <a href="#pronos" data-tab="pronos"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 19h16M7 16V9m5 7V5m5 11v-4"/></svg><span>Pronostics</span></a>
+    <a href="#bets" data-tab="bets"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16v12H4zM4 7l2-3h12l2 3M9 12h6"/></svg><span>Mes paris</span></a>
+    <a href="#more" data-tab="more"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h.01M12 12h.01M19 12h.01"/></svg><span>Plus</span></a>
   </nav>
 </div></header>
 <main id="main"></main>
@@ -3958,17 +3994,9 @@ const SPMyBets = (() => {
     dashboard() {
       const A = S.lastAnalysis(), C = P.cfg();
       const today = new Date().toLocaleDateString('fr-FR', { timeZone: TZ, weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
-      const kpi = (l, v, s) => `<div class="kpi"><small>${l}</small><b>${v}</b>${s ? `<span>${s}</span>` : ''}</div>`;
       return `<section class="hero">
         <div class="date">${esc(today)}</div>
-        ${statusPills()}
-        <div class="kpirow">
-          ${kpi('Événements disponibles', int(A?.counts?.available), '48 h, compétitions actives')}
-          ${kpi('Matchs analysés', int(A?.counts?.analysed))}
-          ${kpi('Sélections étudiées', int(A?.counts?.markets))}
-          ${kpi('Simulations', int(A?.counts?.sims))}
-          ${kpi('Dernière actualisation', A ? ago(A.finishedAt) : 'jamais', A ? dt(A.finishedAt) : '')}
-        </div>
+        <div class="home-meta">${A ? `<span>Dernière analyse <b>${ago(A.finishedAt)}</b></span><span><b>${int(A.counts?.analysed)}</b> matchs analysés</span><span><b>${int(A.counts?.markets)}</b> sélections étudiées</span>` : '<span>Aucune analyse pour l’instant</span>'}</div>
         ${(() => { const cs = SPCredits.state(C); return cs.alert80 ? `<p class="notice">Crédits The Odds API : ${cs.used} consommés, ${cs.remaining} restants ce mois-ci (≥ 80 %). Voir <a href="#credits">Gestion des crédits</a>.</p>` : ''; })()}
         ${(() => { try { const cv = (SPMyBets.stats().curve || []).map((c) => c.v), peak = Math.max(0, ...cv), last = cv[cv.length - 1]; return cv.length && peak > 0 && (peak - last) / peak >= 0.10 ? '<p class="notice">Bankroll en baisse de 10 % ou plus depuis son sommet : revue complète des performances conseillée avant de continuer (Stats, Erreurs, Fiabilité).</p>' : ''; } catch { return ''; } })()}
         ${!C.oddsKey ? `<form id="quickkey" class="notice onb"><b>Première utilisation, deux étapes :</b>
@@ -3982,8 +4010,8 @@ const SPMyBets = (() => {
         <div id="progress" class="progress" ${running ? '' : 'hidden'}><div class="pb"><i id="pbar"></i></div><div id="ptext" class="muted"></div><ol id="steps" class="steps"></ol></div>
       </section>
       ${A ? dailyCard(A) : ''}
-      ${A ? safeList(A) : ''}
-      ${A ? summaryBlock(A) : `<section class="card empty"><h3>Aucune analyse pour l’instant</h3><p>Le premier lancement télécharge environ deux saisons de résultats ESPN (mis en cache ensuite) puis consomme des crédits The Odds API : environ 3 par compétition scannée.</p></section>`}`;
+ ${A ? `<p class="more-link"><a href="#pronos">Voir tous les pronostics ›</a></p>
+      <details class="fold"><summary>Détails de l’analyse et état des sources</summary>${statusPills()}${summaryBlock(A)}</details>` : `<section class="card empty"><h3>Aucune analyse pour l’instant</h3><p>Le premier lancement télécharge environ deux saisons de résultats ESPN (mis en cache ensuite) puis consomme des crédits The Odds API : environ 3 par compétition scannée.</p></section>`}`;
     },
     best() {
       const A = S.lastAnalysis();
@@ -4144,7 +4172,7 @@ const SPMyBets = (() => {
   };
   let calFilter = {}, perfDays = 30;
 
-  function emptyRun() { return `<section class="card empty"><h3>Aucune analyse</h3><p>Lancez une analyse depuis le <a href="#dashboard">tableau de bord</a>.</p></section>`; }
+  function emptyRun() { return `<section class="card empty"><h3>Aucune analyse</h3><p>Lancez une analyse depuis l’<a href="#dashboard">accueil</a>.</p></section>`; }
   function noBet(A) {
     const rej = A.events?.length ? '' : '';
     return `<section class="card nobet"><h3>AUCUN PARI VALIDÉ</h3><p>Les opportunités disponibles ne répondent pas à nos critères statistiques.</p>${A.errors?.length ? `<p class="muted">Incidents : ${esc(A.errors.join(' ; '))}</p>` : ''}${rej}</section>`;
@@ -4199,13 +4227,28 @@ const SPMyBets = (() => {
       <text x="${pad}" y="${H - 6}" class="lbl">0 %</text><text x="${W - 10}" y="${H - 6}" text-anchor="end" class="lbl">prob. prédite 100 %</text><text x="2" y="14" class="lbl">observé</text></svg>`;
   }
 
+  // ------------------------------------------------------------ navigation simplifiée
+  const TAB_OF = { dashboard: 'home', pronos: 'pronos', football: 'pronos', tennis: 'pronos', safe: 'pronos', values: 'pronos', bets: 'bets' };
+  const CHIPS = [['pronos', 'Tous'], ['football', 'Football'], ['tennis', 'Tennis'], ['safe', 'Haute proba'], ['values', 'Value']];
+  const CHIP_PAGES = CHIPS.map((c) => c[0]);
+  const chips = (page) => `<div class="filters" role="navigation" aria-label="Filtres">${CHIPS.map(([h, l]) => `<a href="#${h}" class="${h === page ? 'on' : ''}">${l}</a>`).join('')}</div>`;
+  const MORE = [
+    ['Analyse', [['best', 'Meilleur pari', 'La meilleure value du jour, si elle existe'], ['watch', 'À surveiller', 'Paris pas encore validés']]],
+    ['Suivi', [['history', 'Historique', 'Toutes les analyses passées'], ['perf', 'Statistiques', 'Réussite, ROI, calibration'], ['calendar', 'Calendrier', 'Matchs des 48 prochaines heures'], ['check', 'Vérifier une cote', 'Tester un pari vu sur Winamax']]],
+    ['Fiabilité', [['backtests', 'Backtests', 'Tests des modèles sur le passé'], ['models', 'Fiabilité des modèles', 'Qualité par compétition'], ['errors', 'Erreurs', 'Ce qui n’a pas marché et pourquoi'], ['health', 'Santé du système', 'Sources de données et état']]],
+    ['Compte', [['credits', 'Crédits The Odds API', 'Budget, consommation, historique'], ['config', 'Réglages', 'Clé API, bankroll, compétitions']]],
+  ];
+  pages.more = () => `<h2>Plus</h2><div class="more">${MORE.map(([g, items]) => `<section><h3>${g}</h3><div class="mlist">${items.map(([h, l, d]) => `<a href="#${h}"><b>${l}</b><small>${d}</small></a>`).join('')}</div></section>`).join('')}</div>`;
+
   // ------------------------------------------------------------ routage et événements
   function route() {
     const h = (location.hash || '#dashboard').slice(1);
     const page = pages[h] ? h : 'dashboard';
-    document.querySelectorAll('nav a').forEach((a) => a.classList.toggle('on', a.getAttribute('href') === '#' + page));
+    const tab = TAB_OF[page] || 'more';
+    document.querySelectorAll('nav a').forEach((a) => a.classList.toggle('on', a.dataset.tab === tab));
+    window.scrollTo(0, 0);
     BETDRAFTS.clear();
-    $('#main').innerHTML = pages[page]() + disclaimer();
+    $('#main').innerHTML = (CHIP_PAGES.includes(page) ? chips(page) : '') + pages[page]() + disclaimer();
     if (page === 'dashboard' && running) renderProgress();
     bind(page);
   }

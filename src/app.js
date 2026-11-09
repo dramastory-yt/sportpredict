@@ -385,17 +385,9 @@
     dashboard() {
       const A = S.lastAnalysis(), C = P.cfg();
       const today = new Date().toLocaleDateString('fr-FR', { timeZone: TZ, weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
-      const kpi = (l, v, s) => `<div class="kpi"><small>${l}</small><b>${v}</b>${s ? `<span>${s}</span>` : ''}</div>`;
       return `<section class="hero">
         <div class="date">${esc(today)}</div>
-        ${statusPills()}
-        <div class="kpirow">
-          ${kpi('Événements disponibles', int(A?.counts?.available), '48 h, compétitions actives')}
-          ${kpi('Matchs analysés', int(A?.counts?.analysed))}
-          ${kpi('Sélections étudiées', int(A?.counts?.markets))}
-          ${kpi('Simulations', int(A?.counts?.sims))}
-          ${kpi('Dernière actualisation', A ? ago(A.finishedAt) : 'jamais', A ? dt(A.finishedAt) : '')}
-        </div>
+        <div class="home-meta">${A ? `<span>Dernière analyse <b>${ago(A.finishedAt)}</b></span><span><b>${int(A.counts?.analysed)}</b> matchs analysés</span><span><b>${int(A.counts?.markets)}</b> sélections étudiées</span>` : '<span>Aucune analyse pour l’instant</span>'}</div>
         ${(() => { const cs = SPCredits.state(C); return cs.alert80 ? `<p class="notice">Crédits The Odds API : ${cs.used} consommés, ${cs.remaining} restants ce mois-ci (≥ 80 %). Voir <a href="#credits">Gestion des crédits</a>.</p>` : ''; })()}
         ${(() => { try { const cv = (SPMyBets.stats().curve || []).map((c) => c.v), peak = Math.max(0, ...cv), last = cv[cv.length - 1]; return cv.length && peak > 0 && (peak - last) / peak >= 0.10 ? '<p class="notice">Bankroll en baisse de 10 % ou plus depuis son sommet : revue complète des performances conseillée avant de continuer (Stats, Erreurs, Fiabilité).</p>' : ''; } catch { return ''; } })()}
         ${!C.oddsKey ? `<form id="quickkey" class="notice onb"><b>Première utilisation, deux étapes :</b>
@@ -409,8 +401,8 @@
         <div id="progress" class="progress" ${running ? '' : 'hidden'}><div class="pb"><i id="pbar"></i></div><div id="ptext" class="muted"></div><ol id="steps" class="steps"></ol></div>
       </section>
       ${A ? dailyCard(A) : ''}
-      ${A ? safeList(A) : ''}
-      ${A ? summaryBlock(A) : `<section class="card empty"><h3>Aucune analyse pour l’instant</h3><p>Le premier lancement télécharge environ deux saisons de résultats ESPN (mis en cache ensuite) puis consomme des crédits The Odds API : environ 3 par compétition scannée.</p></section>`}`;
+ ${A ? `<p class="more-link"><a href="#pronos">Voir tous les pronostics ›</a></p>
+      <details class="fold"><summary>Détails de l’analyse et état des sources</summary>${statusPills()}${summaryBlock(A)}</details>` : `<section class="card empty"><h3>Aucune analyse pour l’instant</h3><p>Le premier lancement télécharge environ deux saisons de résultats ESPN (mis en cache ensuite) puis consomme des crédits The Odds API : environ 3 par compétition scannée.</p></section>`}`;
     },
     best() {
       const A = S.lastAnalysis();
@@ -571,7 +563,7 @@
   };
   let calFilter = {}, perfDays = 30;
 
-  function emptyRun() { return `<section class="card empty"><h3>Aucune analyse</h3><p>Lancez une analyse depuis le <a href="#dashboard">tableau de bord</a>.</p></section>`; }
+  function emptyRun() { return `<section class="card empty"><h3>Aucune analyse</h3><p>Lancez une analyse depuis l’<a href="#dashboard">accueil</a>.</p></section>`; }
   function noBet(A) {
     const rej = A.events?.length ? '' : '';
     return `<section class="card nobet"><h3>AUCUN PARI VALIDÉ</h3><p>Les opportunités disponibles ne répondent pas à nos critères statistiques.</p>${A.errors?.length ? `<p class="muted">Incidents : ${esc(A.errors.join(' ; '))}</p>` : ''}${rej}</section>`;
@@ -626,13 +618,28 @@
       <text x="${pad}" y="${H - 6}" class="lbl">0 %</text><text x="${W - 10}" y="${H - 6}" text-anchor="end" class="lbl">prob. prédite 100 %</text><text x="2" y="14" class="lbl">observé</text></svg>`;
   }
 
+  // ------------------------------------------------------------ navigation simplifiée
+  const TAB_OF = { dashboard: 'home', pronos: 'pronos', football: 'pronos', tennis: 'pronos', safe: 'pronos', values: 'pronos', bets: 'bets' };
+  const CHIPS = [['pronos', 'Tous'], ['football', 'Football'], ['tennis', 'Tennis'], ['safe', 'Haute proba'], ['values', 'Value']];
+  const CHIP_PAGES = CHIPS.map((c) => c[0]);
+  const chips = (page) => `<div class="filters" role="navigation" aria-label="Filtres">${CHIPS.map(([h, l]) => `<a href="#${h}" class="${h === page ? 'on' : ''}">${l}</a>`).join('')}</div>`;
+  const MORE = [
+    ['Analyse', [['best', 'Meilleur pari', 'La meilleure value du jour, si elle existe'], ['watch', 'À surveiller', 'Paris pas encore validés']]],
+    ['Suivi', [['history', 'Historique', 'Toutes les analyses passées'], ['perf', 'Statistiques', 'Réussite, ROI, calibration'], ['calendar', 'Calendrier', 'Matchs des 48 prochaines heures'], ['check', 'Vérifier une cote', 'Tester un pari vu sur Winamax']]],
+    ['Fiabilité', [['backtests', 'Backtests', 'Tests des modèles sur le passé'], ['models', 'Fiabilité des modèles', 'Qualité par compétition'], ['errors', 'Erreurs', 'Ce qui n’a pas marché et pourquoi'], ['health', 'Santé du système', 'Sources de données et état']]],
+    ['Compte', [['credits', 'Crédits The Odds API', 'Budget, consommation, historique'], ['config', 'Réglages', 'Clé API, bankroll, compétitions']]],
+  ];
+  pages.more = () => `<h2>Plus</h2><div class="more">${MORE.map(([g, items]) => `<section><h3>${g}</h3><div class="mlist">${items.map(([h, l, d]) => `<a href="#${h}"><b>${l}</b><small>${d}</small></a>`).join('')}</div></section>`).join('')}</div>`;
+
   // ------------------------------------------------------------ routage et événements
   function route() {
     const h = (location.hash || '#dashboard').slice(1);
     const page = pages[h] ? h : 'dashboard';
-    document.querySelectorAll('nav a').forEach((a) => a.classList.toggle('on', a.getAttribute('href') === '#' + page));
+    const tab = TAB_OF[page] || 'more';
+    document.querySelectorAll('nav a').forEach((a) => a.classList.toggle('on', a.dataset.tab === tab));
+    window.scrollTo(0, 0);
     BETDRAFTS.clear();
-    $('#main').innerHTML = pages[page]() + disclaimer();
+    $('#main').innerHTML = (CHIP_PAGES.includes(page) ? chips(page) : '') + pages[page]() + disclaimer();
     if (page === 'dashboard' && running) renderProgress();
     bind(page);
   }
