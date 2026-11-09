@@ -199,7 +199,9 @@ const SPMyBets = (() => {
         ${k('Perte max. depuis un sommet', pct(all.maxDD, 0), 'drawdown')}
         ${k('Profit attendu', eurS(st.expected), 'selon les probabilités du moteur')}
       </div>
-      ${all.atRisk > 0.10 * all.bankroll ? `<p class="notice">${eur(all.atRisk)} en jeu, soit ${pct(all.atRisk / all.bankroll, 0)} de votre bankroll : au-delà de 10 %, c’est risqué (plafond conseillé : 15 %).</p>` : ''}
+      ${all.atRisk > 0.05 * all.bankroll ? `<p class="notice">${eur(all.atRisk)} en jeu, soit ${pct(all.atRisk / all.bankroll, 0)} de votre bankroll : au-delà de 5 %, c’est trop (plafond strict : 5 %).</p>` : ''}
+      ${all.curve.length && (() => { const peak = Math.max(start, ...all.curve.map((c) => c.v)); return (peak - all.bankroll) / peak >= 0.10; })() ? `<p class="notice">Baisse de 10 % ou plus depuis le dernier sommet de bankroll : faites une revue complète (onglets Stats, Erreurs, Fiabilité) avant de continuer. Ne relevez pas vos mises pour vous refaire.</p>` : ''}
+      ${[50, 100, 200, 500].some((n) => all.done.length >= n && all.done.length < n + 5) ? `<p class="notice">Vous avez atteint ${all.done.length} paris réglés : bon moment pour analyser vos performances (Stats, Erreurs).</p>` : ''}
       ${all.streakType === 'D' && all.streak >= 4 ? `<p class="notice">${all.streak} paris perdus d’affilée : c’est normal statistiquement de temps en temps. N’augmentez pas vos mises pour « vous refaire ».</p>` : ''}
       <div class="grid2">
         <section class="card"><h3>Évolution de la bankroll</h3>${lineSVG(all.curve, start)}</section>

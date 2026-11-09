@@ -70,8 +70,8 @@
         if (!E || !s) return { ...p, verdict: 'événement ou marché indisponible', status: 'bad' };
         const keep = (A.best && A.best.selId === p.selId && A.best.eventId === p.eventId) || A.values.some((v) => v.selId === p.selId && v.eventId === p.eventId);
         const newSafe = (A.safe || []).find((x) => x.eventId === p.eventId && x.label === p.label);
-        const nc = newSafe?.conf || (A.best && A.best.selId === p.selId ? A.best.conf : A.values.find((v) => v.selId === p.selId)?.conf) || 'insuffisante';
-        const R = { 'très haute': 4, haute: 3, 'intéressante': 2, 'insuffisante': 1 };
+        const nc = newSafe?.conf || (A.best && A.best.selId === p.selId ? A.best.conf : A.values.find((v) => v.selId === p.selId)?.conf) || 'faible';
+        const R = SP.CONF_RANK;
         const confMsg = p.conf && nc !== p.conf ? (R[nc] > R[p.conf] ? ` · confiance améliorée (${p.conf} → ${nc})` : ` · confiance diminuée (${p.conf} → ${nc})`) : '';
         const rejected = !keep && !newSafe;
         return { match: p.match, label: p.label, oldOdds: p.odds, newOdds: s.best, oldP: p.p, newP: s.p, oldEV: p.ev, newEV: s.ev, verdict: (rejected ? 'pari désormais rejeté' : keep ? 'value confirmée' : (s.ev != null && s.ev > 0 ? 'value réduite' : 'value disparue')) + confMsg, status: keep ? 'good' : 'bad' };
@@ -146,30 +146,36 @@
   }
   const eur0 = (x) => x.toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' €';
   // ---- confiance, mises et exposition (cahier des charges §10 et §15)
-  const CONF_TAG = { 'très haute': 't-ok', haute: 't-ok', 'intéressante': 't-warn', 'insuffisante': 't-na' };
-  const confTag = (c) => `<span class="tag ${CONF_TAG[c] || 't-na'}">confiance ${esc(c || 'insuffisante')}</span>`;
+  const CONF_TAG = { 'très haute': 't-ok', haute: 't-ok', 'intéressante': 't-warn', moyenne: 't-na', faible: 't-bad' };
+  const confTag = (c) => `<span class="tag ${CONF_TAG[c] || 't-na'}">confiance ${esc(c || 'faible')}</span>`;
   // bankroll actuelle = départ + dépôts − retraits + gains − pertes des paris réglés (mise à jour automatique)
   const curBank = () => { try { return SPMyBets.stats().bankroll; } catch { return P.cfg().bankroll; } };
   const atRisk = () => { try { return SPMyBets.stats().atRisk; } catch { return 0; } };
   // Mise indicative : très haute 1–2 %, haute ≤ 1 %, value = quart de Kelly plafonné, sans avantage démontré = 0.
   // Réduite si l'incertitude est forte ; plafond strict : 15 % de la bankroll exposée au total.
-  function stakeInfo({ conf, kind, p, odds, pPush, uncert, verify, reliable }) {
+  // MISES (v3) — très haute + value confirmée : 1 % ; très haute : 0,75 % ; haute : 0,75 % ; intéressante : 0,5 % ;
+  // moyenne : aucune ; faible : rejet. Plafond strict 1 % par sélection. Quart de Kelly en indicateur (sans dépasser).
+  // EV négative ou insuffisante : 0. Exposition : alerte 5 %, plafond strict 5 %. Un seul pari par match.
+  function stakeInfo({ conf, kind, p, odds, pPush, uncert, verify, eventId }) {
     const C = P.cfg(), B = curBank();
     const ev = odds != null ? p * odds + (pPush || 0) - 1 : null;
     let pct0 = 0, why = '';
-    if (!verify && kind !== 'clément' && (ev == null || ev < 0)) { why = 'aucune mise : pas d’avantage démontré à cette cote'; }
-    else if (kind === 'clément' && (ev == null || ev < -0.04)) { why = 'aucune mise conseillée : cote trop basse'; }
-    else if (kind === 'value' && !SP.isStrong(conf)) { const k = Math.max(0, ev / (odds - 1)); pct0 = Math.min(C.maxStakePct, C.kellyFrac * k); why = 'quart de Kelly plafonné (value)'; }
-    else if (conf === 'très haute') { pct0 = Math.min(0.02, C.safeStakePct); why = 'confiance très haute : 1 à 2 %'; }
-    else if (conf === 'haute') { pct0 = Math.min(0.01, C.safeStakePct); why = 'confiance haute : 1 % maximum'; }
-    else if (conf === 'intéressante' && reliable) { pct0 = 0.005; why = 'environ 75 %, données fiables : 0,5 %'; }
-    else if (kind === 'clément' && p >= 0.55) { pct0 = p >= 0.72 ? 0.005 : 0.0025; why = p >= 0.72 ? 'bon pari sans toutes les garanties : 0,5 %' : 'pari correct : petite mise 0,25 %'; }
-    else if (kind === 'value') { const k = Math.max(0, ev / (odds - 1)); pct0 = Math.min(C.maxStakePct, C.kellyFrac * k); why = 'quart de Kelly plafonné (value)'; }
-    else { why = 'aucune mise : confiance insuffisante'; }
+    const pend = (() => { try { return SPMyBets.bets().filter((b) => b.status === 'en attente'); } catch { return []; } })();
+    if (eventId && pend.some((b) => b.eventId === eventId)) why = 'aucune mise : vous avez déjà un pari en cours sur ce match';
+    else if (conf === 'faible') why = 'rejet : confiance faible';
+    else if (conf === 'moyenne') why = 'aucune mise recommandée : confiance moyenne';
+    else if (!verify && (ev == null || ev < 0.01)) why = 'aucune mise : espérance de gain négative ou insuffisante à cette cote';
+    else {
+      pct0 = conf === 'très haute' ? (kind === 'value' ? 0.01 : 0.0075) : conf === 'haute' ? 0.0075 : conf === 'intéressante' ? 0.005 : 0;
+      why = `confiance ${conf} : ${(pct0 * 100).toFixed(2).replace(/\.?0+$/, '')} % maximum`;
+      if (ev != null && odds > 1) { const kq = C.kellyFrac * ev / (odds - 1); if (kq > 0 && kq < pct0) { pct0 = kq; why += ' · limitée par le quart de Kelly'; } }
+      if (verify) why += ', seulement si la cote Winamax atteint le minimum indiqué';
+    }
     if (pct0 > 0 && (uncert ?? 0) > 0.04) { pct0 *= 0.5; why += ' · réduite de moitié (incertitude forte)'; }
+    pct0 = Math.min(pct0, 0.01);
     let stake = Math.round(B * pct0 * 100) / 100;
-    const room = Math.max(0, 0.15 * B - atRisk());
-    if (stake > room) { stake = Math.round(room * 100) / 100; why += ' · limitée par le plafond d’exposition de 15 %'; }
+    const room = Math.max(0, 0.05 * B - atRisk());
+    if (stake > room) { stake = Math.round(room * 100) / 100; why += ' · limitée par le plafond d’exposition de 5 %'; }
     const expo = (atRisk() + stake) / Math.max(1e-9, B);
     return { stake, pct: B ? stake / B : 0, why, gain: odds != null ? stake * (odds - 1) : null, loss: stake, expo, bank: B };
   }
@@ -177,25 +183,26 @@
   const minAcceptable = (p, uncert, pPush) => Math.ceil(((1 + P.cfg().minEV - (pPush || 0)) / Math.max(0.01, p - (uncert || 0))) * 100) / 100;
 
   function safeList(A) {
-    const L = (A.safe || []).filter((s) => (!A.daily || s.eventId !== A.daily.eventId) && s.conf !== 'insuffisante');
+    const L = (A.safe || []).filter((s) => (!A.daily || s.eventId !== A.daily.eventId) && SP.CONF_RANK[s.conf] >= 3);
     if (!L.length) return '';
     return `<section class="card"><h3>Autres paris à haute probabilité</h3><p class="muted">Probabilité ≥ ${(P.cfg().safeMinP * 100).toFixed(0)} %. Seuls ceux en confiance haute ou très haute et avec un avantage reçoivent une mise. Ne les combinez pas.</p>
-      <div class="tw"><table class="t"><tbody>${L.map((s) => { const si = stakeInfo({ conf: s.conf, kind: 'sûr', p: s.p, odds: s.odds, pPush: s.pPush, uncert: s.uncert, verify: s.toVerify, reliable: s.reliable });
+      <div class="tw"><table class="t"><tbody>${L.map((s) => { const si = stakeInfo({ conf: s.conf, kind: 'sûr', p: s.p, odds: s.odds, pPush: s.pPush, uncert: s.uncert, verify: s.toVerify, eventId: s.eventId });
         return `<tr><td><b>${esc(s.match)}</b><br><small class="muted">${dt(s.t)} · ${esc(s.comp)}</small></td><td>${esc(s.label)}</td><td class="n">${s.odds != null ? num(s.odds) : `≥ ${num(minAcceptable(s.p, s.uncert, s.pPush))}`}</td><td class="n">${pct(s.p)}</td><td>${confTag(s.conf)}${s.toVerify ? ' <span class="tag t-warn">cote à vérifier</span>' : s.tier !== 1 ? ' <span class="tag t-na">sans avantage</span>' : ''}</td><td class="n">${num(si.stake)} €</td><td>${si.stake > 0 ? betBtn({ source: 'safe', ...s, conf: s.conf, suggested: si.stake }) : ''}</td></tr>`; }).join('')}</tbody></table></div></section>`;
   }
   function dailyCard(A) {
     const d = A.daily;
-    if (!d) return `<section class="card nobet"><h3>AUCUN PRONOSTIC PRINCIPAL AUJOURD’HUI</h3><p>Les conditions de fiabilité ne sont pas réunies.</p>
+    if (!d) return `<section class="card nobet"><h3>AUCUNE SÉLECTION SUFFISAMMENT FIABLE</h3><p>Tous les matchs et marchés disponibles ont été explorés : aucun ne réunit une confiance suffisante et une cote acceptable. Ne rien parier aujourd’hui est une bonne décision.</p>
       ${A.dailyAlt ? `<p class="muted">Pour information seulement (confiance ${esc(A.dailyAlt.conf)}, non recommandé) : ${esc(A.dailyAlt.match)} · ${esc(A.dailyAlt.label)} · ${pct(A.dailyAlt.p)}</p>` : ''}</section>`;
     const pk = d.pick, u = d.uncert ?? 0.03;
-    const si = stakeInfo({ conf: d.confidence, kind: d.kind === 'value' ? 'value' : d.kind === 'clément' ? 'clément' : 'sûr', p: pk.p, odds: pk.odds, pPush: pk.pPush, uncert: u, verify: pk.odds == null, reliable: !!pk.reliable });
+    const si = stakeInfo({ conf: d.confidence, kind: d.kind === 'value' ? 'value' : 'sûr', p: pk.p, odds: pk.odds, pPush: pk.pPush, uncert: u, verify: pk.odds == null, eventId: d.eventId });
     const minOk = minAcceptable(pk.p, u, pk.pPush);
     const lo = Math.max(0, pk.p - 1.96 * u), hi = Math.min(1, pk.p + 1.96 * u);
     const lvlTag = d.level === 'bon' ? '<span class="tag t-ok">bon pronostic</span>' : d.level === 'correct' ? '<span class="tag t-warn">pronostic correct</span>' : d.level === 'prudent' ? '<span class="tag t-na">pronostic prudent</span>' : '';
     const kindTag = lvlTag + ({ 'sûr-verif': '<span class="tag t-warn">cote à vérifier sur Winamax</span>', 'sûr': '<span class="tag t-ok">haute probabilité · cote correcte</span>', value: '<span class="tag t-ok">VALUE</span>' }[d.kind] || '');
     const up = d.uncParts;
     return `<section class="card pick big daily">
-      <div class="eyebrow">PRONOSTIC DU JOUR</div>
+      <div class="eyebrow">PRONOSTIC DU JOUR · ${d.status === 'prioritaire' ? 'PARI PRIORITAIRE' : 'PARI ALTERNATIF'}</div>
+      <p class="headline"><b>${esc(d.verdict || '')}</b>${d.status === 'alternatif' ? ' <span class="tag t-warn">non recommandé automatiquement à la mise</span>' : ''}</p>
       <header><div><span class="sport s-${d.sport}">${SPORT[d.sport]}</span> <span class="muted">${esc(d.comp)}</span></div><div class="when">${dt(d.t)}</div></header>
       <h3>${esc(d.match)}</h3>
       <div class="sel"><span class="mk">${MKT[pk.market] || 'marché calculé'}</span><b>${esc(pk.label)}</b> ${kindTag} ${confTag(d.confidence)}${pk.nearThreshold ? ' <span class="tag t-warn">proche du seuil</span>' : ''}</div>
@@ -210,7 +217,7 @@
         <div><small>Gain potentiel / perte max</small><b>${si.gain != null ? '+' + num(si.gain) : '—'} / −${num(si.loss)} €</b><span>exposition totale ${(si.expo * 100).toFixed(0)} %</span></div>
       </div>
       <p class="muted"><small>Mise : ${esc(si.why)}.</small></p>
-      ${si.expo > 0.10 ? `<p class="notice">Plus de 10 % de votre bankroll serait exposée en même temps. Plafond strict : 15 %.</p>` : ''}
+      ${si.expo > 0.05 ? `<p class="notice">Plus de 5 % de votre bankroll serait exposée en même temps (plafond strict : 5 %).</p>` : ''}
       ${d.opinion ? `<div class="advice"><b>Mon avis :</b> ${esc(d.opinion.verdict)}${d.opinion.pour.length ? `<br><b>Pour :</b> ${d.opinion.pour.map(esc).join(' ')}` : ''}${d.opinion.contre.length ? `<br><b>Contre :</b> ${d.opinion.contre.map(esc).join(' ')}` : ''}<br><b>${esc(d.opinion.conseil)}</b></div>` : ''}
       <h4>Explication statistique</h4><ul>${d.why.map((w) => `<li>${esc(w)}</li>`).join('')}</ul>
       ${d.warnings?.length ? `<h4>Risques</h4><ul>${d.warnings.map((w) => `<li>${esc(w)}</li>`).join('')}</ul>` : '<h4>Risques</h4><ul><li>Aucun signal particulier dans les sources consultées. Le résultat reste aléatoire.</li></ul>'}
@@ -233,12 +240,44 @@
     const k = Math.max(0, (p * odds + (pPush || 0) - 1) / (odds - 1));
     return Math.round(C.bankroll * Math.min(C.maxStakePct, C.kellyFrac * k) * 100) / 100;
   }
+  function creditsPage() {
+    const C = P.cfg(), st = SPCredits.state(C), A = S.lastAnalysis();
+    const k = (l, v, s, cls = '') => `<div class="kpi"><small>${l}</small><b class="${cls}">${v}</b>${s ? `<span>${s}</span>` : ''}</div>`;
+    const est = (A?.coverage?.queried || 0) * 3;
+    return `<h2>Gestion des crédits</h2>
+      ${st.alert80 ? '<p class="notice">Plus de 80 % des crédits du mois sont consommés : analyses espacées conseillées.</p>' : ''}
+      <div class="kpirow">
+        ${k('Budget mensuel', st.budget, 'offre gratuite The Odds API')}
+        ${k('Consommés', st.used, st.measured ? 'compteur officiel de l’API' : 'estimation locale', st.alert80 ? 'neg' : '')}
+        ${k('Restants', st.remaining, `réserve protégée : ${st.reserve}`)}
+        ${k('Prochaine analyse', '≈ ' + est, 'selon la dernière analyse (3 par compétition)')}
+        ${k('Appels évités', st.avoided, 'grâce au cache')}
+        ${k('Football / tennis', `${st.byGroup.football || 0} / ${st.byGroup.tennis || 0}`, 'crédits ce mois')}
+      </div>
+      <section class="card"><h3>Règles appliquées</h3><ul>
+        <li>La liste des compétitions et des matchs est gratuite ; seules les compétitions ayant au moins un match avec un score de pertinence ≥ ${C.prescanMin} sont interrogées.</li>
+        <li>Budget par analyse : ${C.creditBudget} crédits. Un appel est bloqué s’il entamerait la réserve de ${st.reserve} crédits.</li>
+        <li>Les cotes déjà récupérées depuis moins de 10 minutes sont réutilisées sans consommer de crédit.</li>
+      </ul></section>
+      <section class="card"><h3>Historique des appels payants (ce mois)</h3><div class="tw"><table class="t"><thead><tr><th>Date</th><th>Compétition</th><th>Sport</th><th>Coût</th></tr></thead><tbody>
+        ${st.calls.slice().reverse().map((c) => `<tr><td>${dt(c.t)}</td><td>${esc(c.title || c.key)}</td><td>${esc(c.group || '')}</td><td class="n">${c.cost}${c.measured ? '' : ' (estimé)'}</td></tr>`).join('') || '<tr><td colspan="4" class="muted">Aucun appel payant ce mois-ci.</td></tr>'}
+      </tbody></table></div></section>
+      ${A?.prescan ? `<section class="card"><h3>Présélection gratuite de la dernière analyse</h3><div class="tw"><table class="t"><thead><tr><th>Match</th><th>Score</th><th>Catégorie</th></tr></thead><tbody>${A.prescan.slice(0, 40).map((m) => `<tr><td>${esc(m.home)} – ${esc(m.away)}<br><small class="muted">${esc(m.comp)}${m.note ? ' · ' + esc(m.note) : ''}</small></td><td class="n">${m.score}</td><td>${esc(m.category)}</td></tr>`).join('')}</tbody></table></div><p class="muted">Ce score mesure l’intérêt d’analyser un match (données, potentiel des marchés, stabilité) ; ce n’est jamais une probabilité de réussite.</p></section>` : ''}`;
+  }
   function backtestTable(bt) {
     return bt && Object.keys(bt).length ? `<div class="tw"><table class="t"><thead><tr><th>Compétition</th><th>Matchs testés</th><th>Log loss par modèle</th><th>Ensemble</th><th>Naïf</th><th>Poids</th></tr></thead><tbody>${Object.entries(bt).map(([n, b]) => `<tr><td>${esc(n)}</td><td class="n">${b.n}</td><td>${Object.entries(b.models).map(([mm, v]) => `${mm} ${num(v.logLoss, 4)}`).join(' · ')}</td><td class="n">${num(b.ensemble.logLoss, 4)}</td><td class="n">${b.naive ? num(b.naive.logLoss, 4) : '—'}</td><td>${Object.entries(b.weights).map(([mm, w]) => `${mm} ${(+w).toFixed(2)}`).join(' · ')}</td></tr>`).join('')}</tbody></table></div>` : '<p class="muted">Aucun backtest disponible (lancez une analyse).</p>';
   }
   function formChips(fm) {
     if (!fm) return '<span class="muted">forme indisponible</span>';
     return `<span class="form" title="du plus ancien au plus récent (à droite)">${fm.seq.split('').map((r) => `<i class="r-${r}">${r}</i>`).join('')}</span> <small class="muted">${num(fm.gf, 1)} marqués / ${num(fm.ga, 1)} encaissés${fm.xgf != null ? ` · xG ${num(fm.xgf, 2)} / ${num(fm.xga, 2)}` : ''}</small>`;
+  }
+  const kOdds = (k) => (k.odds != null ? '@ ' + num(k.odds) : '(jouer si ≥ ' + num(k.minOdds) + ')');
+  function exploreBlock(x) {
+    const line = (lab, k) => (k ? `<li><b>${lab} :</b> ${esc(k.label)} ${kOdds(k)} · ${pct(k.p)}${k.ev != null ? ' · EV ' + sgn(k.ev) : ''} · ${esc(k.conf)}${k.cat === 'prioritaire' ? ' <span class="tag t-ok">prioritaire</span>' : ''}</li>` : '');
+    return `<details open><summary>${x.n} marchés explorés</summary><ul>
+      ${line('Probabilité la plus élevée', x.bestProb)}${line('Meilleure value', x.bestValue)}${line('Meilleur équilibre', x.bestBalance)}</ul>
+      ${x.alternatives.length ? `<h5>Alternatives</h5><ul>${x.alternatives.map((k) => `<li>${esc(k.label)} ${kOdds(k)} · ${pct(k.p)} · ${esc(k.conf)}</li>`).join('')}</ul>` : ''}
+      ${x.avoid.length ? `<h5>À éviter</h5><ul class="muted">${x.avoid.map((k) => `<li>${esc(k.label)} ${kOdds(k)} · ${pct(k.p)} — ${esc(k.why || '')}</li>`).join('')}</ul>` : ''}</details>`;
   }
   let A_DAILY_ID = null;
   function pronoCard(f) {
@@ -256,6 +295,7 @@
       ${f.sport === 'hockey' ? `<p class="muted">Score le plus probable <b>${f.score.h}-${f.score.a}</b> (prolongation incluse) · buts attendus ${num(f.expected.home, 1)} – ${num(f.expected.away, 1)} · prolongation ${pct(f.probs.regDraw)}</p>` : ''}
       ${f.sport === 'nba' ? `<p class="muted">Score projeté <b>${Math.round(f.expected.home)}-${Math.round(f.expected.away)}</b> · total attendu ${num(f.expected.total, 1)} points</p>` : ''}
       ${f.form ? `<div class="formrow"><div><small>${esc(hn)}</small>${formChips(f.form.home)}</div><div><small>${esc(an)}</small>${formChips(f.form.away)}</div></div>` : ''}
+      ${f.explore ? exploreBlock(f.explore) : ''}
       ${f.pick ? `<div class="advice"><b>Pari le plus probable :</b> ${esc(f.pick.label)} @ <b>${num(f.pick.odds)}</b> (${esc(f.pick.book)}) — probabilité ${pct(f.pick.p)}, EV ${sgn(f.pick.ev)} ${f.pick.value ? '<span class="tag t-ok">VALUE</span>' : '<span class="tag t-na">pas de value</span>'}</div>${betBtn({ source: 'prono', eventId: f.eventId, sport: f.sport, sportKey: f.sportKey, comp: f.comp, match: f.match, home: f.home, away: f.away, t: f.t, label: f.pick.label, type: f.pick.type, point: f.pick.point, market: f.pick.market, odds: f.pick.odds, book: f.pick.book, p: f.pick.p, value: f.pick.value, suggested: f.pick.value ? stakeFor(f.pick.p, f.pick.odds, f.pick.pPush) : null })}` : ''}
       ${f.excluded ? `<p class="notice"><small>Pas retenu comme pronostic du jour : ${esc(f.excluded)}.</small></p>` : (A_DAILY_ID === f.eventId ? '<p><span class="tag t-ok">pronostic du jour</span></p>' : '')}
       ${f.facts?.length ? `<ul class="muted">${f.facts.map((x) => `<li>${esc(x)}</li>`).join('')}</ul>` : ''}
@@ -285,7 +325,7 @@
       const A = S.lastAnalysis(); if (!A) return emptyRun();
       const L = A.safe || [];
       return `<h2>Paris haute confiance</h2><p class="muted">Sélections à probabilité élevée (≥ ${(P.cfg().safeMinP * 100).toFixed(0)} %). Seules celles en confiance <b>haute</b> ou <b>très haute</b>, avec un avantage à la cote Winamax, reçoivent une mise. Repères : très haute ≥ 85 %, haute 78–84 %, intéressante 70–77 % (avec données solides et modèles d’accord) ; ce sont des repères, pas des garanties.</p>
-        ${L.length ? `<div class="tw"><table class="t"><thead><tr><th>Match</th><th>Pari</th><th>Cote</th><th>Prob.</th><th>Confiance</th><th>Fiabilité</th><th>Mise</th><th></th></tr></thead><tbody>${L.map((s) => { const si = stakeInfo({ conf: s.conf, kind: 'sûr', p: s.p, odds: s.odds, pPush: s.pPush, uncert: s.uncert, verify: s.toVerify, reliable: s.reliable }); return `<tr><td><b>${esc(s.match)}</b><br><small class="muted">${dt(s.t)} · ${esc(s.comp)}</small></td><td>${esc(s.label)}</td><td class="n">${s.odds != null ? num(s.odds) : '≥ ' + num(minAcceptable(s.p, s.uncert, s.pPush))}</td><td class="n">${pct(s.p)}</td><td>${confTag(s.conf)}</td><td class="n">${s.rel ?? '—'}</td><td class="n">${num(si.stake)} €</td><td>${si.stake > 0 ? betBtn({ source: 'safe', ...s, suggested: si.stake }) : ''}</td></tr>`; }).join('')}</tbody></table></div>` : '<section class="card empty"><p>Aucune sélection à haute probabilité dans cette analyse.</p></section>'}`;
+        ${L.length ? `<div class="tw"><table class="t"><thead><tr><th>Match</th><th>Pari</th><th>Cote</th><th>Prob.</th><th>Confiance</th><th>Fiabilité</th><th>Mise</th><th></th></tr></thead><tbody>${L.map((s) => { const si = stakeInfo({ conf: s.conf, kind: 'sûr', p: s.p, odds: s.odds, pPush: s.pPush, uncert: s.uncert, verify: s.toVerify, eventId: s.eventId }); return `<tr><td><b>${esc(s.match)}</b><br><small class="muted">${dt(s.t)} · ${esc(s.comp)}</small></td><td>${esc(s.label)}</td><td class="n">${s.odds != null ? num(s.odds) : '≥ ' + num(minAcceptable(s.p, s.uncert, s.pPush))}</td><td class="n">${pct(s.p)}</td><td>${confTag(s.conf)}</td><td class="n">${s.rel ?? '—'}</td><td class="n">${num(si.stake)} €</td><td>${si.stake > 0 ? betBtn({ source: 'safe', ...s, suggested: si.stake }) : ''}</td></tr>`; }).join('')}</tbody></table></div>` : '<section class="card empty"><p>Aucune sélection à haute probabilité dans cette analyse.</p></section>'}`;
     },
     backtests() {
       const A = S.lastAnalysis(); const L = D.localCache?.() || {};
@@ -332,10 +372,13 @@
         <section class="card"><h3>Collecte quotidienne</h3><table class="t"><tbody>${Object.entries(meta).map(([k, v]) => row(k, v.ok, v.msg)).join('') || '<tr><td class="muted">Indisponible.</td></tr>'}</tbody></table></section>
         <section class="card"><h3>Erreurs de la dernière analyse</h3>${A?.errors?.length ? `<ul>${A.errors.map((e) => `<li>${esc(e)}</li>`).join('')}</ul>` : '<p class="muted">Aucune.</p>'}${A?.coverage ? `<p class="muted">Compétitions : ${A.coverage.queried} interrogées, ${A.coverage.noEvents} sans match, ${A.coverage.noTarget} sans Winamax, ${A.coverage.overBudget.length} hors budget · ${A.coverage.spent} crédits.</p>` : ''}</section>`;
     },
-    pronos() {
+    football() { return pages.pronos('football'); },
+    tennis() { return pages.pronos('tennis'); },
+    credits() { return creditsPage(); },
+    pronos(only) {
       const A = S.lastAnalysis(); if (!A) return emptyRun();
-      const list = A.forecasts || [];
-      return `<h2>Pronostics du jour</h2>
+      const list = (A.forecasts || []).filter((f) => !only || typeof only !== 'string' || f.sport === only);
+      return `<h2>${only === 'football' ? 'Football' : only === 'tennis' ? 'Tennis' : 'Analyse du jour'}</h2>
         <p class="muted">La lecture du moteur pour chaque match : résultat le plus probable et pari le plus probable sur ${esc(P.cfg().targetBook === 'winamax_fr' ? 'Winamax' : 'votre bookmaker')}. Un pronostic probable n’est pas forcément rentable : seuls ceux marqués <span class="tag t-ok">VALUE</span> battent la cote juste.</p>
         ${list.length ? `<div class="grid">${(A_DAILY_ID = A.daily?.eventId || null, list.map(pronoCard).join(''))}</div>` : '<section class="card empty"><p>Aucun pronostic : relancez une analyse.</p></section>'}`;
     },
@@ -353,6 +396,8 @@
           ${kpi('Simulations', int(A?.counts?.sims))}
           ${kpi('Dernière actualisation', A ? ago(A.finishedAt) : 'jamais', A ? dt(A.finishedAt) : '')}
         </div>
+        ${(() => { const cs = SPCredits.state(C); return cs.alert80 ? `<p class="notice">Crédits The Odds API : ${cs.used} consommés, ${cs.remaining} restants ce mois-ci (≥ 80 %). Voir <a href="#credits">Gestion des crédits</a>.</p>` : ''; })()}
+        ${(() => { try { const cv = (SPMyBets.stats().curve || []).map((c) => c.v), peak = Math.max(0, ...cv), last = cv[cv.length - 1]; return cv.length && peak > 0 && (peak - last) / peak >= 0.10 ? '<p class="notice">Bankroll en baisse de 10 % ou plus depuis son sommet : revue complète des performances conseillée avant de continuer (Stats, Erreurs, Fiabilité).</p>' : ''; } catch { return ''; } })()}
         ${!C.oddsKey ? `<form id="quickkey" class="notice onb"><b>Première utilisation, deux étapes :</b>
           <ol><li>Créez une clé gratuite sur <a href="https://the-odds-api.com/#get-access" target="_blank" rel="noopener">the-odds-api.com</a> (offre gratuite, 500 crédits/mois, envoyée par e-mail).</li><li>Collez-la ici :</li></ol>
           <div class="row"><input id="qk" type="password" autocomplete="off" placeholder="clé The Odds API" aria-label="Clé The Odds API"><button class="btn-sec" type="submit">Enregistrer</button></div>
@@ -483,16 +528,16 @@
         </section>
         <section class="card"><h3>Compétitions</h3>
           <div class="g3">
-            <label>Football <select id="c-fscope"><option value="principal" ${C.footballScope !== 'toutes' ? 'selected' : ''}>Compétitions principales (recommandé)</option><option value="toutes" ${C.footballScope === 'toutes' ? 'selected' : ''}>Toutes les compétitions</option></select></label>
-            <label>Basket <select id="c-bscope"><option value="principal" ${C.basketScope !== 'toutes' ? 'selected' : ''}>NBA et Euroleague (recommandé)</option><option value="toutes" ${C.basketScope === 'toutes' ? 'selected' : ''}>Toutes les compétitions</option></select></label>
-            ${chk('c-tennis', C.tennis, 'Tennis : tournois ATP/WTA en cours')}${chk('c-hockey', C.hockey !== false, 'Hockey : NHL')}</div>
+            <label>Football <select id="c-fscope"><option value="toutes" ${C.footballScope !== 'principal' ? 'selected' : ''}>Toutes les compétitions (filtrées par la présélection)</option><option value="principal" ${C.footballScope === 'principal' ? 'selected' : ''}>Compétitions principales seulement</option></select></label>
+            ${chk('c-tennis', C.tennis !== false, 'Tennis : tournois ATP/WTA en cours')}</div>
+          <div class="g3">${n('c-mbud', C.monthlyCredits, 'Budget mensuel de crédits')}${n('c-res', C.creditReserve, 'Réserve protégée (crédits)')}${n('c-pmin', C.prescanMin, 'Score de présélection minimal (/100)')}</div>
           ${n('c-budget', C.creditBudget, 'Budget de crédits par analyse (≈ 2 à 3 par compétition)')}
           <p class="muted">À chaque analyse, l’application récupère gratuitement la liste de toutes les compétitions actives et ne paie que pour celles qui ont des matchs dans les 24 h. Les compétitions où ${C.targetBook === 'winamax_fr' ? 'Winamax' : 'votre bookmaker'} ne propose aucune cote sont mémorisées et ignorées pendant 7 jours. Priorité aux grands championnats, puis aux compétitions avec le plus de matchs.</p>
           ${(() => {
             const sp = D.LS.get('sp:c:odds:sports', null)?.data;
             if (!sp) return '<p class="muted">La liste détaillée apparaîtra après la première analyse.</p>';
             const wmx = D.LS.get('sp:wmx', {});
-            const grp = { Soccer: 'Football', Basketball: 'Basket', 'Ice Hockey': 'Hockey', Tennis: 'Tennis' };
+            const grp = { Soccer: 'Football', Tennis: 'Tennis' };
             return Object.entries(grp).map(([g, lab]) => {
               const L = sp.filter((s) => s.group === g && s.active && !s.has_outrights).sort((x, y) => x.title.localeCompare(y.title));
               if (!L.length) return '';
@@ -640,7 +685,8 @@
         e.preventDefault();
         const C = P.cfg(), v = (id) => $('#' + id).value, c = (id) => $('#' + id).checked;
         C.oddsKey = v('c-odds').trim(); C.claudeKey = v('c-claude').trim(); C.regions = v('c-reg'); C.targetBook = v('c-target');
-        C.footballScope = v('c-fscope'); C.basketScope = v('c-bscope'); C.tennis = c('c-tennis'); C.hockey = c('c-hockey'); C.nba = true;
+        C.footballScope = v('c-fscope'); C.tennis = c('c-tennis');
+        C.monthlyCredits = Math.max(1, parseFloat(v('c-mbud')) || 500); C.creditReserve = Math.max(0, parseFloat(v('c-res')) || 0); C.prescanMin = Math.min(100, Math.max(0, parseFloat(v('c-pmin')) || 60));
         C.creditBudget = Math.max(3, parseFloat(v('c-budget')) || 45);
         const boxes = [...document.querySelectorAll('[data-comp]')];
         // une case cochée hors liste par défaut = ajout ; décochée dans la liste par défaut = exclusion

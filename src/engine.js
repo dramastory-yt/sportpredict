@@ -962,13 +962,60 @@ function SPEngineFactory() {
     return { total: Math.round(parts.reduce((s, p) => s + p.pts, 0)), parts };
   };
   // NIVEAU DE CONFIANCE : seuils de probabilité + conditions de fiabilité (jamais la probabilité seule).
+  // NIVEAU DE CONFIANCE (v3) : très haute ≥ 85 %, haute 78–84, intéressante 70–77, moyenne 60–69, faible < 60.
+  // La probabilité ne suffit pas : sans données fiables (modèle indépendant d'accord avec le marché, incertitude
+  // faible, aucun risque), on plafonne à « intéressante » ; fort désaccord ou données pauvres : « moyenne » au mieux.
   SP.confidence = function (x) {
+    const base = x.p >= 0.85 ? 4 : x.p >= 0.78 ? 3 : x.p >= 0.70 ? 2 : x.p >= 0.60 ? 1 : 0;
     const reliable = x.dataQuality >= 0.55 && x.gap != null && x.gap <= 0.05 && (x.risk || 0) < 2 && x.uncert <= 0.06 && !x.badCalib;
-    if (x.p >= 0.85 && reliable) return 'très haute';
-    if (x.p >= 0.78 && reliable) return 'haute';
-    if (x.p >= 0.70 && x.dataQuality >= 0.35 && (x.gap == null || x.gap <= 0.10) && (x.risk || 0) < 3) return 'intéressante';
-    return 'insuffisante';
+    const weak = x.dataQuality < 0.35 || (x.gap != null && x.gap > 0.10) || (x.risk || 0) >= 3;
+    let lvl = base;
+    if (!reliable) lvl = Math.min(lvl, 2);
+    if (weak) lvl = Math.min(lvl, 1);
+    return ['faible', 'moyenne', 'intéressante', 'haute', 'très haute'][lvl];
   };
+  SP.CONF_RANK = { 'très haute': 5, haute: 4, 'intéressante': 3, moyenne: 2, faible: 1, insuffisante: 1 };
+  // Marchés tennis calculés à partir de l'histogramme simulé (jeux totaux, vainqueur, sets perdus par le vainqueur)
+  SP.tennisSetProb = function (pa, pb) {
+    const ha = SP.holdProb(pa), hb = SP.holdProb(pb), tb = SP.tiebreakProb(pa, pb);
+    const setP = (aFirst) => {
+      const memo = new Map();
+      const g = (x, y) => {
+        if (x === 6 && y <= 4) return 1; if (y === 6 && x <= 4) return 0; if (x === 7) return 1; if (y === 7) return 0;
+        if (x === 6 && y === 6) return tb;
+        const k = x * 10 + y; if (memo.has(k)) return memo.get(k);
+        const aServe = ((x + y) % 2 === 0) === aFirst, pw = aServe ? ha : 1 - hb;
+        const v = pw * g(x + 1, y) + (1 - pw) * g(x, y + 1); memo.set(k, v); return v;
+      };
+      return g(0, 0);
+    };
+    return (setP(true) + setP(false)) / 2;
+  };
+  SP.tennisMarkets = function (sim, spec, A, B) {
+    const G = sim.G, H = sim.hist, tot = H.reduce((s, v) => s + v, 0);
+    const P = (f) => { let s = 0; for (let t = 0; t < G; t++) for (let w = 0; w < 2; w++) for (let l = 0; l < 6; l++) { const c = H[(t * 2 + w) * 6 + l]; if (c && f(t, w, l)) s += c; } return s / tot; };
+    const PM = (f) => { let s = 0, n = 0; sim.marginHist.forEach((c, k) => { n += c; if (f(k - 40)) s += c; }); return s / n; };
+    const bo5 = spec.bestOf === 5, out = [];
+    const lines = bo5 ? [32.5, 34.5, 36.5, 38.5, 40.5] : [18.5, 19.5, 20.5, 21.5, 22.5, 23.5, 24.5, 25.5];
+    for (const L of lines) { const po = P((t) => t > L); out.push({ key: 'TO' + L, label: `Plus de ${String(L).replace('.', ',')} jeux`, type: 'tOver', point: L, p: po }, { key: 'TU' + L, label: `Moins de ${String(L).replace('.', ',')} jeux`, type: 'tUnder', point: L, p: 1 - po }); }
+    for (const h of [2.5, 3.5, 4.5, 5.5]) {
+      out.push({ key: 'HA+' + h, label: `${A} +${String(h).replace('.', ',')} jeux`, type: 'spread', side: 'A', point: h, p: PM((m) => m + h > 0) });
+      out.push({ key: 'HB+' + h, label: `${B} +${String(h).replace('.', ',')} jeux`, type: 'spread', side: 'B', point: h, p: PM((m) => -m + h > 0) });
+      out.push({ key: 'HA-' + h, label: `${A} -${String(h).replace('.', ',')} jeux`, type: 'spread', side: 'A', point: -h, p: PM((m) => m - h > 0) });
+      out.push({ key: 'HB-' + h, label: `${B} -${String(h).replace('.', ',')} jeux`, type: 'spread', side: 'B', point: -h, p: PM((m) => -m - h > 0) });
+    }
+    const need = bo5 ? 3 : 2;
+    out.push({ key: 'BOTHSET', label: 'Chaque joueur gagne au moins un set', type: 'bothSets', p: P((t, w, l) => l >= 1) });
+    out.push({ key: 'SETS2', label: bo5 ? 'Match en 3 sets' : 'Match en 2 sets', type: 'straight', p: P((t, w, l) => l === 0) });
+    out.push({ key: 'A' + need + '0', label: `${A} gagne ${need}-0`, type: 'exactSetsA0', p: P((t, w, l) => w === 1 && l === 0) });
+    out.push({ key: 'B' + need + '0', label: `${B} gagne ${need}-0`, type: 'exactSetsB0', p: P((t, w, l) => w === 0 && l === 0) });
+    out.push({ key: 'AWINSET', label: `${A} gagne au moins un set`, type: 'aWinSet', p: P((t, w, l) => w === 1 || l >= 1) });
+    out.push({ key: 'BWINSET', label: `${B} gagne au moins un set`, type: 'bWinSet', p: P((t, w, l) => w === 0 || l >= 1) });
+    const s1 = SP.tennisSetProb(spec.pa, spec.pb);
+    out.push({ key: 'SET1A', label: `${A} gagne le 1er set`, type: 'set1A', p: s1 }, { key: 'SET1B', label: `${B} gagne le 1er set`, type: 'set1B', p: 1 - s1 });
+    return out;
+  };
+
   SP.isStrong = (conf) => conf === 'très haute' || conf === 'haute';
   // fiabilité suffisante (indépendamment du seuil de probabilité)
   SP.isReliable = (x) => x.dataQuality >= 0.55 && x.gap != null && x.gap <= 0.05 && (x.risk || 0) < 2 && x.uncert <= 0.06 && !x.badCalib;

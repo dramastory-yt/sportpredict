@@ -106,6 +106,10 @@ near(SP.tennisMatchProb(sv.pa, sv.pb, 3), 0.7, 1e-4, 'résolution service');
 const ts = SP.simulate({ kind: 'tennis', pa: sv.pa, pb: sv.pb, sigmaD: 0.0001, bestOf: 3, seed: 5, minN: 200000, maxN: 200000, keyEvent: (a, b, w) => w === 1 });
 near(ts.key.p, 0.7, 0.01, 'MC tennis ≈ analytique (écart toléré : ordre de service)');
 const tot = SP.evalFromSim(ts, SP.normalizeSel({ type: 'tOver', point: 21.5 }), 1.9);
+const tm = SP.tennisMarkets(ts, { pa: sv.pa, pb: sv.pb, bestOf: 3 }, 'A', 'B');
+near(tm.find((m) => m.key === 'TO21.5').p, tot.pWin, 1e-9, 'marchés tennis : total de jeux cohérent');
+near(tm.find((m) => m.key === 'A20').p + tm.find((m) => m.key === 'B20').p + tm.find((m) => m.key === 'BOTHSET').p, 1, 1e-9, 'marchés tennis : sets cohérents');
+ok(Math.abs(tm.find((m) => m.key === 'SET1A').p - 0.5) < 0.2 && tm.find((m) => m.key === 'SET1A').p > 0.5, 'tennis : favori du 1er set');
 ok(tot.pWin > 0.2 && tot.pWin < 0.8, 'total de jeux plausible ' + tot.pWin.toFixed(3));
 
 // --- NBA
@@ -168,8 +172,11 @@ near(ns.key.p, SP.normCdf(5 / 12.5), 0.015, 'MC NBA ≈ Φ(marge/σ)');
 // --- score qualité
 const q = SP.qualityScore({ edge: 0.04, priceEdge: 0.04, p: 0.6, fairMkt: 0.58, uncert: 0.015, modelGap: 0.02, dataQuality: 0.8, calib: 0.5, mcSpread: 0.05, simCI: 0.002, oddsAgeMin: 5, booksAtPrice: 2, riskPenalty: 0, odds: 1.85 });
 ok(SP.confidence({ p: 0.86, dataQuality: 0.7, gap: 0.02, risk: 0, uncert: 0.03 }) === 'très haute', 'confiance très haute');
+ok(SP.confidence({ p: 0.65, dataQuality: 0.7, gap: 0.02, risk: 0, uncert: 0.03 }) === 'moyenne', 'confiance moyenne 60-69 %');
+ok(SP.confidence({ p: 0.55, dataQuality: 0.7, gap: 0.02, risk: 0, uncert: 0.03 }) === 'faible', 'confiance faible < 60 %');
 ok(!SP.isStrong(SP.confidence({ p: 0.86, dataQuality: 0.3, gap: null, risk: 0, uncert: 0.03 })), 'pas de confiance haute sans modèle indépendant');
 ok(SP.confidence({ p: 0.80, dataQuality: 0.7, gap: 0.09, risk: 0, uncert: 0.03 }) === 'intéressante', 'désaccord des modèles : confiance réduite');
+ok(SP.confidence({ p: 0.90, dataQuality: 0.7, gap: 0.15, risk: 0, uncert: 0.03 }) === 'moyenne', 'fort désaccord : moyenne au mieux');
 ok(SP.reliability({ dataQuality: 0.8, nHist: 600, calib: 0.6, mcSpread: 0.03, paramSd: 0.02 }).total > 60, 'fiabilité modèle');
 ok(q.total > 50 && q.total <= 100 && q.parts.length === 8, 'score qualité ' + q.total);
 
