@@ -156,12 +156,13 @@
   // MISES (v3) — très haute + value confirmée : 1 % ; très haute : 0,75 % ; haute : 0,75 % ; intéressante : 0,5 % ;
   // moyenne : aucune ; faible : rejet. Plafond strict 1 % par sélection. Quart de Kelly en indicateur (sans dépasser).
   // EV négative ou insuffisante : 0. Exposition : alerte 5 %, plafond strict 5 %. Un seul pari par match.
-  function stakeInfo({ conf, kind, p, odds, pPush, uncert, verify, eventId }) {
+  function stakeInfo({ conf, kind, p, odds, pPush, uncert, verify, eventId, fallback }) {
     const C = P.cfg(), B = curBank();
     const ev = odds != null ? p * odds + (pPush || 0) - 1 : null;
     let pct0 = 0, why = '';
     const pend = (() => { try { return SPMyBets.bets().filter((b) => b.status === 'en attente'); } catch { return []; } })();
     if (eventId && pend.some((b) => b.eventId === eventId)) why = 'aucune mise : vous avez déjà un pari en cours sur ce match';
+    else if (fallback && (verify || (ev != null && ev > -0.06))) { pct0 = conf === 'faible' ? 0.0015 : 0.0025; why = `meilleur pari disponible (confiance ${conf}) : mise réduite à ${(pct0 * 100).toFixed(2).replace(/\.?0+$/, '')} %${verify ? ', seulement si la cote Winamax atteint le minimum indiqué' : ''}`; }
     else if (conf === 'faible') why = 'rejet : confiance faible';
     else if (conf === 'moyenne') why = 'aucune mise recommandée : confiance moyenne';
     else if (!verify && (ev == null || ev < 0.01)) why = 'aucune mise : espérance de gain négative ou insuffisante à cette cote';
@@ -194,15 +195,15 @@
     if (!d) return `<section class="card nobet"><h3>AUCUNE SÉLECTION SUFFISAMMENT FIABLE</h3><p>Tous les matchs et marchés disponibles ont été explorés : aucun ne réunit une confiance suffisante et une cote acceptable. Ne rien parier aujourd’hui est une bonne décision.</p>
       ${A.dailyAlt ? `<p class="muted">Pour information seulement (confiance ${esc(A.dailyAlt.conf)}, non recommandé) : ${esc(A.dailyAlt.match)} · ${esc(A.dailyAlt.label)} · ${pct(A.dailyAlt.p)}</p>` : ''}</section>`;
     const pk = d.pick, u = d.uncert ?? 0.03;
-    const si = stakeInfo({ conf: d.confidence, kind: d.kind === 'value' ? 'value' : 'sûr', p: pk.p, odds: pk.odds, pPush: pk.pPush, uncert: u, verify: pk.odds == null, eventId: d.eventId });
+    const si = stakeInfo({ conf: d.confidence, kind: d.kind === 'value' ? 'value' : 'sûr', p: pk.p, odds: pk.odds, pPush: pk.pPush, uncert: u, verify: pk.odds == null, eventId: d.eventId, fallback: d.status === 'meilleur disponible' });
     const minOk = minAcceptable(pk.p, u, pk.pPush);
     const lo = Math.max(0, pk.p - 1.96 * u), hi = Math.min(1, pk.p + 1.96 * u);
     const lvlTag = d.level === 'bon' ? '<span class="tag t-ok">bon pronostic</span>' : d.level === 'correct' ? '<span class="tag t-warn">pronostic correct</span>' : d.level === 'prudent' ? '<span class="tag t-na">pronostic prudent</span>' : '';
     const kindTag = lvlTag + ({ 'sûr-verif': '<span class="tag t-warn">cote à vérifier sur Winamax</span>', 'sûr': '<span class="tag t-ok">haute probabilité · cote correcte</span>', value: '<span class="tag t-ok">VALUE</span>' }[d.kind] || '');
     const up = d.uncParts;
     return `<section class="card pick big daily">
-      <div class="eyebrow">PRONOSTIC DU JOUR · ${d.status === 'prioritaire' ? 'PARI PRIORITAIRE' : 'PARI ALTERNATIF'}</div>
-      <p class="headline"><b>${esc(d.verdict || '')}</b>${d.status === 'alternatif' ? ' <span class="tag t-warn">non recommandé automatiquement à la mise</span>' : ''}</p>
+      <div class="eyebrow">PRONOSTIC DU JOUR · ${d.status === 'prioritaire' ? 'PARI PRIORITAIRE' : d.status === 'alternatif' ? 'PARI ALTERNATIF' : 'MEILLEUR PARI DISPONIBLE'}</div>
+      <p class="headline"><b>${esc(d.verdict || '')}</b>${d.status === 'alternatif' ? ' <span class="tag t-warn">non recommandé automatiquement à la mise</span>' : d.status === 'meilleur disponible' ? ' <span class="tag t-warn">aucun pari très fiable aujourd’hui : c’est le plus solide trouvé</span>' : ''}</p>
       <header><div><span class="sport s-${d.sport}">${SPORT[d.sport]}</span> <span class="muted">${esc(d.comp)}</span></div><div class="when">${dt(d.t)}</div></header>
       <h3>${esc(d.match)}</h3>
       <div class="sel"><span class="mk">${MKT[pk.market] || 'marché calculé'}</span><b>${esc(pk.label)}</b> ${kindTag} ${confTag(d.confidence)}${pk.nearThreshold ? ' <span class="tag t-warn">proche du seuil</span>' : ''}</div>

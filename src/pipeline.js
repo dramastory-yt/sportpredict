@@ -133,7 +133,7 @@ onmessage = (e) => {
             P.potentiel = 15 * Math.max(0, Math.min(1, (maxP - 0.55) / 0.25));
             P.stabilite = 15 * Math.min(1, Math.min(a.n, b.n) / 40);
             m.maxP = maxP;
-          } else { P.stats = 0; P.interet = 5; P.potentiel = 3; P.stabilite = 3; m.note = 'joueur(s) absent(s) des données Elo'; }
+          } else { P.stats = a || b ? 10 : 4; P.interet = 10; P.potentiel = 8; P.stabilite = 6; m.note = 'joueur(s) absent(s) des données Elo : cotes du marché utilisées'; }
           P.fiabilite = ctx.surfaceVerified ? 15 : 9;
           P.competition = /aus_open|french_open|wimbledon|us_open|masters|finals|1000/i.test(x.key + (titles[x.key] || '')) ? 10 : 7;
         }
@@ -641,13 +641,19 @@ onmessage = (e) => {
     const LD0 = await D.localData();
     const pre = prescan(withCount, evLists, LD0, titles);
     A.prescan = pre.matches.slice(0, 60);
+    // garantie : on interroge toujours au moins les 3 meilleures compétitions de football et les 2 meilleures de tennis,
+    // même sous le seuil (sinon un joueur absent des données Elo suffit à écarter tout un tournoi).
+    const guaranteed = new Set();
+    for (const [g, n] of [['football', 3], ['tennis', 2]]) {
+      withCount.filter((x) => x.group === g && x.n > 0).sort((a2, b2) => (pre.byComp[b2.key] ?? 0) - (pre.byComp[a2.key] ?? 0)).slice(0, n).forEach((x) => guaranteed.add(x.key));
+    }
     const plan = withCount.filter((x) => {
       if (x.n === 0) { skippedNoEvents++; return false; }
       const w = wmx[x.key];
       if (C.targetBook && w && w.has === false && Date.now() - w.at < 7 * 86400e3) { skippedNoTarget++; return false; }
       const best = pre.byComp[x.key] ?? 0;
       x.best = best;
-      if (best < C.prescanMin && !(C.included || []).includes(x.key)) { skippedLowScore.push(titles[x.key] || x.key); return false; }
+      if (best < C.prescanMin && !guaranteed.has(x.key) && !(C.included || []).includes(x.key)) { skippedLowScore.push(titles[x.key] || x.key); return false; }
       return true;
     }).sort((a, b) => (b.best - a.best) || ((b.n ?? 1) - (a.n ?? 1)));
     // budget mensuel : on ne dépasse jamais budget − réserve
@@ -1036,18 +1042,18 @@ onmessage = (e) => {
       const eventGap = (E) => E.sport === 'football' ? (E.model?.st?.p1x2 && E.model.models?.[0]?.p1x2 ? Math.abs(E.model.st.p1x2[0] - E.model.models[0].p1x2[0]) : null)
         : E.sport === 'tennis' ? (E.model?.pEloA != null ? Math.abs(E.model.pEloA - (E.model.models?.[0]?.pA ?? 0.5)) : null) : null;
       const plain = (k) => ({ label: k.label, odds: k.odds, minOdds: k.minOdds ?? null, p: k.p, ev: k.ev, conf: k.conf, cat: k.cat, why: k.why || null, src: k.src });
-      const allOk = [];
+      const allOk = [], allCands = [];
       for (const E of events) {
         if (E.skip || !E.forecast || E.t <= Date.now() + 15 * 60e3) continue;
         const cands = [];
-        for (const c of scored.filter((x) => x.E === E && !x.s.noTarget && x.p != null && x.best.price >= C.minOdds && x.best.price <= C.maxOdds)) {
+        for (const c of scored.filter((x) => x.E === E && !x.s.noTarget && x.p != null && x.best.price >= C.minOdds && x.best.price <= Math.max(C.maxOdds, 3))) {
           cands.push({ E, src: 'api', c, label: c.s.label, type: c.s.type, point: c.s.point, market: c.s.mkey, odds: c.best.price, book: c.best.title, oddsAt: c.best.last, p: c.p, pPush: c.pPush, ev: c.ev, priceEdge: c.priceEdge, edge: c.edge, uncert: c.uncert, uncParts: c.uncParts, conf: c.conf, rel: c.rel, q: c.q, anomaly: c.anomaly, valueOk: c.check.ok, modelGap: c.modelGap });
         }
         const g = eventGap(E);
         for (const m of (E.forecast.markets || []).filter((x) => !x.real && !x.risky)) {
           const u = 0.03 + (1 - (E.model.dataQuality ?? 0.3)) * 0.02;
           const minOk = Math.ceil(((1 + C.minEV - (m.pPush || 0)) / Math.max(0.01, m.p - u)) * 100) / 100;
-          if (minOk < C.minOdds || minOk > C.maxOdds) continue;
+          if (minOk < C.minOdds || minOk > C.maxOdds) { if (minOk >= 1.15 && minOk <= 3) allCands.push({ E, src: 'calc', label: m.label, type: m.type, point: m.point, side: m.side, market: 'calculé', odds: null, minOdds: minOk, fair: m.fair, p: m.p, pPush: m.pPush || 0, ev: null, uncert: u, conf: confOf(E, m.p, g, u), toVerify: true, modelGap: g }); continue; }
           cands.push({ E, src: 'calc', label: m.label, type: m.type, point: m.point, side: m.side, market: 'calculé', odds: null, minOdds: minOk, fair: m.fair, p: m.p, pPush: m.pPush || 0, ev: null, uncert: u, conf: confOf(E, m.p, g, u), toVerify: true, modelGap: g });
         }
         for (const k of cands) {
@@ -1058,6 +1064,7 @@ onmessage = (e) => {
           else if (R[k.conf] >= 3 && (k.src === 'calc' || k.ev >= -0.02)) k.cat = 'alternatif';
           else { k.cat = 'à éviter'; k.why = R[k.conf] < 3 ? `confiance ${k.conf}` : 'cote trop basse par rapport à la vraie valeur'; }
         }
+        allCands.push(...cands.filter((k) => !k.anomaly));
         const api = cands.filter((k) => k.src === 'api' && !k.anomaly);
         const ok = cands.filter((k) => k.cat !== 'à éviter');
         const bal = (k) => k.p + 2 * Math.min(0.1, k.ev ?? 0);
@@ -1075,7 +1082,11 @@ onmessage = (e) => {
       const order = (x, y) => R[y.conf] - R[x.conf] || ((y.ev ?? 0) - (x.ev ?? 0)) || y.p - x.p;
       const prio = allOk.filter((k) => k.cat === 'prioritaire').sort(order)[0];
       const alt = allOk.filter((k) => k.cat === 'alternatif').sort(order)[0];
-      const k = prio || alt;
+      // dernier recours : l'utilisateur veut toujours un pari. On prend la sélection la plus sûre parmi tout ce qui
+      // a été exploré (probabilité d'abord, en écartant les cotes négligeables), étiquetée clairement.
+      const fbScore = (x) => x.p * (x.src === 'api' ? 1 : 0.97) + Math.min(0.05, Math.max(-0.05, x.ev ?? 0));
+      const fallback = !prio && !alt ? allCands.filter((x) => (x.odds ?? x.minOdds) >= 1.15).sort((x, y) => fbScore(y) - fbScore(x))[0] : null;
+      const k = prio || alt || fallback;
       // la liste « Analyse du jour » suit le même classement
       const bestOf = (E) => (E.explore ? [E.explore.bestBalance].filter(Boolean)[0] : null);
       const evOrder = new Map(events.filter((E) => E.explore?.bestBalance).sort((x, y) => order(bestOf(x), bestOf(y))).map((E, i) => [E.id, i]));
@@ -1083,9 +1094,9 @@ onmessage = (e) => {
         .sort((x, y) => (evOrder.get(x.eventId) ?? 999) - (evOrder.get(y.eventId) ?? 999));
       if (k) {
         const E = k.E, f = E.forecast;
-        const status = prio ? 'prioritaire' : 'alternatif';
+        const status = prio ? 'prioritaire' : alt ? 'alternatif' : 'meilleur disponible';
         if (k.E.id) A.forecasts.sort((x, y) => (y.eventId === E.id) - (x.eventId === E.id));
-        const verdict = prio ? (k.conf === 'très haute' && k.src === 'api' && k.ev >= C.minEV ? 'Très bon profil statistique' : 'Sélection intéressante')
+        const verdict = !prio && !alt ? 'Meilleur pari disponible, mise réduite' : prio ? (k.conf === 'très haute' && k.src === 'api' && k.ev >= C.minEV ? 'Très bon profil statistique' : 'Sélection intéressante')
           : (k.p >= 0.78 && k.src === 'api' && (k.ev ?? 0) < C.minEV) ? 'Probabilité élevée mais value insuffisante'
           : (k.src === 'api' && k.ev >= C.minEV) ? 'Value intéressante mais risque important' : 'Mise réduite conseillée';
         const kind = k.toVerify ? 'sûr-verif' : (k.src === 'api' && k.ev >= C.minEV && k.valueOk ? 'value' : 'sûr');
