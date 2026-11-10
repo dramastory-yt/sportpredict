@@ -192,6 +192,15 @@
   }
   function dailyCard(A) {
     const d = A.daily;
+    if (!d && !A.counts?.analysed) {
+      const cs = SPCredits.state(P.cfg()), cov = A.coverage || {};
+      const why = [];
+      if (cs.remaining <= 0) why.push(`vos crédits The Odds API du mois sont épuisés (${cs.used} utilisés) : ils se rechargent le 1er du mois`);
+      else if (cov.overBudget?.length) why.push(`${cov.overBudget.length} compétition(s) non interrogée(s) faute de crédits (${cs.remaining} restants, réserve ${cs.reserve})`);
+      if (cov.scanned === 0) why.push('aucune compétition de football ou de tennis active dans les 48 h');
+      for (const e of (A.errors || []).slice(0, 4)) why.push(e);
+      return `<section class="card nobet"><h3>AUCUN MATCH N’A PU ÊTRE ANALYSÉ</h3><p>L’analyse n’a récupéré aucune cote, donc aucun pari ne peut être proposé. Raison${why.length > 1 ? 's' : ''} :</p><ul>${why.map((w) => `<li>${esc(w)}</li>`).join('') || '<li>inconnue : ouvrez « Détails de l’analyse » plus bas</li>'}</ul><p><a href="#credits">Voir la gestion des crédits ›</a></p></section>`;
+    }
     if (!d) return `<section class="card nobet"><h3>AUCUNE SÉLECTION SUFFISAMMENT FIABLE</h3><p>Tous les matchs et marchés disponibles ont été explorés : aucun ne réunit une confiance suffisante et une cote acceptable. Ne rien parier aujourd’hui est une bonne décision.</p>
       ${A.dailyAlt ? `<p class="muted">Pour information seulement (confiance ${esc(A.dailyAlt.conf)}, non recommandé) : ${esc(A.dailyAlt.match)} · ${esc(A.dailyAlt.label)} · ${pct(A.dailyAlt.p)}</p>` : ''}</section>`;
     const pk = d.pick, u = d.uncert ?? 0.03;

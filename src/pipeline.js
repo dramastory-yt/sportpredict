@@ -97,7 +97,7 @@ onmessage = (e) => {
     for (const x of withCount) {
       for (const ev of evLists[x.key] || []) {
         if (!(Date.parse(ev.commence_time) > Date.now())) continue;
-        const m = { key: x.key, comp: D.FOOTBALL[x.key]?.name || titles[x.key] || x.key, home: ev.home_team, away: ev.away_team, t: Date.parse(ev.commence_time), parts: {}, sport: x.group };
+        const m = { id: ev.id, key: x.key, comp: D.FOOTBALL[x.key]?.name || titles[x.key] || x.key, home: ev.home_team, away: ev.away_team, t: Date.parse(ev.commence_time), parts: {}, sport: x.group };
         const P = m.parts;
         if (x.group === 'football') {
           const rows = LD.football?.leagues?.[x.key];
@@ -119,6 +119,9 @@ onmessage = (e) => {
             const sd = (SP.sd(gd(mh.name)) + SP.sd(gd(ma.name))) / 2;
             P.stabilite = 15 * Math.max(0, Math.min(1, 1 - (sd - 0.8) / 1.7));
             m.maxP = maxP;
+            m.opts = [{ label: `Double chance ${m.home} ou nul`, type: 'dc1X', p: ph + pd }, { label: `Double chance nul ou ${m.away}`, type: 'dcX2', p: pd + pa },
+              { label: 'Plus de 1,5 buts', type: 'over', point: 1.5, p: probs[2] }, { label: 'Moins de 3,5 buts', type: 'under', point: 3.5, p: probs[3] },
+              { label: `${m.home} gagne`, type: 'home', p: ph, market: 'h2h' }, { label: `${m.away} gagne`, type: 'away', p: pa, market: 'h2h' }];
           } else { P.stats = 0; P.interet = 5; P.potentiel = 3; P.fiabilite = 5; P.stabilite = 5; m.note = 'pas de statistiques gratuites pour cette compétition'; }
           P.competition = FOOT_MAIN.has(x.key) ? 10 : rows ? 8 : 4;
         } else if (x.group === 'tennis') {
@@ -133,6 +136,7 @@ onmessage = (e) => {
             P.potentiel = 15 * Math.max(0, Math.min(1, (maxP - 0.55) / 0.25));
             P.stabilite = 15 * Math.min(1, Math.min(a.n, b.n) / 40);
             m.maxP = maxP;
+            m.opts = [{ label: `${m.home} gagne`, type: 'home', p: pA, market: 'h2h' }, { label: `${m.away} gagne`, type: 'away', p: 1 - pA, market: 'h2h' }];
           } else { P.stats = a || b ? 10 : 4; P.interet = 10; P.potentiel = 8; P.stabilite = 6; m.note = 'joueur(s) absent(s) des données Elo : cotes du marché utilisées'; }
           P.fiabilite = ctx.surfaceVerified ? 15 : 9;
           P.competition = /aus_open|french_open|wimbledon|us_open|masters|finals|1000/i.test(x.key + (titles[x.key] || '')) ? 10 : 7;
@@ -663,10 +667,16 @@ onmessage = (e) => {
     for (let i = 0; i < plan.length; i++) {
       const x = plan[i];
       // marchés : complets pour les majeures, vainqueur + total pour les autres (2 crédits au lieu de 3)
-      const markets = C.markets; // vainqueur, totaux, handicaps : nécessaires à l'exploration des marchés
+      // crédits bas : on passe au seul marché vainqueur (1 crédit) et on peut entamer la réserve pour les compétitions garanties
+      const low = !SPCredits.canSpend(C, C.markets.split(',').length * nRegions);
+      const markets = low ? 'h2h' : C.markets;
       const cost = markets.split(',').length * nRegions;
       if (spent + cost > C.creditBudget) { skippedBudget.push(titles[x.key] || x.key); continue; }
-      if (!SPCredits.canSpend(C, cost)) { skippedBudget.push((titles[x.key] || x.key) + ' (budget mensuel protégé)'); continue; }
+      if (low) {
+        const rem = SPCredits.state(C).remaining;
+        if (!guaranteed.has(x.key) || rem - cost < 0) { skippedBudget.push((titles[x.key] || x.key) + (rem - cost < 0 ? ' (crédits épuisés)' : ' (réserve de crédits protégée)')); continue; }
+        if (!A.lowCredits) { A.lowCredits = rem; A.errors.push(`Crédits presque épuisés (${rem} restants) : analyse minimale, marché vainqueur seulement, réserve entamée.`); }
+      }
       if (opts.onlyKeys && !opts.onlyKeys.has(x.key)) continue;
       S.progress(0, i, plan.length, titles[x.key]);
       const r = await D.oddsFor(C.oddsKey, x.key, { regions: C.regions, markets, hours, ttlMin: opts.force ? 0 : 10 });
@@ -1087,6 +1097,23 @@ onmessage = (e) => {
       const fbScore = (x) => x.p * (x.src === 'api' ? 1 : 0.97) + Math.min(0.05, Math.max(-0.05, x.ev ?? 0));
       const fallback = !prio && !alt ? allCands.filter((x) => (x.odds ?? x.minOdds) >= 1.15).sort((x, y) => fbScore(y) - fbScore(x))[0] : null;
       const k = prio || alt || fallback;
+      if (!k) {
+        // aucune cote exploitable (crédits épuisés, API en erreur…) : pronostic tiré des données gratuites de la présélection
+        const opts = [];
+        for (const m of pre.matches) for (const o of m.opts || []) if (m.t > Date.now() + 15 * 60e3 && o.p >= 0.55 && o.p <= 0.9) opts.push({ m, o });
+        opts.sort((x, y) => (y.o.p + 0.002 * y.m.score) - (x.o.p + 0.002 * x.m.score));
+        const best = opts[0];
+        if (best) {
+          const { m, o } = best, u = 0.05;
+          const minOdds = Math.ceil(((1 + C.minEV) / Math.max(0.01, o.p - u)) * 100) / 100;
+          const conf = o.p >= 0.6 ? 'moyenne' : 'faible';
+          A.daily = { status: 'meilleur disponible', level: 'meilleur disponible', kind: 'sûr-verif', verdict: 'Meilleur pari disponible, sans cote vérifiée', eventId: m.id, sport: m.sport, sportKey: m.key, comp: m.comp,
+            match: `${m.home} – ${m.away}`, home: m.home, away: m.away, t: m.t, quality: null, reliability: null, uncert: u, confidence: conf, headline: 'Estimation à partir des données gratuites',
+            pick: { label: o.label, type: o.type, point: o.point ?? null, market: o.market || 'calculé', odds: null, book: 'Winamax', p: o.p, pPush: 0, ev: null, value: false, uncert: u, minOdds, fair: 1 / o.p, reliable: false, toVerify: true, level: 'meilleur disponible' },
+            why: [`Probabilité estimée ${(o.p * 100).toFixed(0)} % par ${m.sport === 'tennis' ? 'le classement Elo des joueurs' : 'le modèle Dixon-Coles sur les résultats de la saison'}.`, `Score de pertinence du match : ${m.score}/100.`, `Aucune cote n'a pu être récupérée pour cette analyse : jouez ce pari seulement si Winamax propose au moins ${minOdds.toFixed(2)}.`],
+            warnings: ['Pronostic sans cote de marché : il n’a pas été confronté aux cotes des bookmakers, prudence.'], dataNote: 'données gratuites (football-data.co.uk, Elo tennis)' };
+        }
+      }
       // la liste « Analyse du jour » suit le même classement
       const bestOf = (E) => (E.explore ? [E.explore.bestBalance].filter(Boolean)[0] : null);
       const evOrder = new Map(events.filter((E) => E.explore?.bestBalance).sort((x, y) => order(bestOf(x), bestOf(y))).map((E, i) => [E.id, i]));
@@ -1113,7 +1140,7 @@ onmessage = (e) => {
         const rel = k.rel || SP.reliability({ dataQuality: E.model.dataQuality, dataNote: E.model.statsNote, nHist: E.model.nHist, calib: E.model.calib, mcSpread: 0.05, paramSd: k.uncert });
         A.daily = { status, verdict, opinion, level: status, kind, eventId: E.id, sport: E.sport, sportKey: E.sportKey, comp: E.comp, match: `${E.home} – ${E.away}`, home: E.home, away: E.away, t: E.t, day: E.day,
           quality: k.q || null, reliability: rel, uncert: k.uncert, uncParts: k.uncParts || null, edge: k.edge ?? null, oddsAt: k.oddsAt ?? null, confidence: k.conf, headline: f.headline, pick, why, warnings: E.warnings, dataNote: f.dataNote };
-      } else { A.daily = null; A.dailyVerdict = 'Aucune sélection suffisamment fiable'; }
+      } else if (!A.daily) { A.daily = null; A.dailyVerdict = 'Aucune sélection suffisamment fiable'; }
     }
     A.events = events.map(slimEvent);
     A.finishedAt = Date.now();
