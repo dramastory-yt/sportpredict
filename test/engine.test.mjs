@@ -111,6 +111,7 @@ near(tm.find((m) => m.key === 'TO21.5').p, tot.pWin, 1e-9, 'marchés tennis : to
 near(tm.find((m) => m.key === 'A20').p + tm.find((m) => m.key === 'B20').p + tm.find((m) => m.key === 'BOTHSET').p, 1, 1e-9, 'marchés tennis : sets cohérents');
 ok(Math.abs(tm.find((m) => m.key === 'SET1A').p - 0.5) < 0.2 && tm.find((m) => m.key === 'SET1A').p > 0.5, 'tennis : favori du 1er set');
 ok(tot.pWin > 0.2 && tot.pWin < 0.8, 'total de jeux plausible ' + tot.pWin.toFixed(3));
+ok(!tm.some((m) => m.type === 'spread' && m.side === 'A' && m.point > 0) && !tm.some((m) => m.key === 'AWINSET'), 'tennis : pas de « favori +X jeux » ni « favori gagne un set » (non proposés par Winamax)');
 
 // --- NBA
 const nt = Array.from({ length: 30 }, (_, i) => 'N' + i);

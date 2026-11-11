@@ -1013,7 +1013,17 @@ function SPEngineFactory() {
     out.push({ key: 'BWINSET', label: `${B} gagne au moins un set`, type: 'bWinSet', p: P((t, w, l) => w === 0 || l >= 1) });
     const s1 = SP.tennisSetProb(spec.pa, spec.pb);
     out.push({ key: 'SET1A', label: `${A} gagne le 1er set`, type: 'set1A', p: s1 }, { key: 'SET1B', label: `${B} gagne le 1er set`, type: 'set1B', p: 1 - s1 });
-    return out;
+    // Ne garder que ce que Winamax propose réellement : handicap négatif pour le favori / positif pour l'outsider,
+    // lignes proches de l'équilibre (pas de « favori +5,5 jeux »), totaux autour de la ligne principale,
+    // et pas de « le favori gagne au moins un set » (marché non proposé).
+    const favA = P((t, w) => w === 1) >= 0.5;
+    return out.filter((m) => {
+      if (m.type === 'spread') return (m.side === 'A') === favA ? m.point < 0 && m.p >= 0.3 && m.p <= 0.8 : m.point > 0 && m.p >= 0.3 && m.p <= 0.8;
+      if (m.type === 'tOver' || m.type === 'tUnder') return m.p >= 0.3 && m.p <= 0.8;
+      if (m.type === 'aWinSet') return !favA;
+      if (m.type === 'bWinSet') return favA;
+      return true;
+    });
   };
 
   SP.isStrong = (conf) => conf === 'très haute' || conf === 'haute';

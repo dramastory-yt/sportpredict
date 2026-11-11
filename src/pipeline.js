@@ -1191,8 +1191,7 @@ onmessage = (e) => {
       ['HO15', `${E.home} gagne et plus de 1,5 buts`, 'homeAndOver15', null], ['AO15', `${E.away} gagne et plus de 1,5 buts`, 'awayAndOver15', null],
       ['HBT', `${E.home} gagne et les deux équipes marquent`, 'homeAndBtts', null], ['ABT', `${E.away} gagne et les deux équipes marquent`, 'awayAndBtts', null],
       ['1NU35', `${E.home} ou nul et moins de 3,5 buts`, 'dc1XAndUnder35', null], ['N2U35', `Nul ou ${E.away} et moins de 3,5 buts`, 'dcX2AndUnder35', null],
-      ['AH1-1', `Handicap ${E.home} -1 (remboursé si 1 but d’écart)`, 'ahHome', -1], ['AH2-1', `Handicap ${E.away} -1 (remboursé si 1 but d’écart)`, 'ahAway', -1],
-      ['AH1+1', `Handicap ${E.home} +1`, 'ahHome', 1], ['AH2+1', `Handicap ${E.away} +1`, 'ahAway', 1],
+      // pas de handicaps asiatiques ±1 : Winamax ne les propose pas
     ];
     // trois scores exacts les plus probables (jamais en pari sûr)
     const sc = [];
