@@ -235,6 +235,7 @@
       ${d.quality ? `<details><summary>Score de qualité : les 8 composantes</summary><div class="parts">${d.quality.parts.map((x) => `<div class="sp"><span>${esc(x.name)}</span><span class="bar"><i style="width:${x.pts / x.max * 100}%"></i></span><b>${x.pts.toFixed(0)}/${x.max}</b><small>${esc(x.why)}</small></div>`).join('')}</div></details>` : ''}
       <p class="muted"><small>Sources : ${esc(d.dataNote || '')} · cotes The Odds API.</small></p>
       ${si.stake > 0 ? betBtn({ source: 'daily', eventId: d.eventId, sport: d.sport, sportKey: d.sportKey, comp: d.comp, match: d.match, home: d.home, away: d.away, t: d.t, label: pk.label, type: pk.type, point: pk.point, market: pk.market, odds: pk.odds, book: pk.book, p: pk.p, value: pk.value, conf: d.confidence, suggested: si.stake }) : ''}
+      ${d.status === 'meilleur disponible' && A.dailyBackups?.length ? `<h4>Si ce pari n’est pas proposé sur Winamax</h4><ul>${A.dailyBackups.map((x) => `<li><b>${esc(x.match)}</b> <small class="muted">${esc(x.comp)} · ${dt(x.t)}</small><br>${esc(x.label)} · ${x.odds != null ? '@ ' + num(x.odds) + ' (cote Winamax relevée)' : 'à jouer si cote ≥ ' + num(x.minOdds)} · ${pct(x.p)} · confiance ${esc(x.conf)}</li>`).join('')}</ul>` : ''}
       <p class="muted"><small>Vérifiez la cote sur Winamax avant de parier ; si elle est sous ${num(minOk)} ou si le match a commencé, abstenez-vous.</small></p>
     </section>`;
   }

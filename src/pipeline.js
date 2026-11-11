@@ -1095,15 +1095,27 @@ onmessage = (e) => {
       // dernier recours : l'utilisateur veut toujours un pari. On prend la sélection la plus sûre parmi tout ce qui
       // a été exploré (probabilité d'abord, en écartant les cotes négligeables), étiquetée clairement.
       const fbScore = (x) => x.p * (x.src === 'api' ? 1 : 0.97) + Math.min(0.05, Math.max(-0.05, x.ev ?? 0));
-      const fallback = !prio && !alt ? allCands.filter((x) => (x.odds ?? x.minOdds) >= 1.15).sort((x, y) => fbScore(y) - fbScore(x))[0] : null;
+      // priorité aux paris dont la cote Winamax est réellement relevée (donc forcément proposés par Winamax)
+      const fbPool = allCands.filter((x) => (x.odds ?? x.minOdds) >= 1.15).sort((x, y) => (y.src === 'api') - (x.src === 'api') || fbScore(y) - fbScore(x));
+      const fallback = !prio && !alt ? fbPool[0] : null;
+      if (fallback) {
+        const seen = new Set([fallback.E.id]);
+        A.dailyBackups = fbPool.filter((x) => !seen.has(x.E.id) && seen.add(x.E.id)).slice(0, 3)
+          .map((x) => ({ match: `${x.E.home} – ${x.E.away}`, comp: x.E.comp, t: x.E.t, label: x.label, odds: x.odds, minOdds: x.minOdds ?? null, p: x.p, conf: x.conf, real: x.src === 'api' }));
+      }
       const k = prio || alt || fallback;
       if (!k) {
         // aucune cote exploitable (crédits épuisés, API en erreur…) : pronostic tiré des données gratuites de la présélection
         const opts = [];
-        for (const m of pre.matches) for (const o of m.opts || []) if (m.t > Date.now() + 15 * 60e3 && o.p >= 0.55 && o.p <= 0.9) opts.push({ m, o });
+        // seulement des compétitions présentes sur Winamax (vérifié lors d'une analyse précédente, ou grands championnats / circuits ATP-WTA)
+        const onWmx = (key) => wmx[key]?.has === true || (wmx[key]?.has !== false && (FOOT_MAIN.has(key) || /^tennis_(atp|wta)_/.test(key)));
+        for (const m of pre.matches) for (const o of m.opts || []) if (onWmx(m.key) && m.t > Date.now() + 15 * 60e3 && o.p >= 0.55 && o.p <= 0.9) opts.push({ m, o });
         opts.sort((x, y) => (y.o.p + 0.002 * y.m.score) - (x.o.p + 0.002 * x.m.score));
         const best = opts[0];
         if (best) {
+          const seen = new Set([best.m.id]);
+          A.dailyBackups = opts.filter((x) => !seen.has(x.m.id) && seen.add(x.m.id)).slice(0, 3)
+            .map(({ m, o }) => ({ match: `${m.home} – ${m.away}`, comp: m.comp, t: m.t, label: o.label, odds: null, minOdds: Math.ceil(((1 + C.minEV) / Math.max(0.01, o.p - 0.05)) * 100) / 100, p: o.p, conf: o.p >= 0.6 ? 'moyenne' : 'faible', real: false }));
           const { m, o } = best, u = 0.05;
           const minOdds = Math.ceil(((1 + C.minEV) / Math.max(0.01, o.p - u)) * 100) / 100;
           const conf = o.p >= 0.6 ? 'moyenne' : 'faible';
