@@ -1071,7 +1071,7 @@ onmessage = (e) => {
           const strong = SP.isStrong(k.conf);
           const valueRobust = k.src === 'api' ? (k.ev >= C.minEV && k.priceEdge > k.uncert) : true;
           if (strong && valueRobust) k.cat = 'prioritaire';
-          else if (R[k.conf] >= 3 && (k.src === 'calc' || k.ev >= -0.02)) k.cat = 'alternatif';
+          else if (R[k.conf] >= 3 && (k.src === 'calc' || k.ev >= -0.05)) k.cat = 'alternatif'; // marge Winamax sur les favoris : jusqu'à −5 % toléré en alternatif
           else { k.cat = 'à éviter'; k.why = R[k.conf] < 3 ? `confiance ${k.conf}` : 'cote trop basse par rapport à la vraie valeur'; }
         }
         allCands.push(...cands.filter((k) => !k.anomaly));
@@ -1090,13 +1090,22 @@ onmessage = (e) => {
         allOk.push(...ok);
       }
       const order = (x, y) => R[y.conf] - R[x.conf] || ((y.ev ?? 0) - (x.ev ?? 0)) || y.p - x.p;
-      const prio = allOk.filter((k) => k.cat === 'prioritaire').sort(order)[0];
-      const alt = allOk.filter((k) => k.cat === 'alternatif').sort(order)[0];
+      // priorité aux paris dont la cote Winamax est réellement relevée (donc disponibles), puis aux marchés calculés
+      // marchés calculés que Winamax affiche sur quasiment tous les matchs de football (double chance, buts, les deux marquent, remboursé si nul)
+      const BASIC = new Set(['dc1X', 'dcX2', 'dc12', 'over', 'under', 'bttsYes', 'bttsNo']);
+      const surelyOffered = (k) => k.src === 'api' || (k.E.sport === 'football' && (BASIC.has(k.type) || ((k.type === 'ahHome' || k.type === 'ahAway') && k.point === 0)));
+      const tier = (k) => (k.src === 'api' ? 0 : surelyOffered(k) ? 1 : 2);
+      const pickBy = (cat, maxTier) => allOk.filter((k) => k.cat === cat && tier(k) <= maxTier).sort((x, y) => tier(x) - tier(y) || order(x, y))[0];
+      // ordre : prioritaire disponible > alternatif avec vraie cote Winamax > prioritaire calculé incertain > alternatif calculé
+      let prio = pickBy('prioritaire', 1), alt = null;
+      if (!prio) alt = pickBy('alternatif', 0);
+      if (!prio && !alt) prio = pickBy('prioritaire', 2);
+      if (!prio && !alt) alt = pickBy('alternatif', 2);
       // dernier recours : l'utilisateur veut toujours un pari. On prend la sélection la plus sûre parmi tout ce qui
       // a été exploré (probabilité d'abord, en écartant les cotes négligeables), étiquetée clairement.
       const fbScore = (x) => x.p * (x.src === 'api' ? 1 : 0.97) + Math.min(0.05, Math.max(-0.05, x.ev ?? 0));
       // priorité aux paris dont la cote Winamax est réellement relevée (donc forcément proposés par Winamax)
-      const fbPool = allCands.filter((x) => (x.odds ?? x.minOdds) >= 1.15).sort((x, y) => (y.src === 'api') - (x.src === 'api') || fbScore(y) - fbScore(x));
+      const fbPool = allCands.filter((x) => (x.odds ?? x.minOdds) >= 1.15).filter((x) => tier(x) <= 1).sort((x, y) => tier(x) - tier(y) || fbScore(y) - fbScore(x));
       const fallback = !prio && !alt ? fbPool[0] : null;
       if (fallback) {
         const seen = new Set([fallback.E.id]);
@@ -1364,7 +1373,9 @@ onmessage = (e) => {
           const s = E.mk.sels.find((x) => !x.noTarget && ((m.type === 'tOver' && x.mkey === 'totals' && x.type === 'over' && x.point === m.point) || (m.type === 'tUnder' && x.mkey === 'totals' && x.type === 'under' && x.point === m.point)
             || (m.type === 'spread' && x.mkey === 'spreads' && x.point === m.point && ((m.side === 'A') === (x.name === E.home)))));
           if (s) real = { odds: s.best.price, book: s.best.title, last: s.best.last };
-          return { ...m, pPush: 0, fair, minSafe: Math.ceil(fair * (1 + C.safeTolEV) * 100) / 100, minValue: Math.ceil(fair * (1 + C.minEV) * 100) / 100, real, ev: real ? m.p * real.odds - 1 : null, tennisCalc: true };
+          // lignes de jeux (handicap, total) : Winamax n'en propose qu'une ou deux par match, variables ; sans cote relevée, on ne les conseille pas
+          const lineMkt = m.type === 'spread' || m.type === 'tOver' || m.type === 'tUnder';
+          return { ...m, pPush: 0, fair, minSafe: Math.ceil(fair * (1 + C.safeTolEV) * 100) / 100, minValue: Math.ceil(fair * (1 + C.minEV) * 100) / 100, real, ev: real ? m.p * real.odds - 1 : null, tennisCalc: true, risky: lineMkt && !real };
         });
       }
     }
