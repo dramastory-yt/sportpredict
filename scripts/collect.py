@@ -574,10 +574,182 @@ def sgodds():
     save("sgodds.json", out)
 
 
+# ---------------------------------------------------------------- sélections nationales (Ligue des nations, qualifications…)
+INTL_KEYS = ["soccer_uefa_nations_league", "soccer_fifa_world_cup_qualifiers_europe", "soccer_fifa_world_cup_qualifiers_south_america",
+             "soccer_uefa_euro_qualification", "soccer_international_friendlies"]
+
+
+def intl_football():
+    """Résultats de toutes les sélections depuis 2020 (martj42/international_results) + Elo eloratings.net."""
+    txt = get("https://raw.githubusercontent.com/martj42/international_results/master/results.csv").text
+    rows = []
+    for r in csv.DictReader(io.StringIO(txt)):
+        try:
+            d = dt.date.fromisoformat(r["date"])
+        except ValueError:
+            continue
+        if d.year < 2020 or r["home_score"] in ("", "NA") or r["away_score"] in ("", "NA"):
+            continue
+        ts = int(dt.datetime(d.year, d.month, d.day, 18, tzinfo=dt.timezone.utc).timestamp() * 1000)
+        rows.append([ts, r["home_team"], r["away_team"], int(r["home_score"]), int(r["away_score"]),
+                     None, None, None, None, None, None, None, None, None, None, None, None, None, None, None, None,
+                     r["tournament"], r["neutral"] == "TRUE"])
+    rows.sort(key=lambda x: x[0])
+    note("résultats sélections (martj42)", bool(rows), f"{len(rows)} matchs depuis 2020")
+    elo = {}
+    try:
+        names = {}
+        for line in get("https://www.eloratings.net/en.teams.tsv").text.splitlines():
+            f = line.split("\t")
+            if len(f) >= 2:
+                names[f[0]] = f[1]
+        for line in get("https://www.eloratings.net/World.tsv").text.splitlines():
+            f = line.split("\t")
+            if len(f) > 4 and f[2] in names:
+                elo[names[f[2]]] = {"rank": int(f[0]), "elo": int(f[3])}
+        note("Elo sélections (eloratings.net)", bool(elo), f"{len(elo)} sélections")
+    except Exception as e:  # noqa: BLE001
+        note("Elo sélections (eloratings.net)", False, str(e)[:160])
+    save("intl.json", {"source": "martj42/international_results + eloratings.net", "fetchedAt": META["generatedAt"], "keys": INTL_KEYS, "rows": rows, "elo": elo})
+
+
+# ---------------------------------------------------------------- tennis : TennisMyLife (résultats + stats de service) et Tennis Abstract (Elo)
+TML = "https://stats.tennismylife.org/data/"
+
+
+def tml_rows(files):
+    out = []
+    for f in files:
+        try:
+            txt = get(TML + f, tries=2).text
+        except Exception as e:  # noqa: BLE001
+            note(f"TennisMyLife {f}", False, str(e)[:120])
+            continue
+        n0 = len(out)
+        for r in csv.DictReader(io.StringIO(txt)):
+            if not r.get("winner_name") or not r.get("loser_name"):
+                continue
+            sc = r.get("score") or ""
+            if re.search(r"RET|W/O|DEF|ABD|Walkover", sc, re.I):
+                continue
+            try:
+                d = dt.datetime.strptime(r["tourney_date"][:8], "%Y%m%d")
+            except (ValueError, KeyError):
+                continue
+            surf = (r.get("surface") or "Hard").lower()
+            indoor = (r.get("indoor") or "").upper() == "I"
+            s = "clay" if "clay" in surf else "grass" if "grass" in surf else ("hard_indoor" if indoor else "hard")
+            try:
+                mn = int(r.get("match_num") or 0)
+            except ValueError:
+                mn = 0
+            out.append((d + dt.timedelta(minutes=mn), r["winner_name"].strip(), r["loser_name"].strip(), s, r))
+        note(f"TennisMyLife {f}", len(out) > n0, f"{len(out) - n0} matchs")
+    return out
+
+
+def tennis_abstract(tour):
+    url = f"https://tennisabstract.com/reports/{'wta' if tour == 'WTA' else 'atp'}_elo_ratings.html"
+    t = get(url).text
+    res = {}
+    for tr in re.findall(r"<tr>(.*?)</tr>", t, re.S):
+        tds = [re.sub(r"<[^>]+>", "", x).replace("&nbsp;", " ").strip() for x in re.findall(r"<td[^>]*>(.*?)</td>", tr, re.S)]
+        if len(tds) < 11 or not tds[3].replace(".", "").isdigit():
+            continue
+        f = lambda x: float(x) if re.match(r"^\d+(\.\d+)?$", x or "") else None  # noqa: E731
+        res[tds[1]] = {"elo": f(tds[3]), "hard": f(tds[6]), "clay": f(tds[8]), "grass": f(tds[10]), "rank": int(tds[0]) if tds[0].isdigit() else None}
+    return res
+
+
+def tml_tennis():
+    out = {"source": "TennisMyLife (résultats + stats de service) · Elo Tennis Abstract · Elo calculé par SportPredict", "fetchedAt": META["generatedAt"], "tours": {}}
+    y = TODAY.year
+    plan = {"ATP": [f"{y - 1}.csv", f"{y - 1}_challenger.csv", f"{y}.csv", f"{y}_challenger.csv", "ongoing_tourneys.csv", "challenger_ongoing_tourneys.csv"],
+            "WTA": [f"{y - 1}_wta.csv", f"{y}_wta.csv", "wta_ongoing_tourneys.csv"]}
+    for tour, files in plan.items():
+        ms = tml_rows(files)
+        if not ms:
+            continue
+        seen, uniq = set(), []
+        for m in sorted(ms, key=lambda m: m[0]):
+            k = (m[0].date(), m[1], m[2], m[4].get("tourney_id"))
+            if k not in seen:
+                seen.add(k); uniq.append(m)
+        E, Es, N, Ns, last, SV = {}, {}, {}, {}, {}, {}
+        ll, n_ll, cal = 0.0, 0, []
+        cutoff52 = dt.datetime.utcnow() - dt.timedelta(days=365)
+        for d, w, l, s, r in uniq:
+            ew, el = E.get(w, 1500.0), E.get(l, 1500.0)
+            sw, sl = Es.get((w, s), 1500.0), Es.get((l, s), 1500.0)
+            if N.get(w, 0) >= 15 and N.get(l, 0) >= 15 and d.year == y:
+                p = 1 / (1 + 10 ** ((((el + sl) / 2) - ((ew + sw) / 2)) / 400))
+                ll += -math.log(max(1e-9, p)); n_ll += 1
+            pe = 1 / (1 + 10 ** ((el - ew) / 400)); ps = 1 / (1 + 10 ** ((sl - sw) / 400))
+            E[w] = ew + k_factor(N.get(w, 0)) * (1 - pe); E[l] = el - k_factor(N.get(l, 0)) * (1 - pe)
+            Es[(w, s)] = sw + k_factor(Ns.get((w, s), 0)) * (1 - ps); Es[(l, s)] = sl - k_factor(Ns.get((l, s), 0)) * (1 - ps)
+            for pl in (w, l):
+                N[pl] = N.get(pl, 0) + 1; Ns[(pl, s)] = Ns.get((pl, s), 0) + 1; last[pl] = int(d.timestamp() * 1000)
+            # statistiques de service / retour sur 52 semaines
+            if d >= cutoff52:
+                try:
+                    wsv, w1, w2 = float(r["w_svpt"]), float(r["w_1stWon"]), float(r["w_2ndWon"])
+                    lsv, l1, l2 = float(r["l_svpt"]), float(r["l_1stWon"]), float(r["l_2ndWon"])
+                except (ValueError, KeyError, TypeError):
+                    continue
+                if wsv < 20 or lsv < 20:
+                    continue
+                for pl, sv_pts, sv_won, rt_pts, rt_won, won in ((w, wsv, w1 + w2, lsv, lsv - l1 - l2, 1), (l, lsv, l1 + l2, wsv, wsv - w1 - w2, 0)):
+                    a = SV.setdefault(pl, {"svp": 0, "svw": 0, "rtp": 0, "rtw": 0, "m": 0, "w": 0, "surf": {}})
+                    a["svp"] += sv_pts; a["svw"] += sv_won; a["rtp"] += rt_pts; a["rtw"] += rt_won; a["m"] += 1; a["w"] += won
+                    b = a["surf"].setdefault(s, [0, 0])
+                    b[0] += 1; b[1] += won
+        try:
+            ta = tennis_abstract(tour)
+            note(f"Elo Tennis Abstract {tour}", bool(ta), f"{len(ta)} joueurs")
+        except Exception as e:  # noqa: BLE001
+            ta = {}
+            note(f"Elo Tennis Abstract {tour}", False, str(e)[:120])
+        tot_sv = sum(v["svw"] for v in SV.values()) / max(1, sum(v["svp"] for v in SV.values()))
+        tot_rt = sum(v["rtw"] for v in SV.values()) / max(1, sum(v["rtp"] for v in SV.values()))
+        cutoff = int((dt.datetime.utcnow() - dt.timedelta(days=400)).timestamp() * 1000)
+        players = {}
+        for pl, e in E.items():
+            if last.get(pl, 0) < cutoff:
+                continue
+            tok = pl.split()
+            if len(tok) < 2:
+                continue
+            key = " ".join(tok[1:]) + " " + tok[0][0] + "."  # format « Nom P. » attendu par l'application
+            o = {"elo": round(e, 1), "n": N[pl], "last": last[pl], "full": pl,
+                 "surf": {s: [round(Es[(pl, s)], 1), Ns[(pl, s)]] for s in ("hard", "hard_indoor", "clay", "grass") if (pl, s) in Es}}
+            sv = SV.get(pl)
+            if sv and sv["svp"] >= 300:
+                o["sv"] = {"spw": round(sv["svw"] / sv["svp"], 4), "rpw": round(sv["rtw"] / sv["rtp"], 4), "m": sv["m"], "w": sv["w"],
+                           "surf": {k2: v2 for k2, v2 in sv["surf"].items()}}
+            t = ta.get(pl)
+            if t:
+                o["ta"] = t
+            players[key] = o
+        out["tours"][tour] = {"players": players, "avg": {"spw": round(tot_sv, 4), "rpw": round(tot_rt, 4)},
+                              "backtest": {"n": 0, "eloLogLoss": round(ll / max(1, n_ll), 4), "nElo": n_ll, "pinnacleLogLoss": None, "wMarket": None, "blendLogLoss": None}}
+        note(f"Elo tennis {tour} (TennisMyLife)", True, f"{len(players)} joueurs, {sum(1 for p in players.values() if 'sv' in p)} avec stats de service ; log-loss {ll / max(1, n_ll):.4f} sur {n_ll} matchs {y}")
+    if not out["tours"]:
+        raise RuntimeError("aucune donnée TennisMyLife")
+    save("tennis.json", out)
+
+
+def tennis_best():
+    try:
+        tml_tennis()
+    except Exception as e:  # noqa: BLE001
+        note("TennisMyLife", False, "échec, secours ESPN : " + str(e)[:160])
+        espn_tennis()
+
+
 if __name__ == "__main__":
     # understat.com et tennis-data.co.uk refusent les serveurs GitHub (délai dépassé / 403) :
     # désactivés par défaut, réactivables avec ENABLE_BLOCKED_SOURCES=1 (par ex. sur un ordinateur personnel).
-    fns = [football_data, clubelo, espn_nba, espn_nhl, espn_scorers, sgodds] + ([understat, tennis] if os.environ.get("ENABLE_BLOCKED_SOURCES") == "1" else [espn_tennis])
+    fns = [football_data, intl_football, clubelo, espn_scorers, sgodds, tennis_best] + ([understat] if os.environ.get("ENABLE_BLOCKED_SOURCES") == "1" else [])
     for k in ("understat", "tennis-data"):
         if os.environ.get("ENABLE_BLOCKED_SOURCES") != "1":
             note(k, False, "désactivé : la source refuse les serveurs GitHub Actions")
