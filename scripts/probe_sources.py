@@ -1,64 +1,45 @@
-"""Teste depuis GitHub Actions l'accessibilité de toutes les sources gratuites candidates (ne publie rien)."""
-import datetime as dt, re, requests
+"""Teste depuis GitHub Actions l'accessibilité et le format des sources gratuites candidates (ne publie rien)."""
+import datetime as dt, json, re, requests
 HDR = {"User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36", "Accept": "*/*"}
 d = dt.date.today(); ds, dd = d.strftime("%Y%m%d"), d.isoformat()
-URLS = [
-  # football
-  ("fd-uk extra leagues", "https://www.football-data.co.uk/new/BRA.csv"),
-  ("fd-uk fixtures", "https://www.football-data.co.uk/fixtures.csv"),
-  ("clubelo", f"http://api.clubelo.com/{dd}"),
-  ("eloratings World.tsv", "https://www.eloratings.net/World.tsv"),
-  ("eloratings teams", "https://www.eloratings.net/en.teams.tsv"),
-  ("eloratings fixtures", "https://www.eloratings.net/fixtures.tsv"),
-  ("intl results martj42", "https://raw.githubusercontent.com/martj42/international_results/master/results.csv"),
-  ("understat", "https://understat.com/league/EPL/2025"),
-  ("fbref", "https://fbref.com/en/comps/9/Premier-League-Stats"),
-  ("fotmob matches", f"https://www.fotmob.com/api/data/matches?date={ds}"),
-  ("fotmob matches old", f"https://www.fotmob.com/api/matches?date={ds}"),
-  ("sofascore", f"https://api.sofascore.com/api/v1/sport/football/scheduled-events/{dd}"),
-  ("sofascore www", f"https://www.sofascore.com/api/v1/sport/football/scheduled-events/{dd}"),
-  ("espn nations scoreboard", "https://site.api.espn.com/apis/site/v2/sports/soccer/uefa.nations/scoreboard"),
-  ("espn soccer standings", "https://site.api.espn.com/apis/v2/sports/soccer/eng.1/standings"),
-  ("espn eng injuries", "https://site.api.espn.com/apis/site/v2/sports/soccer/eng.1/injuries"),
-  ("thesportsdb", f"https://www.thesportsdb.com/api/v1/json/3/eventsday.php?d={dd}&s=Soccer"),
-  ("pitchapi llms", "https://pitchapi.dev/llms.txt"),
-  ("pitchapi root", "https://pitchapi.dev/"),
-  ("bzzoiro", "https://sports.bzzoiro.com/api/"),
-  ("openligadb", "https://api.openligadb.de/getmatchdata/bl1"),
-  ("open-meteo", "https://api.open-meteo.com/v1/forecast?latitude=48.85&longitude=2.35&hourly=precipitation,wind_speed_10m&forecast_days=2"),
-  ("transfermarkt", "https://www.transfermarkt.com/premier-league/verletztespieler/wettbewerb/GB1"),
-  ("statsbomb open", "https://raw.githubusercontent.com/statsbomb/open-data/master/data/competitions.json"),
-  ("sgodds", "https://sgodds.com/football/current-odds"),
-  ("oddsportal", "https://www.oddsportal.com/football/"),
-  ("betexplorer", "https://www.betexplorer.com/football/"),
-  ("worldfootball", "https://www.worldfootball.net/"),
-  ("soccerstats", "https://www.soccerstats.com/"),
-  ("footystats", "https://footystats.org/"),
-  ("fivethirtyeight spi", "https://projects.fivethirtyeight.com/soccer-api/club/spi_global_rankings.csv"),
-  # tennis
-  ("tennis-data 2026 https", "https://www.tennis-data.co.uk/2026/2026.xlsx"),
-  ("tennis-data 2026 http", "http://www.tennis-data.co.uk/2026/2026.xlsx"),
-  ("tennis-data 2026w", "http://www.tennis-data.co.uk/2026w/2026.xlsx"),
-  ("sackmann atp", "https://raw.githubusercontent.com/JeffSackmann/tennis_atp/master/atp_matches_2024.csv"),
-  ("sackmann wta", "https://raw.githubusercontent.com/JeffSackmann/tennis_wta/master/wta_matches_2024.csv"),
-  ("sackmann charting", "https://raw.githubusercontent.com/JeffSackmann/tennis_MatchChartingProject/master/charting-m-matches.csv"),
-  ("tennisabstract atp elo", "https://tennisabstract.com/reports/atp_elo_ratings.html"),
-  ("tennisabstract wta elo", "https://tennisabstract.com/reports/wta_elo_ratings.html"),
-  ("tennisabstract www", "https://www.tennisabstract.com/reports/atp_elo_ratings.html"),
-  ("tennismylife", "https://stats.tennismylife.org/tennis-match-database"),
-  ("tennisdata.app", "https://tennisdata.app/downloads/"),
-  ("ultimatetennisstatistics", "https://www.ultimatetennisstatistics.com/"),
-  ("espn tennis atp", f"https://site.api.espn.com/apis/site/v2/sports/tennis/atp/scoreboard?dates={ds}"),
-  ("espn tennis rankings", "https://site.api.espn.com/apis/site/v2/sports/tennis/atp/rankings"),
-  ("sofascore tennis", f"https://api.sofascore.com/api/v1/sport/tennis/scheduled-events/{dd}"),
-  ("atptour rankings", "https://www.atptour.com/en/rankings/singles"),
-  ("wta api", "https://api.wtatennis.com/tennis/players/ranked?page=0&pageSize=20&type=rankSingles&metric=SINGLES"),
-  ("flashscore", "https://www.flashscore.com/tennis/"),
-]
-for name, u in URLS:
+
+
+def show(name, u, n=1500, **kw):
     try:
-        r = requests.get(u, headers=HDR, timeout=25)
-        body = "" if "xlsx" in u else re.sub(r"\s+", " ", r.text[:220])
-        print(f"[{r.status_code}] {name:28s} {len(r.content):>9} o  {r.headers.get('content-type', '')[:40]:40s} | {body}")
+        r = requests.get(u, headers={**HDR, **kw.pop("headers", {})}, timeout=30, **kw)
+        print(f"\n===== [{r.status_code}] {name} {u} ({len(r.content)} o)\n{r.text[:n]}")
+        return r
     except Exception as e:  # noqa: BLE001
-        print(f"[ERR] {name:28s} {str(e)[:150]}")
+        print(f"\n===== [ERR] {name} {e}")
+
+
+show("pitchapi llms", "https://pitchapi.dev/llms.txt", 6000)
+show("eloratings fixtures", "https://www.eloratings.net/fixtures.tsv", 1200)
+show("eloratings world", "https://www.eloratings.net/World.tsv", 600)
+show("understat api", "https://understat.com/getLeagueData/EPL/2025", 800, headers={"X-Requested-With": "XMLHttpRequest", "Referer": "https://understat.com/league/EPL/2025"})
+r = show("understat page", "https://understat.com/league/EPL/2025", 0)
+if r is not None: print("datesData" in r.text, re.findall(r"(getLeagueData[^\"']{0,60}|JSON.parse)", r.text)[:5])
+r = show("fotmob matches", f"https://www.fotmob.com/api/data/matches?date={ds}", 0)
+mid = None
+try:
+    j = r.json(); lg = j["leagues"]; print([l["name"] for l in lg][:40]); mid = lg[0]["matches"][0]["id"]
+except Exception as e: print("parse", e)  # noqa: E701
+if mid:
+    for path in [f"https://www.fotmob.com/api/data/matchDetails?matchId={mid}", f"https://www.fotmob.com/api/matchDetails?matchId={mid}"]:
+        r = show("fotmob details", path, 400)
+        try:
+            j = r.json(); c = j.get("content", {}); print("keys:", list(c.keys())); print("lineup:", str(c.get("lineup"))[:600]); print("h2h:", str(c.get("h2h"))[:400]); print("stats:", str(c.get("stats"))[:400])
+        except Exception as e: print("parse", e)  # noqa: E701
+show("fotmob team", "https://www.fotmob.com/api/data/teams?id=9825", 300)
+r = show("tennismylife", "https://stats.tennismylife.org/tennis-match-database", 0)
+if r is not None: print(sorted(set(re.findall(r'(https?://[^"\'\s]+\.(?:csv|zip|xlsx)|/[^"\'\s]+\.(?:csv|zip|xlsx))', r.text)))[:40])
+r = show("tennisabstract atp elo", "https://tennisabstract.com/reports/atp_elo_ratings.html", 0)
+if r is not None:
+    t = re.sub(r"<[^>]+>", " | ", r.text); t = re.sub(r"\s+", " ", t); i = t.find("Elo"); print(t[i:i + 1500])
+show("uts api", "https://www.ultimatetennisstatistics.com/playerProfile?name=Jannik%20Sinner", 300)
+show("uts rankings", "https://www.ultimatetennisstatistics.com/rankingsTableTable?current=1&rowCount=5&rankType=ELO_RANK", 800)
+show("espn soccer summary", "https://site.api.espn.com/apis/site/v2/sports/soccer/uefa.nations/scoreboard", 0)
+show("fd fixtures", "https://www.football-data.co.uk/fixtures.csv", 600)
+show("fd new list", "https://www.football-data.co.uk/new/ARG.csv", 300)
+show("clubelo retry", f"http://api.clubelo.com/{dd}", 200)
+show("wta rankings", "https://api.wtatennis.com/tennis/players/ranked?page=0&pageSize=2&type=rankSingles&metric=SINGLES", 1200)
