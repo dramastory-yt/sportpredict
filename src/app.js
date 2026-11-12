@@ -229,6 +229,7 @@
       <p class="muted"><small>Mise : ${esc(si.why)}.</small></p>
       ${si.expo > 0.05 ? `<p class="notice">Plus de 5 % de votre bankroll serait exposée en même temps (plafond strict : 5 %).</p>` : ''}
       ${d.opinion ? `<div class="advice"><b>Mon avis :</b> ${esc(d.opinion.verdict)}${d.opinion.pour.length ? `<br><b>Pour :</b> ${d.opinion.pour.map(esc).join(' ')}` : ''}${d.opinion.contre.length ? `<br><b>Contre :</b> ${d.opinion.contre.map(esc).join(' ')}` : ''}<br><b>${esc(d.opinion.conseil)}</b></div>` : ''}
+      ${matchSheet(d.card, d.home, d.away)}
       <h4>Explication statistique</h4><ul>${d.why.map((w) => `<li>${esc(w)}</li>`).join('')}</ul>
       ${d.warnings?.length ? `<h4>Risques</h4><ul>${d.warnings.map((w) => `<li>${esc(w)}</li>`).join('')}</ul>` : '<h4>Risques</h4><ul><li>Aucun signal particulier dans les sources consultées. Le résultat reste aléatoire.</li></ul>'}
       ${up ? `<details><summary>Incertitude détaillée</summary><ul><li>Hasard des simulations : ±${pct(up.hasard, 1)}</li><li>Paramètres du modèle : ±${pct(up.parametres, 1)}</li><li>Qualité des données : ±${pct(up.donnees, 1)}</li><li>Informations sportives : ±${pct(up.informations, 1)}</li></ul></details>` : ''}
@@ -291,6 +292,42 @@
       ${x.avoid.length ? `<h5>À éviter</h5><ul class="muted">${x.avoid.map((k) => `<li>${esc(k.label)} ${kOdds(k)} · ${pct(k.p)} — ${esc(k.why || '')}</li>`).join('')}</ul>` : ''}</details>`;
   }
   let A_DAILY_ID = null;
+
+  // fiche du match : les faits concrets (FotMob, Elo, statistiques de service) derrière le pronostic
+  const mval = (v) => (v >= 1e6 ? (v / 1e6).toFixed(v >= 1e8 ? 0 : 1).replace('.', ',') + ' M€' : v >= 1e3 ? Math.round(v / 1e3) + ' k€' : '—');
+  function matchSheet(c, home, away) {
+    if (!c) return '';
+    const rows = [];
+    const row = (lab, h, a2) => rows.push(`<tr><th>${lab}</th><td>${h}</td><td>${a2}</td></tr>`);
+    if (c.tennis) {
+      const A2 = c.a || {}, B = c.b || {};
+      row(`Elo ${esc(c.surface)}`, A2.elo ? Math.round(A2.elo) + (A2.eloRank ? ` <small class="muted">(${A2.eloRank}e)</small>` : '') : '—', B.elo ? Math.round(B.elo) + (B.eloRank ? ` <small class="muted">(${B.eloRank}e)</small>` : '') : '—');
+      row('Bilan 12 mois', A2.rec ? `${A2.rec[0]}/${A2.rec[1]}` : '—', B.rec ? `${B.rec[0]}/${B.rec[1]}` : '—');
+      row(`Bilan ${esc(c.surface)}`, A2.recSurf ? `${A2.recSurf[1]}/${A2.recSurf[0]}` : '—', B.recSurf ? `${B.recSurf[1]}/${B.recSurf[0]}` : '—');
+      row('Points gagnés au service', A2.spw ? pct(A2.spw, 0) : '—', B.spw ? pct(B.spw, 0) : '—');
+      row('Points gagnés en retour', A2.rpw ? pct(A2.rpw, 0) : '—', B.rpw ? pct(B.rpw, 0) : '—');
+      return `<details class="sheet" open><summary>Fiche du match</summary><div class="tw"><table class="t"><thead><tr><th></th><th>${esc(home)}</th><th>${esc(away)}</th></tr></thead><tbody>${rows.join('')}</tbody></table></div>
+        <p class="muted"><small>Moyenne du circuit : ${pct(c.avg?.spw, 0)} au service. Sources : Tennis Abstract (Elo), TennisMyLife (résultats et statistiques).</small></p></details>`;
+    }
+    if (c.elo?.home && c.elo?.away) row('Elo mondial', `${c.elo.home.elo} <small class="muted">(${c.elo.home.rank}e)</small>`, `${c.elo.away.elo} <small class="muted">(${c.elo.away.rank}e)</small>`);
+    if (c.fifaRank) row('Classement FIFA', c.fifaRank[0] || '—', c.fifaRank[1] || '—');
+    if (c.form?.home || c.form?.away) { const ch = (s) => (s ? `<span class="form">${s.split('').map((r) => `<i class="r-${r}">${r}</i>`).join('')}</span>` : '—'); row('Forme (ancien → récent)', ch(c.form.home), ch(c.form.away)); }
+    if (c.home || c.away) {
+      row('Valeur du onze ' + (c.lineupType ? `<small class="muted">(${esc(c.lineupType)})</small>` : ''), c.home?.value ? mval(c.home.value) : '—', c.away?.value ? mval(c.away.value) : '—');
+      const abs = (t) => (t?.unavailable?.length ? t.unavailable.slice(0, 5).map((p) => `${esc(p.name)} <small class="muted">${esc(p.type)}${p.value ? ', ' + mval(p.value) : ''}</small>`).join('<br>') + (t.nUnavailable > 5 ? `<br><small class="muted">+${t.nUnavailable - 5}</small>` : '') : 'aucun connu');
+      row('Absents', abs(c.home), abs(c.away));
+      if (c.home?.formation || c.away?.formation) row('Système', esc(c.home?.formation || '—'), esc(c.away?.formation || '—'));
+    }
+    if (c.topScorers?.some(Boolean)) row('Meilleur buteur', c.topScorers[0] ? `${esc(c.topScorers[0].name)} <small class="muted">(${c.topScorers[0].goals ?? 0} but(s))</small>` : '—', c.topScorers[1] ? `${esc(c.topScorers[1].name)} <small class="muted">(${c.topScorers[1].goals ?? 0} but(s))</small>` : '—');
+    const extra = [];
+    if (c.h2h) extra.push(`<li><b>Confrontations directes :</b> ${c.h2h.home} victoire(s) ${esc(home)}, ${c.h2h.draw} nul(s), ${c.h2h.away} victoire(s) ${esc(away)}${c.h2h.last?.length ? ` <small class="muted">(${c.h2h.last.map(esc).join(' · ')})</small>` : ''}</li>`);
+    for (const x of c.insights || []) extra.push(`<li>${x.side ? `<b>${esc(x.side === 'home' ? home : away)} :</b> ` : ''}${esc(x.text)}</li>`);
+    if (c.weather) extra.push(`<li><b>Météo :</b> ${esc(c.weather.desc || '')} ${c.weather.temp != null ? c.weather.temp + ' °C' : ''} · pluie ${c.weather.rain ?? '—'} % · vent ${c.weather.wind ?? '—'} km/h</li>`);
+    if (c.referee || c.stadium) extra.push(`<li>${c.referee ? `<b>Arbitre :</b> ${esc(c.referee)}` : ''}${c.referee && c.stadium ? ' · ' : ''}${c.stadium ? `<b>Stade :</b> ${esc(c.stadium)}` : ''}</li>`);
+    if (!rows.length && !extra.length) return '';
+    return `<details class="sheet" open><summary>Fiche du match</summary>${rows.length ? `<div class="tw"><table class="t"><thead><tr><th></th><th>${esc(home)}</th><th>${esc(away)}</th></tr></thead><tbody>${rows.join('')}</tbody></table></div>` : ''}${extra.length ? `<ul>${extra.join('')}</ul>` : ''}
+      <p class="muted"><small>Sources : FotMob (compositions, absents, forme, tendances), eloratings.net (sélections). ${c.lineupType === 'officielle' ? 'Compositions officielles.' : 'Compositions probables : à revérifier 1 h avant le match.'}</small></p></details>`;
+  }
   function pronoCard(f) {
     const pr = f.probs || {};
     const bar = f.sport === 'football'
@@ -305,7 +342,8 @@
       ${f.sport === 'football' ? `<p class="muted">Score le plus probable <b>${f.score.h}-${f.score.a}</b> (${pct(f.score.p, 0)}) · buts attendus ${num(f.expected.home, 2)} – ${num(f.expected.away, 2)} · +2,5 buts ${pct(f.probs.over25, 0)} · les deux marquent ${pct(f.probs.btts, 0)}</p>` : ''}
       ${f.sport === 'hockey' ? `<p class="muted">Score le plus probable <b>${f.score.h}-${f.score.a}</b> (prolongation incluse) · buts attendus ${num(f.expected.home, 1)} – ${num(f.expected.away, 1)} · prolongation ${pct(f.probs.regDraw)}</p>` : ''}
       ${f.sport === 'nba' ? `<p class="muted">Score projeté <b>${Math.round(f.expected.home)}-${Math.round(f.expected.away)}</b> · total attendu ${num(f.expected.total, 1)} points</p>` : ''}
-      ${f.form ? `<div class="formrow"><div><small>${esc(hn)}</small>${formChips(f.form.home)}</div><div><small>${esc(an)}</small>${formChips(f.form.away)}</div></div>` : ''}
+      ${matchSheet(f.card, hn, an)}
+      ${f.form && !f.card?.form ? `<div class="formrow"><div><small>${esc(hn)}</small>${formChips(f.form.home)}</div><div><small>${esc(an)}</small>${formChips(f.form.away)}</div></div>` : ''}
       ${f.explore ? exploreBlock(f.explore) : ''}
       ${f.pick ? `<div class="advice"><b>Pari le plus probable :</b> ${esc(f.pick.label)} @ <b>${num(f.pick.odds)}</b> (${esc(f.pick.book)}) — probabilité ${pct(f.pick.p)}, EV ${sgn(f.pick.ev)} ${f.pick.value ? '<span class="tag t-ok">VALUE</span>' : '<span class="tag t-na">pas de value</span>'}</div>${betBtn({ source: 'prono', eventId: f.eventId, sport: f.sport, sportKey: f.sportKey, comp: f.comp, match: f.match, home: f.home, away: f.away, t: f.t, label: f.pick.label, type: f.pick.type, point: f.pick.point, market: f.pick.market, odds: f.pick.odds, book: f.pick.book, p: f.pick.p, value: f.pick.value, suggested: f.pick.value ? stakeFor(f.pick.p, f.pick.odds, f.pick.pPush) : null })}` : ''}
       ${f.excluded ? `<p class="notice"><small>Pas retenu comme pronostic du jour : ${esc(f.excluded)}.</small></p>` : (A_DAILY_ID === f.eventId ? '<p><span class="tag t-ok">pronostic du jour</span></p>' : '')}

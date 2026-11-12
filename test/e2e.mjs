@@ -63,6 +63,12 @@ function oddsEvents(sport) {
       { key: 'totals', last_update: iso(now - 2 * 60e3), outcomes: [{ name: 'Over', price: 1.9, point: 162.5 }, { name: 'Under', price: 1.9, point: 162.5 }] }] });
     return [{ id: 'eur0', sport_key: sport, sport_title: 'Euroleague', commence_time: iso(now + 6 * 3600e3), home_team: 'Real Madrid', away_team: 'Partizan', bookmakers: [mk('pinnacle', 'Pinnacle', 1), mk('winamax_fr', 'Winamax (FR)', 1.03)] }];
   }
+  if (sport === 'soccer_uefa_nations_league') {
+    const bk = (key, title, f) => ({ key, title, last_update: iso(now - 3 * 60e3), markets: [
+      { key: 'h2h', last_update: iso(now - 3 * 60e3), outcomes: [{ name: 'France', price: +(1.55 * f).toFixed(2) }, { name: 'Draw', price: 4.0 }, { name: 'Italy', price: +(6.0 / f).toFixed(2) }] },
+      { key: 'totals', last_update: iso(now - 3 * 60e3), outcomes: [{ name: 'Over', price: 2.0, point: 2.5 }, { name: 'Under', price: 1.8, point: 2.5 }] }] });
+    return [{ id: 'unl0', sport_key: sport, sport_title: 'UEFA Nations League', commence_time: iso(now + 9 * 3600e3), home_team: 'France', away_team: 'Italy', bookmakers: [bk('pinnacle', 'Pinnacle', 1.03), bk('winamax_fr', 'Winamax (FR)', 1)] }];
+  }
   if (sport === 'soccer_turkey_super_league') {
     const bk = (key, title) => ({ key, title, last_update: iso(now - 3 * 60e3), markets: [{ key: 'h2h', last_update: iso(now - 3 * 60e3), outcomes: [{ name: 'Galatasaray', price: 1.5 }, { name: 'Draw', price: 4.2 }, { name: 'Rizespor', price: 6 }] }] });
     return [{ id: 'tur0', sport_key: sport, sport_title: 'Super Lig', commence_time: iso(now + 8 * 3600e3), home_team: 'Galatasaray', away_team: 'Rizespor', bookmakers: [bk('pinnacle', 'Pinnacle'), bk('unibet_eu', 'Unibet')] }];
@@ -109,6 +115,7 @@ const handler = async (route) => {
     { key: 'basketball_euroleague', group: 'Basketball', title: 'Basketball Euroleague', active: true, has_outrights: false },
     { key: 'icehockey_nhl', group: 'Ice Hockey', title: 'NHL', active: true, has_outrights: false },
     { key: 'soccer_turkey_super_league', group: 'Soccer', title: 'Turkey Super League', active: true, has_outrights: false },
+    { key: 'soccer_uefa_nations_league', group: 'Soccer', title: 'UEFA Nations League', active: true, has_outrights: false },
     { key: 'soccer_poland_ekstraklasa', group: 'Soccer', title: 'Ekstraklasa - Poland', active: true, has_outrights: false },
     { key: 'soccer_fifa_world_cup_winner', group: 'Soccer', title: 'FIFA World Cup Winner', active: true, has_outrights: true }]);
   const me = url.match(/v4\/sports\/(\w+)\/events\?/);
@@ -123,7 +130,13 @@ const handler = async (route) => {
     const ev = espnScoreboard('sports/soccer/eng.1/scoreboard?dates=20250801-20261102').events;
     return json({ fetchedAt: new Date().toISOString(), leagues: { soccer_epl: ev.map((e) => { const c = e.competitions[0].competitors; const hs = +c[0].score, as = +c[1].score; return [Date.parse(e.date), c[0].team.displayName, c[1].team.displayName, hs, as, 8 + hs * 2, 7 + as * 2, 3 + hs, 2 + as, 5, 4, 1, 2, 2.2, 3.4, 3.3, 1.9, 1.95, null, null, 'Betfair Exchange']; }) } });
   }
-  if (url.includes('/data/tennis.json')) return json({ tours: { ATP: { players: { 'One P.': { elo: 1900, n: 60, surf: { hard_indoor: [1880, 12] } }, 'Two P.': { elo: 1820, n: 55, surf: { hard_indoor: [1850, 9] } } }, backtest: { n: 1200, eloLogLoss: 0.62, pinnacleLogLoss: 0.6, wMarket: 0.75, blendLogLoss: 0.598 } } } });
+  if (url.includes('/data/tennis.json')) return json({ tours: { ATP: { players: { 'One P.': { elo: 1900, n: 60, full: 'Player One', surf: { hard_indoor: [1880, 12] }, sv: { spw: 0.66, rpw: 0.39, m: 40, w: 28, surf: { hard_indoor: [12, 9] } }, ta: { elo: 1950, hard: 1940, rank: 20 } }, 'Two P.': { elo: 1820, n: 55, full: 'Player Two', surf: { hard_indoor: [1850, 9] }, sv: { spw: 0.62, rpw: 0.37, m: 38, w: 20, surf: { hard_indoor: [9, 4] } }, ta: { elo: 1840, hard: 1830, rank: 45 } } }, avg: { spw: 0.6225, rpw: 0.3775 }, backtest: { n: 0, eloLogLoss: 0.62, nElo: 7000, pinnacleLogLoss: null, wMarket: null, blendLogLoss: null } } } });
+  if (url.includes('/data/intl.json')) return json({ keys: ['soccer_uefa_nations_league'], elo: { France: { elo: 2104, rank: 4 }, Italy: { elo: 1910, rank: 11 } }, rows: Array.from({ length: 160 }, (_, i) => { const T = ['France', 'Italy', 'Spain', 'England', 'Germany', 'Belgium', 'Portugal', 'Croatia']; const h = T[i % 8], aw = T[(i * 3 + 1) % 8] === h ? T[(i + 2) % 8] : T[(i * 3 + 1) % 8]; return [Date.now() - (170 - i) * 7 * 86400e3, h, aw, (i * 7) % 4, (i * 5) % 3, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, 'UEFA Nations League', false]; }) });
+  if (url.includes('fotmob.com/api/data/matches')) return json({ leagues: [{ name: 'Premier League', matches: [{ id: 901, home: { name: 'Arsenal' }, away: { name: 'Chelsea' }, status: { utcTime: new Date(oddsEvents('soccer_epl')[0].commence_time).toISOString() } }] }, { name: 'UEFA Nations League A', matches: [{ id: 902, home: { name: 'France' }, away: { name: 'Italy' }, status: { utcTime: new Date(now + 9 * 3600e3).toISOString() } }] }] });
+  if (url.includes('fotmob.com/api/data/matchDetails')) return json({ header: { teams: [{ id: 1, fifaRank: 2 }, { id: 2, fifaRank: 9 }] }, content: {
+    matchFacts: { teamForm: [[{ resultString: 'W', date: { utcTime: '2026-10-01' } }, { resultString: 'D', date: { utcTime: '2026-10-08' } }], [{ resultString: 'L', date: { utcTime: '2026-10-01' } }]], insights: [{ teamId: 1, text: 'Unbeaten in their last 6 home matches' }], infoBox: { Referee: { text: 'Test Referee' }, Stadium: { name: 'Test Stadium', city: 'London' } }, topScorers: { homePlayer: { fullName: 'Top Scorer', stats: { goals: 7, expectedGoals: 5.2 } } } },
+    lineup: { lineupType: 'predicted', homeTeam: { formation: '4-3-3', totalStarterMarketValue: 600e6, unavailable: [{ name: 'Key Player', marketValue: 120e6, unavailability: { type: 'injury', expectedReturn: 'Late November' } }, { name: 'Other Player', marketValue: 40e6, unavailability: { type: 'suspension' } }] }, awayTeam: { formation: '4-2-3-1', totalStarterMarketValue: 450e6, unavailable: [] } },
+    h2h: { summary: [3, 1, 1], matches: [{ home: { name: 'Arsenal' }, away: { name: 'Chelsea' }, status: { scoreStr: '2 - 1' } }] }, weather: { temperature: 9, precipChance: 20, windSpeed: 12, description: 'Cloudy' } } });
   if (url.includes('/data/nhl.json')) {
     const T = ['Colorado Avalanche', 'Chicago Blackhawks', 'Boston Bruins', 'Toronto Maple Leafs', 'Edmonton Oilers', 'Florida Panthers', 'New York Rangers', 'Dallas Stars'];
     const games = []; let tt = now - 300 * 86400e3;
@@ -150,6 +163,7 @@ const A = await page.evaluate(() => { const a = JSON.parse(localStorage.getItem(
 console.log(JSON.stringify(A, null, 1));
 await page.evaluate(() => { location.hash = '#pronos'; }); await page.waitForTimeout(150);
 await page.click('.prono details summary'); await page.waitForTimeout(100);
+console.log('fiche :', (await page.textContent('.prono .sheet').catch(() => 'ABSENTE')).replace(/\s+/g, ' ').slice(0, 500));
 console.log('marchés :', (await page.textContent('.prono details')).replace(/\s+/g, ' ').slice(0, 900));
 await page.screenshot({ path: process.argv[2] + '/markets.png', fullPage: true });
 for (const h of ['#safe', '#backtests', '#models', '#errors', '#health', '#bets', '#pronos', '#best', '#values', '#watch', '#calendar', '#history', '#perf', '#config', '#dashboard']) {

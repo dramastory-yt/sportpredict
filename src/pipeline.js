@@ -11,7 +11,7 @@ const SPPipeline = (() => {
     tennis: true, nba: true, maxTennisTournaments: 4,
     footballScope: 'toutes', basketScope: 'principal', creditBudget: 30, monthlyCredits: 500, creditReserve: 50, prescanMin: 60, excluded: [], included: [],
     wMarket: 0.65, minEV: 0.02, minOdds: 1.15, maxOdds: 2.5, prefLo: 1.40, prefHi: 2.20,
-    bankroll: 100, kellyFrac: 0.25, maxStakePct: 0.02, mode: 'sûr', dailyMinP: 0.75, safeMinP: 0.70, safeMaxOdds: 1.50, safeTolEV: -0.03, safeStakePct: 0.02, maxOddsAgeMin: 45, maxGap: 0.10, maxSims: 1000000, minSims: 100000, tol: 0.0015, phase2Events: 14,
+    bankroll: 100, kellyFrac: 0.25, maxStakePct: 0.02, mode: 'sûr', dailyMinP: 0.75, dailyMinOdds: 1.3, safeMinP: 0.70, safeMaxOdds: 1.50, safeTolEV: -0.03, safeStakePct: 0.02, maxOddsAgeMin: 45, maxGap: 0.10, maxSims: 1000000, minSims: 100000, tol: 0.0015, phase2Events: 14,
     hours: 24, extendTo48: true, autoOn: false, autoTime: '09:00', notif: false, preMatchRecheck: false,
   };
   function cfg() {
@@ -72,6 +72,7 @@ onmessage = (e) => {
   // Compétitions principales (régulières, bien couvertes) : les seules interrogées par défaut.
   const FOOT_MAIN = new Set(['soccer_france_ligue_one', 'soccer_epl', 'soccer_spain_la_liga', 'soccer_italy_serie_a', 'soccer_germany_bundesliga',
     'soccer_uefa_champs_league', 'soccer_uefa_europa_league', 'soccer_uefa_europa_conference_league',
+    'soccer_uefa_nations_league', 'soccer_fifa_world_cup_qualifiers_europe', 'soccer_fifa_world_cup_qualifiers_south_america', 'soccer_uefa_euro_qualification',
     'soccer_france_ligue_two', 'soccer_efl_champ', 'soccer_netherlands_eredivisie', 'soccer_portugal_primeira_liga']);
   const BASKET_MAIN = new Set(['basketball_nba', 'basketball_euroleague']);
   const groupOfSport = (s) => (s.group === 'Soccer' ? 'football' : s.group === 'Basketball' ? 'basket' : s.group === 'Tennis' ? 'tennis' : s.group === 'Ice Hockey' ? 'hockey' : null);
@@ -122,6 +123,9 @@ onmessage = (e) => {
             m.opts = [{ label: `Double chance ${m.home} ou nul`, type: 'dc1X', p: ph + pd }, { label: `Double chance nul ou ${m.away}`, type: 'dcX2', p: pd + pa },
               { label: 'Plus de 1,5 buts', type: 'over', point: 1.5, p: probs[2] }, { label: 'Moins de 3,5 buts', type: 'under', point: 3.5, p: probs[3] },
               { label: `${m.home} gagne`, type: 'home', p: ph, market: 'h2h' }, { label: `${m.away} gagne`, type: 'away', p: pa, market: 'h2h' }];
+          } else if (FOOT_MAIN.has(x.key)) {
+            // grande compétition sans statistiques gratuites (sélections nationales, coupes d'Europe) : marché liquide et fiable, analysée sur les cotes
+            P.stats = 8; P.interet = 12; P.potentiel = 10; P.fiabilite = 10; P.stabilite = 10; m.note = 'compétition majeure : analyse basée sur les cotes du marché';
           } else { P.stats = 0; P.interet = 5; P.potentiel = 3; P.fiabilite = 5; P.stabilite = 5; m.note = 'pas de statistiques gratuites pour cette compétition'; }
           P.competition = FOOT_MAIN.has(x.key) ? 10 : rows ? 8 : 4;
         } else if (x.group === 'tennis') {
@@ -130,7 +134,8 @@ onmessage = (e) => {
           const ctx = tennisContext(x.key, titles[x.key] || '');
           if (a && b) {
             P.stats = 25 * Math.min(1, Math.min(a.n, b.n) / 30);
-            const pA = 1 / (1 + Math.pow(10, (b.elo - a.elo) / 400));
+            const ra2 = (pl) => pl.ta?.elo || pl.elo;
+            const pA = 1 / (1 + Math.pow(10, (ra2(b) - ra2(a)) / 400));
             const maxP = Math.max(pA, 1 - pA);
             P.interet = 20 * Math.max(0, Math.min(1, (maxP - 0.55) / 0.3));
             P.potentiel = 15 * Math.max(0, Math.min(1, (maxP - 0.55) / 0.25));
@@ -547,28 +552,106 @@ onmessage = (e) => {
       const a = findPlayer(T, ctx.tour, E.home), b = findPlayer(T, ctx.tour, E.away);
       if (a && b) {
         const sk = { 'terre battue': 'clay', gazon: 'grass', 'dur indoor': 'hard_indoor', 'dur outdoor': 'hard' }[ctx.surface];
-        const r = (pl) => { const s = pl.surf?.[sk]; return s && s[1] >= 5 ? (pl.elo + s[0]) / 2 : pl.elo; };
+        // Elo Tennis Abstract (surface) quand il existe, sinon Elo SportPredict (moyenne global + surface)
+        const taSk = sk === 'hard_indoor' ? 'hard' : sk;
+        const r = (pl) => { if (pl.ta?.[taSk] || pl.ta?.elo) return pl.ta[taSk] || pl.ta.elo; const s = pl.surf?.[sk]; return s && s[1] >= 5 ? (pl.elo + s[0]) / 2 : pl.elo; };
+        const bothTA = !!(a.ta && b.ta);
         pEloA = 1 / (1 + Math.pow(10, (r(b) - r(a)) / 400));
         const bt = T.tours[ctx.tour].backtest;
         // sans backtest contre le marché (source ESPN sans cotes), l'Elo ne modifie pas la probabilité : il sert à détecter les divergences
-        wT = bt.n >= 300 ? bt.wMarket : 1;
+        // Elo Tennis Abstract validé sur des dizaines de milliers de matchs : 20 % de poids face au marché ; sinon il sert à repérer les écarts
+        wT = bt.n >= 300 ? bt.wMarket : bothTA ? 0.8 : 1;
         pFinal = wT * sA.fairMkt + (1 - wT) * pEloA;
         dq = Math.min(a.n, b.n) >= 20 ? 0.65 : 0.45;
         nHistT = Math.min(a.n, b.n);
         calib = bt.n >= 300 ? Math.max(0, (Math.log(2) - bt.blendLogLoss) / 0.15) : null;
-        eloNote = `Elo ${ctx.tour} global+${ctx.surface} (${T.source || 'tennis'}) : ${a.name} ${r(a).toFixed(0)} (${a.n} matchs) vs ${b.name} ${r(b).toFixed(0)} (${b.n}) · poids marché ${wT}${bt.n >= 300 ? ` (backtest ${bt.n} matchs)` : ' (Elo non validé contre le marché : sert seulement à repérer les divergences)'}`;
+        eloNote = `Elo ${ctx.tour} global+${ctx.surface} (${T.source || 'tennis'}) : ${a.name} ${r(a).toFixed(0)} (${a.n} matchs) vs ${b.name} ${r(b).toFixed(0)} (${b.n}) · poids marché ${wT}${bt.n >= 300 ? ` (backtest ${bt.n} matchs)` : bothTA ? ' (Elo Tennis Abstract, 20 % du poids face au marché)' : ' (Elo non validé contre le marché : sert seulement à repérer les divergences)'}`;
       } else eloNote = `joueur(s) introuvable(s) dans les données Elo (${a ? '' : E.home}${!a && !b ? ', ' : ''}${b ? '' : E.away})`;
     }
-    const sv = SP.tennisSolveServe(pFinal, ctx.base, ctx.bestOf);
+    // niveau de service réel des deux joueurs (52 semaines) : règle le nombre de jeux attendu (totaux, handicaps)
+    let base = ctx.base, card = null;
+    const sk = { 'terre battue': 'clay', gazon: 'grass', 'dur indoor': 'hard_indoor', 'dur outdoor': 'hard' }[ctx.surface];
+    if (T?.tours?.[ctx.tour]) {
+      const a = findPlayer(T, ctx.tour, E.home), b = findPlayer(T, ctx.tour, E.away), avg = T.tours[ctx.tour].avg;
+      if (a?.sv && b?.sv && avg) {
+        const pa0 = a.sv.spw - (b.sv.rpw - avg.rpw), pb0 = b.sv.spw - (a.sv.rpw - avg.rpw);
+        base = Math.min(0.75, Math.max(0.5, ctx.base + ((pa0 + pb0) / 2 - avg.spw)));
+      }
+      const pc = (pl) => (pl ? { name: pl.full || pl.name, elo: pl.ta ? pl.ta[sk === 'hard_indoor' ? 'hard' : sk] || pl.ta.elo : pl.elo, eloRank: pl.ta?.rank ?? null, n: pl.n,
+        spw: pl.sv?.spw ?? null, rpw: pl.sv?.rpw ?? null, rec: pl.sv ? [pl.sv.w, pl.sv.m] : null, recSurf: pl.sv?.surf?.[sk] || null } : null);
+      card = { tennis: true, surface: ctx.surface, a: pc(a), b: pc(b), avg };
+    }
+    const sv = SP.tennisSolveServe(pFinal, base, ctx.bestOf);
     const sigmaD = Math.max(0.004, (sA.fairSd || 0.01) / 9);
     const out = {
       ctx, pEloA, models: [{ name: 'Marché (marge retirée)', pA: sA.fairMkt }, ...(pEloA != null ? [{ name: 'Elo surface', pA: pEloA }, { name: `Final (marché ${wT})`, pA: pFinal }] : []), { name: `Service implicite (${ctx.tour}, ${ctx.surface}, BO${ctx.bestOf})`, serveA: sv.pa, serveB: sv.pb }],
       statsNote: eloNote || 'modèle dérivé du marché : données Elo tennis indisponibles (version hors ligne)',
       simSpec: { kind: 'tennis', pa: sv.pa, pb: sv.pb, sigmaD, bestOf: ctx.bestOf },
-      dataQuality: dq, calib, nHist: nHistT,
+      dataQuality: dq, calib, nHist: nHistT, card,
     };
     out.phase1 = null; // phase 1 tennis : simulation rapide
     return out;
+  }
+
+
+  // ------------------------------------------------------------ FotMob : fiche de match concrète
+  const ymd = (t) => new Date(t).toISOString().slice(0, 10).replace(/-/g, '');
+  async function attachFotmob(evs, A) {
+    if (!evs.length) return;
+    const days = [...new Set(evs.flatMap((E) => [ymd(E.t), ymd(E.t - 6 * 3600e3), ymd(E.t + 6 * 3600e3)]))];
+    const list = [];
+    for (const d of days) {
+      try {
+        const j = await D.fotmobDay(d);
+        for (const l of j.leagues || []) for (const m of l.matches || []) list.push({ id: m.id, home: m.home?.name, away: m.away?.name, t: Date.parse(m.status?.utcTime || '') || m.timeTS, league: l.name });
+      } catch { /* jour indisponible */ }
+    }
+    if (!list.length) { A.errors.push('FotMob indisponible : fiche de match sans compositions ni absents'); return; }
+    const pairs = [];
+    for (const E of evs) {
+      const near = list.filter((m) => Math.abs(m.t - E.t) < 3 * 3600e3);
+      let best = null, bs = 0;
+      for (const m of near) {
+        const s = Math.min(D.bestMatch(E.home, [m.home]).score, D.bestMatch(E.away, [m.away]).score);
+        if (s > bs) { bs = s; best = m; }
+      }
+      if (best && bs >= 0.5) pairs.push([E, best]);
+    }
+    // les matchs les plus intéressants d'abord (au plus 30 fiches, 6 en parallèle)
+    for (let i = 0; i < Math.min(pairs.length, 30); i += 6) {
+      await Promise.all(pairs.slice(i, i + 6).map(async ([E, m]) => {
+        try { E.fm = fotmobCard(await D.fotmobDetails(m.id), E, m); } catch { /* fiche indisponible pour ce match */ }
+      }));
+    }
+    A.sources.fotmob = { matched: pairs.length, cards: evs.filter((E) => E.fm).length, at: Date.now() };
+  }
+  function fotmobCard(j, E, m) {
+    const c = j.content || {}, mf = c.matchFacts || {}, lu = c.lineup || {};
+    const side = (t) => {
+      if (!t) return null;
+      const un = (t.unavailable || []).map((p) => ({ name: p.name, type: p.unavailability?.type === 'suspension' ? 'suspendu' : p.unavailability?.type === 'injury' ? 'blessé' : (p.unavailability?.type || 'absent'), ret: p.unavailability?.expectedReturn || null, value: p.marketValue || 0 }))
+        .sort((x, y) => y.value - x.value);
+      const startV = t.totalStarterMarketValue || (t.starters || []).reduce((s, p) => s + (p.marketValue || 0), 0);
+      const missV = un.reduce((s, p) => s + p.value, 0);
+      return { formation: t.formation || null, value: startV || null, unavailable: un.slice(0, 8), nUnavailable: un.length, missShare: startV ? missV / (startV + missV) : null, coach: t.coach?.name || null };
+    };
+    const form = (arr) => (arr || []).slice().sort((x, y) => Date.parse(x.date?.utcTime || 0) - Date.parse(y.date?.utcTime || 0))
+      .map((x) => ({ W: 'V', D: 'N', L: 'D' }[x.resultString] || '?')).join('');
+    const teams = j.header?.teams || [];
+    const hid = teams[0]?.id, aid = teams[1]?.id;
+    const ins = (mf.insights || []).map((x) => ({ side: x.teamId === hid ? 'home' : x.teamId === aid ? 'away' : null, text: x.text })).filter((x) => x.text).slice(0, 6);
+    const w = c.weather || null, ib = mf.infoBox || {};
+    return {
+      id: m.id, lineupType: lu.lineupType === 'standard' || lu.lineupType === 'confirmed' ? 'officielle' : lu.lineupType ? 'probable' : null,
+      home: side(lu.homeTeam), away: side(lu.awayTeam),
+      form: { home: form(mf.teamForm?.[0]), away: form(mf.teamForm?.[1]) },
+      h2h: c.h2h?.summary ? { home: c.h2h.summary[0], draw: c.h2h.summary[1], away: c.h2h.summary[2], last: (c.h2h.matches || []).slice(0, 3).map((x) => `${x.home?.name} ${x.status?.scoreStr || ''} ${x.away?.name}`.replace(/\s+/g, ' ').trim()) } : null,
+      insights: ins,
+      weather: w ? { temp: w.temperature, rain: w.precipChance, wind: w.windSpeed, desc: w.description } : null,
+      referee: ib.Referee?.text || null, stadium: ib.Stadium ? `${ib.Stadium.name}${ib.Stadium.city ? ', ' + ib.Stadium.city : ''}` : null,
+      fifaRank: teams[0]?.fifaRank ? [teams[0].fifaRank, teams[1]?.fifaRank] : null,
+      topScorers: [mf.topScorers?.homePlayer, mf.topScorers?.awayPlayer].map((p) => (p ? { name: p.fullName, goals: p.stats?.goals, xg: p.stats?.expectedGoals } : null)),
+    };
   }
 
   // ------------------------------------------------------------ validation
@@ -948,6 +1031,8 @@ onmessage = (e) => {
       }
     }
     A.counts.scored = scored.length;
+    // fiche de match : FotMob (compositions, absents, forme, confrontations, tendances, météo, arbitre)
+    try { await attachFotmob(events.filter((E) => E.sport === 'football' && !E.skip), A); } catch (e) { A.errors.push('FotMob : ' + String(e).slice(0, 120)); }
     // pronostics : pour chaque match, la lecture du moteur, même sans value
     for (const E of events) {
       if (E.skip) continue;
@@ -1095,7 +1180,9 @@ onmessage = (e) => {
       const BASIC = new Set(['dc1X', 'dcX2', 'dc12', 'over', 'under', 'bttsYes', 'bttsNo']);
       const surelyOffered = (k) => k.src === 'api' || (k.E.sport === 'football' && (BASIC.has(k.type) || ((k.type === 'ahHome' || k.type === 'ahAway') && k.point === 0)));
       const tier = (k) => (k.src === 'api' ? 0 : surelyOffered(k) ? 1 : 2);
-      const pickBy = (cat, maxTier) => allOk.filter((k) => k.cat === cat && tier(k) <= maxTier).sort((x, y) => tier(x) - tier(y) || order(x, y))[0];
+      // pronostic du jour : pas de cote dérisoire (sous 1,30, le gain ne compense pas le risque d'une seule défaite)
+      const minDaily = C.dailyMinOdds || 1.3;
+      const pickBy = (cat, maxTier) => allOk.filter((k) => k.cat === cat && tier(k) <= maxTier && (k.odds ?? k.minOdds) >= minDaily).sort((x, y) => tier(x) - tier(y) || order(x, y))[0];
       // ordre : prioritaire disponible > alternatif avec vraie cote Winamax > prioritaire calculé incertain > alternatif calculé
       let prio = pickBy('prioritaire', 1), alt = null;
       if (!prio) alt = pickBy('alternatif', 0);
@@ -1105,7 +1192,7 @@ onmessage = (e) => {
       // a été exploré (probabilité d'abord, en écartant les cotes négligeables), étiquetée clairement.
       const fbScore = (x) => x.p * (x.src === 'api' ? 1 : 0.97) + Math.min(0.05, Math.max(-0.05, x.ev ?? 0));
       // priorité aux paris dont la cote Winamax est réellement relevée (donc forcément proposés par Winamax)
-      const fbPool = allCands.filter((x) => (x.odds ?? x.minOdds) >= 1.15).filter((x) => tier(x) <= 1).sort((x, y) => tier(x) - tier(y) || fbScore(y) - fbScore(x));
+      const fbPool = allCands.filter((x) => (x.odds ?? x.minOdds) >= 1.25).filter((x) => tier(x) <= 1).sort((x, y) => tier(x) - tier(y) || fbScore(y) - fbScore(x));
       const fallback = !prio && !alt ? fbPool[0] : null;
       if (fallback) {
         const seen = new Set([fallback.E.id]);
@@ -1160,7 +1247,7 @@ onmessage = (e) => {
         const opinion = analystOpinion(E, pick, kind, k.c || null);
         const rel = k.rel || SP.reliability({ dataQuality: E.model.dataQuality, dataNote: E.model.statsNote, nHist: E.model.nHist, calib: E.model.calib, mcSpread: 0.05, paramSd: k.uncert });
         A.daily = { status, verdict, opinion, level: status, kind, eventId: E.id, sport: E.sport, sportKey: E.sportKey, comp: E.comp, match: `${E.home} – ${E.away}`, home: E.home, away: E.away, t: E.t, day: E.day,
-          quality: k.q || null, reliability: rel, uncert: k.uncert, uncParts: k.uncParts || null, edge: k.edge ?? null, oddsAt: k.oddsAt ?? null, confidence: k.conf, headline: f.headline, pick, why, warnings: E.warnings, dataNote: f.dataNote };
+          quality: k.q || null, reliability: rel, uncert: k.uncert, uncParts: k.uncParts || null, edge: k.edge ?? null, oddsAt: k.oddsAt ?? null, confidence: k.conf, headline: f.headline, pick, why, warnings: E.warnings, dataNote: f.dataNote, card: f.card || null };
       } else if (!A.daily) { A.daily = null; A.dailyVerdict = 'Aucune sélection suffisamment fiable'; }
     }
     A.events = events.map(slimEvent);
@@ -1267,6 +1354,23 @@ onmessage = (e) => {
       (g <= 0.05 ? out.pour : out.contre).push(`Modèles statistiques et marché ${g <= 0.05 ? 'd’accord' : 'pas tout à fait d’accord'} sur le rapport de force (${Math.round(E.model.st.p1x2[0] * 100)} % contre ${Math.round(E.model.models[0].p1x2[0] * 100)} % pour la victoire à domicile).`);
     } else if (c?.pStats != null && c?.pMkt != null) (Math.abs(c.pStats - c.pMkt) <= 0.05 ? out.pour : out.contre).push(`Modèles statistiques (${Math.round(c.pStats * 100)} %) et marché (${Math.round(c.pMkt * 100)} %) ${Math.abs(c.pStats - c.pMkt) <= 0.05 ? 'sont d’accord' : 'ne sont pas tout à fait d’accord'}.`);
     else out.contre.push('Aucun modèle statistique indépendant pour confirmer : l’estimation repose surtout sur le marché.');
+    const fm = E.fm;
+    if (fm) {
+      for (const [s, nm] of [['home', E.home], ['away', E.away]]) {
+        const t = fm[s];
+        if (t?.missShare >= 0.2) out.contre.push(`${nm} privé de ${t.nUnavailable} joueur(s) (${t.unavailable.slice(0, 2).map((p) => `${p.name}, ${p.type}`).join(' ; ')}) : environ ${Math.round(t.missShare * 100)} % de la valeur de l'équipe.`);
+      }
+      if (fm.lineupType !== 'officielle') out.contre.push('Compositions encore probables : vérifiez les compositions officielles environ 1 h avant le match.');
+      else out.pour.push('Compositions officielles prises en compte.');
+      if (fm.h2h && fm.h2h.home + fm.h2h.draw + fm.h2h.away >= 3) out.pour.push(`Confrontations directes : ${fm.h2h.home} victoire(s) ${E.home}, ${fm.h2h.draw} nul(s), ${fm.h2h.away} victoire(s) ${E.away}.`);
+      if (fm.weather?.rain >= 60 || fm.weather?.wind >= 40) out.contre.push(`Météo défavorable annoncée (pluie ${fm.weather.rain} %, vent ${fm.weather.wind} km/h) : souvent moins de buts.`);
+    }
+    const tc = E.model?.card;
+    if (tc?.a && tc?.b) {
+      const fav = pick.label.includes(tc.a.name?.split(' ').pop() || '§') ? tc.a : pick.label.includes(tc.b.name?.split(' ').pop() || '§') ? tc.b : null;
+      if (tc.a.spw && tc.b.spw) out.pour.push(`Service sur 12 mois : ${tc.a.name} ${Math.round(tc.a.spw * 100)} % de points gagnés, ${tc.b.name} ${Math.round(tc.b.spw * 100)} % (moyenne du circuit ${Math.round(tc.avg.spw * 100)} %).`);
+      if (fav?.rec) out.pour.push(`${fav.name} : ${fav.rec[0]} victoires sur ${fav.rec[1]} matchs en 12 mois${fav.recSurf ? `, ${fav.recSurf[1]}/${fav.recSurf[0]} sur ${tc.surface}` : ''}.`);
+    }
     if (f.form?.home && f.form?.away) {
       const w = (s) => (s.match(/V/g) || []).length;
       const [h, a] = [f.form.home.seq, f.form.away.seq];
@@ -1389,6 +1493,22 @@ onmessage = (e) => {
     const gap = cands.find((x) => x === c)?.modelGap;
     f.confidence = c ? (c.conf || confOf(E, c.p, gap, c.uncert)) : 'faible';
     f.dataNote = E.model.statsNote;
+    f.card = E.fm || E.model.card || null;
+    if (E.sport === 'football') {
+      const IE = localFootball && D.localCache()?.intl?.elo;
+      if (IE && D.FOOTBALL[E.sportKey]?.intl) {
+        const names = Object.keys(IE), h = D.bestMatch(E.home, names), aw = D.bestMatch(E.away, names);
+        if (h.name && aw.name) f.card = { ...(f.card || {}), elo: { home: IE[h.name], away: IE[aw.name] } };
+      }
+      const fm = E.fm;
+      if (fm) {
+        for (const [s, nm] of [['home', E.home], ['away', E.away]]) {
+          const t = fm[s];
+          if (t?.missShare >= 0.2 && t.unavailable.length) f.facts.push(`${nm} : ${t.nUnavailable} absent(s) dont ${t.unavailable.slice(0, 3).map((p) => p.name).join(', ')} (≈ ${Math.round(t.missShare * 100)} % de la valeur de l’équipe)`);
+        }
+        if (fm.lineupType === 'officielle') f.facts.push('Compositions officielles publiées.');
+      }
+    }
     // raison pour laquelle ce pronostic ne peut pas devenir le pronostic du jour (affichée dans la liste)
     if (c) f.excluded = gap != null && gap > 0.12 ? 'désaccord important entre modèles et marché'
       : c.ev < -0.08 ? 'cote Winamax trop basse par rapport à la vraie valeur'

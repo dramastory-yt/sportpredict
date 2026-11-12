@@ -71,6 +71,11 @@ const SPData = (() => {
     soccer_germany_bundesliga: { espn: 'ger.1', name: 'Bundesliga', stats: true, on: true },
     soccer_uefa_champs_league: { espn: 'uefa.champions', name: 'Ligue des champions', stats: false, on: true },
     soccer_uefa_europa_league: { espn: 'uefa.europa', name: 'Europa League', stats: false, on: true },
+    soccer_uefa_nations_league: { espn: 'uefa.nations', name: 'Ligue des nations', stats: true, on: true, intl: true },
+    soccer_fifa_world_cup_qualifiers_europe: { espn: 'fifa.worldq.uefa', name: 'Qualifications Coupe du monde (Europe)', stats: true, on: true, intl: true },
+    soccer_fifa_world_cup_qualifiers_south_america: { espn: 'fifa.worldq.conmebol', name: 'Qualifications Coupe du monde (Amérique du Sud)', stats: true, on: true, intl: true },
+    soccer_uefa_euro_qualification: { espn: 'uefa.euroq', name: 'Qualifications Euro', stats: true, on: true, intl: true },
+    soccer_international_friendlies: { espn: 'fifa.friendly', name: 'Matchs amicaux internationaux', stats: true, on: false, intl: true },
     soccer_uefa_europa_conference_league: { espn: 'uefa.europa.conf', name: 'Conference League', stats: false, on: false },
     soccer_france_ligue_two: { espn: 'fra.2', name: 'Ligue 2', stats: true, on: false },
     soccer_efl_champ: { espn: 'eng.2', name: 'Championship', stats: true, on: false },
@@ -206,17 +211,45 @@ const SPData = (() => {
     if (local) return local;
     local = {};
     if (location.protocol === 'file:') { setStatus('Données quotidiennes', false, 'indisponibles en fichier local (ouvrez la version en ligne)'); return local; }
-    for (const f of ['meta', 'football', 'xg', 'clubelo', 'tennis', 'nba', 'nhl', 'scorers', 'backtest', 'sgodds']) {
+    for (const f of ['meta', 'football', 'xg', 'clubelo', 'tennis', 'nba', 'nhl', 'scorers', 'backtest', 'sgodds', 'intl']) {
       try {
         const r = await fetch(`./data/${f}.json`, { cache: 'no-cache' });
         if (r.ok) local[f] = await r.json();
       } catch { /* fichier local ouvert hors GitHub Pages : données indisponibles */ }
+    }
+    // sélections nationales : mêmes colonnes que football-data, partagées par toutes les compétitions internationales
+    if (local.intl?.rows?.length) {
+      local.football = local.football || { leagues: {} };
+      local.football.leagues = local.football.leagues || {};
+      for (const k of local.intl.keys || []) local.football.leagues[k] = local.intl.rows;
     }
     const m = local.meta;
     if (m) setStatus('Données quotidiennes', true, `générées ${m.generatedAt}`, { at: Date.parse(m.generatedAt) });
     else setStatus('Données quotidiennes', false, 'indisponibles (ouvrez la version en ligne)');
     return local;
   }
+
+
+  // ------------------------------------------------------------------ FotMob (accès direct autorisé depuis le navigateur)
+  // compositions probables puis officielles, absents (blessés, suspendus) avec valeur marchande, forme, confrontations,
+  // tendances, météo, arbitre. Données en mémoire seulement (pas de stockage sur le téléphone).
+  const FM = 'https://www.fotmob.com/api/data';
+  const fmMem = new Map();
+  async function fmGet(url, ttlMin = 20) {
+    const c = fmMem.get(url);
+    if (c && Date.now() - c.at < ttlMin * 60e3) return c.data;
+    const ctl = new AbortController(); const to = setTimeout(() => ctl.abort(), 12000);
+    try {
+      const r = await fetch(url, { signal: ctl.signal });
+      if (!r.ok) throw new Error('HTTP ' + r.status);
+      const data = await r.json();
+      fmMem.set(url, { at: Date.now(), data });
+      setStatus('FotMob', true, 'compositions, absents, forme');
+      return data;
+    } finally { clearTimeout(to); }
+  }
+  const fotmobDay = (ymd) => fmGet(`${FM}/matches?date=${ymd}`, 30);
+  const fotmobDetails = (id) => fmGet(`${FM}/matchDetails?matchId=${id}`, 15);
 
   // ------------------------------------------------------------------ appariement des noms
   const STOP = new Set(['fc', 'cf', 'afc', 'sc', 'ac', 'as', 'ssc', 'us', 'rc', 'cd', 'ud', 'sd', 'club', 'de', 'the', 'calcio', 'fk', 'sv', 'vfb', 'vfl', 'tsg', 'bv', 'sl', 'ogc', 'losc', 'stade', 'rcd', 'ca', 'sco', 'hsc', 'aj', 'if', '1', '04', '05', '1899', '1846', '1907', '1913', 'and', 'hove']);
@@ -303,6 +336,6 @@ Règles :
     LS, log, apiStatus, setStatus, meta, purgeCache, FOOTBALL,
     oddsSports, oddsFor, oddsEvent, oddsScores, oddsEventsList,
     espnResults, espnScoreboard, espnSummary, espnNews, nbaInjuries,
-    norm, sim, bestMatch, claudeAnalyze, localData, localCache: () => local,
+    norm, sim, bestMatch, claudeAnalyze, localData, localCache: () => local, fotmobDay, fotmobDetails,
   };
 })();
