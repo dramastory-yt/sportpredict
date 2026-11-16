@@ -215,6 +215,7 @@
       <p class="headline"><b>${esc(d.verdict || '')}</b>${d.status === 'alternatif' ? ' <span class="tag t-warn">non recommandé automatiquement à la mise</span>' : d.status === 'meilleur disponible' ? ' <span class="tag t-warn">aucun pari très fiable aujourd’hui : c’est le plus solide trouvé</span>' : ''}</p>
       <header><div><span class="sport s-${d.sport}">${SPORT[d.sport]}</span> <span class="muted">${esc(d.comp)}</span></div><div class="when">${dt(d.t)}</div></header>
       <h3>${esc(d.match)}</h3>
+      ${A.dailyNotToday ? '<p class="notice"><small>Aucun match exploitable aujourd’hui (déjà commencés ou sans cote Winamax) : pronostic pour demain.</small></p>' : ''}
       <div class="sel"><span class="mk">${MKT[pk.market] || 'marché calculé'}</span><b>${esc(pk.label)}</b> ${kindTag} ${confTag(d.confidence)}${pk.nearThreshold ? ' <span class="tag t-warn">proche du seuil</span>' : ''}</div>
       <div class="kpis">
         ${pk.odds == null ? `<div><small>Cote Winamax</small><b class="odds">≥ ${num(minOk)}</b><span>non fournie par l’API : à vérifier</span></div>` : `<div><small>Cote ${esc(pk.book)}</small><b class="odds">${num(pk.odds)}</b><span>relevée ${d.oddsAt ? ago(d.oddsAt) : '—'}</span></div>`}
