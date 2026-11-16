@@ -218,7 +218,7 @@
       ${A.dailyNotToday ? '<p class="notice"><small>Aucun match exploitable aujourd’hui (déjà commencés ou sans cote Winamax) : pronostic pour demain.</small></p>' : ''}
       <div class="sel"><span class="mk">${MKT[pk.market] || 'marché calculé'}</span><b>${esc(pk.label)}</b> ${kindTag} ${confTag(d.confidence)}${pk.nearThreshold ? ' <span class="tag t-warn">proche du seuil</span>' : ''}</div>
       <div class="kpis">
-        ${pk.odds == null ? `<div><small>Cote Winamax</small><b class="odds">≥ ${num(minOk)}</b><span>non fournie par l’API : à vérifier</span></div>` : `<div><small>Cote ${esc(pk.book)}</small><b class="odds">${num(pk.odds)}</b><span>relevée ${d.oddsAt ? ago(d.oddsAt) : '—'}</span></div>`}
+        ${pk.odds == null ? `<div><small>Cote minimale à trouver</small><b class="odds">${num(minOk)}</b><span>cote Winamax non fournie${pk.estOdds ? ` (estimée ≈ ${num(pk.estOdds)})` : ''} : si Winamax affiche moins, ne pariez pas</span></div>` : `<div><small>Cote ${esc(pk.book)}</small><b class="odds">${num(pk.odds)}</b><span>relevée ${d.oddsAt ? ago(d.oddsAt) : '—'}</span></div>`}
         <div><small>Probabilité estimée</small><b>${pct(pk.p)}</b><span>intervalle ${pct(lo)} – ${pct(hi)}</span></div>
         <div><small>Cote juste</small><b>${num((1 - (pk.pPush || 0)) / pk.p)}</b><span>minimum acceptable ${num(minOk)}</span></div>
         <div><small>EV</small><b class="${pk.ev > 0 ? 'pos' : 'neg'}">${pk.odds == null ? '—' : sgn(pk.ev)}</b><span>edge vs marché sans marge ${d.edge != null ? sgn(d.edge) : '—'}</span></div>

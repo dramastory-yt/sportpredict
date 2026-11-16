@@ -1184,23 +1184,31 @@ onmessage = (e) => {
       const minDaily = C.dailyMinOdds || 1.3;
       // le pronostic du jour est choisi d'abord parmi les matchs du jour même (heure de Paris) ; le lendemain seulement s'il n'y a rien aujourd'hui
       let dayOk = (k) => k.E.day === 'aujourd’hui';
-      const pickBy = (cat, maxTier) => allOk.filter((k) => dayOk(k) && k.cat === cat && tier(k) <= maxTier && (k.odds ?? k.minOdds) >= minDaily).sort((x, y) => tier(x) - tier(y) || order(x, y))[0];
+      // marché calculé (cote non fournie par l'API) : la cote Winamax réelle est en général la cote juste moins ~7 % de marge.
+      // On exige que CETTE estimation atteigne le minimum, sinon le pari ne sera presque jamais jouable sur Winamax.
+      const estOdds = (k) => (k.odds != null ? k.odds : k.fair ? Math.round(k.fair * 0.93 * 100) / 100 : null);
+      for (const k of allCands) if (k.odds == null) k.estOdds = estOdds(k);
+      const playable = (k) => (k.odds != null ? k.odds >= minDaily : (k.estOdds ?? 0) >= minDaily);
+      const pickBy = (cat, maxTier) => allOk.filter((k) => dayOk(k) && k.cat === cat && tier(k) <= maxTier && playable(k)).sort((x, y) => tier(x) - tier(y) || order(x, y))[0];
       // ordre : prioritaire disponible > alternatif avec vraie cote Winamax > prioritaire calculé incertain > alternatif calculé
       const chain = () => {
-        let p0 = pickBy('prioritaire', 1), a0 = null;
+        // toujours d'abord un pari dont la cote Winamax est réellement relevée
+        let p0 = pickBy('prioritaire', 0), a0 = null;
         if (!p0) a0 = pickBy('alternatif', 0);
+        if (!p0 && !a0) p0 = pickBy('prioritaire', 1);
+        if (!p0 && !a0) a0 = pickBy('alternatif', 1);
         if (!p0 && !a0) p0 = pickBy('prioritaire', 2);
         if (!p0 && !a0) a0 = pickBy('alternatif', 2);
         return [p0, a0];
       };
       let [prio, alt] = chain();
-      const todayPool = allCands.filter((x) => dayOk(x) && (x.odds ?? x.minOdds) >= 1.25 && tier(x) <= 1);
+      const todayPool = allCands.filter((x) => dayOk(x) && (x.odds ?? x.estOdds ?? 0) >= 1.25 && tier(x) <= 1);
       if (!prio && !alt && !todayPool.length) { dayOk = () => true; [prio, alt] = chain(); A.dailyNotToday = true; }
       // dernier recours : l'utilisateur veut toujours un pari. On prend la sélection la plus sûre parmi tout ce qui
       // a été exploré (probabilité d'abord, en écartant les cotes négligeables), étiquetée clairement.
       const fbScore = (x) => x.p * (x.src === 'api' ? 1 : 0.97) + Math.min(0.05, Math.max(-0.05, x.ev ?? 0));
       // priorité aux paris dont la cote Winamax est réellement relevée (donc forcément proposés par Winamax)
-      const fbPool = allCands.filter((x) => dayOk(x) && (x.odds ?? x.minOdds) >= 1.25).filter((x) => tier(x) <= 1).sort((x, y) => tier(x) - tier(y) || fbScore(y) - fbScore(x));
+      const fbPool = allCands.filter((x) => dayOk(x) && (x.odds ?? x.estOdds ?? 0) >= 1.25).filter((x) => tier(x) <= 1).sort((x, y) => tier(x) - tier(y) || fbScore(y) - fbScore(x));
       const fallback = !prio && !alt ? fbPool[0] : null;
       if (fallback) {
         const seen = new Set([fallback.E.id]);
@@ -1244,7 +1252,7 @@ onmessage = (e) => {
           : (k.p >= 0.78 && k.src === 'api' && (k.ev ?? 0) < C.minEV) ? 'Probabilité élevée mais value insuffisante'
           : (k.src === 'api' && k.ev >= C.minEV) ? 'Value intéressante mais risque important' : 'Mise réduite conseillée';
         const kind = k.toVerify ? 'sûr-verif' : (k.src === 'api' && k.ev >= C.minEV && k.valueOk ? 'value' : 'sûr');
-        const pick = { label: k.label, type: k.type, point: k.point, market: k.market, odds: k.odds, book: k.book || 'Winamax', p: k.p, pPush: k.pPush, ev: k.ev, value: !!k.valueOk, uncert: k.uncert, minOdds: k.minOdds, fair: k.fair ?? (1 - (k.pPush || 0)) / k.p, reliable: SP.isStrong(k.conf), toVerify: !!k.toVerify, level: status };
+        const pick = { label: k.label, type: k.type, point: k.point, market: k.market, odds: k.odds, book: k.book || 'Winamax', p: k.p, pPush: k.pPush, ev: k.ev, value: !!k.valueOk, uncert: k.uncert, minOdds: k.minOdds, fair: k.fair ?? (1 - (k.pPush || 0)) / k.p, reliable: SP.isStrong(k.conf), toVerify: !!k.toVerify, level: status, estOdds: k.estOdds ?? null };
         const why = [];
         why.push(`${f.headline} : ${E.sport === 'football' ? `1 ${(f.probs.home * 100).toFixed(0)} % · N ${(f.probs.draw * 100).toFixed(0)} % · 2 ${(f.probs.away * 100).toFixed(0)} %` : `${E.home} ${(f.probs.home * 100).toFixed(0)} % · ${E.away} ${(f.probs.away * 100).toFixed(0)} %`}.`);
         if (E.sport === 'football') why.push(`Buts attendus ${f.expected.home.toFixed(2)} – ${f.expected.away.toFixed(2)}, score le plus probable ${f.score.h}-${f.score.a}.`);
