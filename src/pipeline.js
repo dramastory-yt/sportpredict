@@ -1204,6 +1204,15 @@ onmessage = (e) => {
       let [prio, alt] = chain();
       const todayPool = allCands.filter((x) => dayOk(x) && (x.odds ?? x.estOdds ?? 0) >= 1.25 && tier(x) <= 1);
       if (!prio && !alt && !todayPool.length) { dayOk = () => true; [prio, alt] = chain(); A.dailyNotToday = true; }
+      // pari le plus probable du jour (même à cote basse) : affiché à côté du pari principal pour que l'utilisateur choisisse en connaissance de cause
+      {
+        const pool = allCands.filter((x) => dayOk(x) && !x.anomaly && SP.CONF_RANK[x.conf] >= 3 && (x.odds ?? x.estOdds ?? 0) >= 1.05 && x.E.t > Date.now() + 15 * 60e3);
+        const s = pool.filter((x) => x.src === 'api').sort((x, y) => y.p - x.p)[0]; // seulement avec une vraie cote Winamax relevée
+        const hc = pool.filter((x) => x.src !== 'api').sort((x, y) => y.p - x.p)[0];
+        if (hc) A.dailyHighCalc = { match: `${hc.E.home} – ${hc.E.away}`, label: hc.label, p: hc.p, estOdds: hc.estOdds ?? null, minOdds: hc.minOdds ?? null };
+        if (s) A.dailySafest = { eventId: s.E.id, sport: s.E.sport, sportKey: s.E.sportKey, comp: s.E.comp, match: `${s.E.home} – ${s.E.away}`, home: s.E.home, away: s.E.away, t: s.E.t, label: s.label, type: s.type, point: s.point, market: s.market,
+          odds: s.odds, estOdds: s.estOdds ?? null, minOdds: s.minOdds ?? null, book: s.book || 'Winamax', p: s.p, pPush: s.pPush || 0, ev: s.ev ?? null, conf: s.conf, uncert: s.uncert, real: s.src === 'api' };
+      }
       // dernier recours : l'utilisateur veut toujours un pari. On prend la sélection la plus sûre parmi tout ce qui
       // a été exploré (probabilité d'abord, en écartant les cotes négligeables), étiquetée clairement.
       const fbScore = (x) => x.p * (x.src === 'api' ? 1 : 0.97) + Math.min(0.05, Math.max(-0.05, x.ev ?? 0));

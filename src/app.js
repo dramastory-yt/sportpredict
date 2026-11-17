@@ -190,6 +190,22 @@
       <div class="tw"><table class="t"><tbody>${L.map((s) => { const si = stakeInfo({ conf: s.conf, kind: 'sûr', p: s.p, odds: s.odds, pPush: s.pPush, uncert: s.uncert, verify: s.toVerify, eventId: s.eventId });
         return `<tr><td><b>${esc(s.match)}</b><br><small class="muted">${dt(s.t)} · ${esc(s.comp)}</small></td><td>${esc(s.label)}</td><td class="n">${s.odds != null ? num(s.odds) : `≥ ${num(minAcceptable(s.p, s.uncert, s.pPush))}`}</td><td class="n">${pct(s.p)}</td><td>${confTag(s.conf)}${s.toVerify ? ' <span class="tag t-warn">cote à vérifier</span>' : s.tier !== 1 ? ' <span class="tag t-na">sans avantage</span>' : ''}</td><td class="n">${num(si.stake)} €</td><td>${si.stake > 0 ? betBtn({ source: 'safe', ...s, conf: s.conf, suggested: si.stake }) : ''}</td></tr>`; }).join('')}</tbody></table></div></section>`;
   }
+
+  // pari le plus probable du jour, montré à côté du pari principal avec la raison de la différence
+  function safestBlock(A, d) {
+    const s = A.dailySafest;
+    const hc = A.dailyHighCalc;
+    const calcNote = hc && hc.p >= d.pick.p + 0.05 ? `<p class="muted"><small><b>Pourquoi pas les paris à ${pct(hc.p, 0)} de la liste</b> (ex. ${esc(hc.match)}, ${esc(hc.label)}) ? Winamax ne communique pas leur cote à l’appli, et elle est en général très basse (estimée ≈ ${num(hc.estOdds)}, alors qu’il faudrait au moins ${num(hc.minOdds)} pour qu’ils soient rentables). Ils sont donc à vérifier à la main et ne peuvent pas être le pari principal.</small></p>` : '';
+    if (!s || (s.eventId === d.eventId && s.label === d.pick.label) || s.p < d.pick.p + 0.04) return calcNote;
+    const o = s.odds ?? s.estOdds;
+    const need = o ? 1 / o : null; // probabilité nécessaire pour ne pas perdre d'argent à cette cote
+    const lossEats = o ? Math.max(1, Math.round(1 / (o - 1))) : null;
+    const si = stakeInfo({ conf: s.conf, kind: 'sûr', p: s.p, odds: s.odds, pPush: s.pPush, uncert: s.uncert, verify: s.odds == null, eventId: s.eventId });
+    return `<div class="advice"><b>Pari le plus probable du jour :</b> ${esc(s.match)} — ${esc(s.label)} ${s.odds != null ? `@ <b>${num(s.odds)}</b> (cote Winamax relevée)` : `(cote Winamax non fournie, estimée ≈ ${num(s.estOdds)} : jouer seulement si ≥ ${num(s.minOdds)})`} · <b>${pct(s.p)}</b> · confiance ${esc(s.conf)}
+      <br><small>Pourquoi ce n’est pas le pari principal : ${o ? `à ${num(o)}, il faut gagner ${pct(need, 0)} des fois rien que pour ne pas perdre d’argent, et une seule défaite efface environ ${lossEats} victoires. ` : ''}Le pari principal (${pct(d.pick.p)}) offre une cote d’au moins 1,30, plus rentable sur la durée. ${si.stake > 0 ? `Si vous préférez la sécurité, ce pari est une option, avec une mise de ${num(si.stake)} €.` : 'Je ne conseille pas de mise dessus : à cette cote, le gain ne compense pas le risque.'}</small>
+      ${calcNote}
+      ${si.stake > 0 ? betBtn({ source: 'safe', eventId: s.eventId, sport: s.sport, sportKey: s.sportKey, comp: s.comp, match: s.match, home: s.home, away: s.away, t: s.t, label: s.label, type: s.type, point: s.point, market: s.market, odds: s.odds, book: s.book, p: s.p, pPush: s.pPush, conf: s.conf, suggested: si.stake }) : ''}</div>`;
+  }
   function dailyCard(A) {
     const d = A.daily;
     if (!d && !A.counts?.analysed) {
@@ -237,6 +253,7 @@
       ${d.quality ? `<details><summary>Score de qualité : les 8 composantes</summary><div class="parts">${d.quality.parts.map((x) => `<div class="sp"><span>${esc(x.name)}</span><span class="bar"><i style="width:${x.pts / x.max * 100}%"></i></span><b>${x.pts.toFixed(0)}/${x.max}</b><small>${esc(x.why)}</small></div>`).join('')}</div></details>` : ''}
       <p class="muted"><small>Sources : ${esc(d.dataNote || '')} · cotes The Odds API.</small></p>
       ${si.stake > 0 ? betBtn({ source: 'daily', eventId: d.eventId, sport: d.sport, sportKey: d.sportKey, comp: d.comp, match: d.match, home: d.home, away: d.away, t: d.t, label: pk.label, type: pk.type, point: pk.point, market: pk.market, odds: pk.odds, book: pk.book, p: pk.p, value: pk.value, conf: d.confidence, suggested: si.stake }) : ''}
+      ${safestBlock(A, d)}
       ${d.status === 'meilleur disponible' && A.dailyBackups?.length ? `<h4>Si ce pari n’est pas proposé sur Winamax</h4><ul>${A.dailyBackups.map((x) => `<li><b>${esc(x.match)}</b> <small class="muted">${esc(x.comp)} · ${dt(x.t)}</small><br>${esc(x.label)} · ${x.odds != null ? '@ ' + num(x.odds) + ' (cote Winamax relevée)' : 'à jouer si cote ≥ ' + num(x.minOdds)} · ${pct(x.p)} · confiance ${esc(x.conf)}</li>`).join('')}</ul>` : ''}
       <p class="muted"><small>Vérifiez la cote sur Winamax avant de parier ; si elle est sous ${num(minOk)} ou si le match a commencé, abstenez-vous.</small></p>
     </section>`;

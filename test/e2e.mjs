@@ -181,6 +181,7 @@ if (await page.$('[data-bet]')) {
   await page.evaluate(() => { location.hash = '#bets'; }); await page.waitForTimeout(150);
   await page.click('.manual[data-bid] button[data-r="gagné"]'); await page.waitForTimeout(100);
   await page.evaluate(() => { location.hash = '#dashboard'; }); await page.waitForTimeout(150);
+  console.log('pari le plus probable :', (await page.evaluate(() => [...document.querySelectorAll('.daily .advice')].map((x) => x.textContent).find((t) => t.includes('plus probable du jour')) || (document.querySelector('.daily')?.textContent.match(/Pourquoi pas les paris[^]*?pari principal\./) || ['ABSENT'])[0])).replace(/\s+/g, ' ').slice(0, 500));
   console.log('mise conseillée après gain :', (await page.textContent('.daily .kpis')).replace(/\s+/g, ' '));
   await page.evaluate(() => { location.hash = '#bets'; }); await page.waitForTimeout(150);
   page.once('dialog', (dlg) => dlg.accept());
